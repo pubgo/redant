@@ -53,12 +53,7 @@ import (
 // --list-flags List all flags
 // --help,-h
 // --version,-v
-// --config-file,-c string, short, env:[$ABC]
 // --debug
-// --log-level string, short, env:[$ABC]
-// --environment string, short, env:[$ABC]
-// --env-file string, short, env:[$ABC]
-// --env-files string, short, env:[$ABC]
 
 // Parameter type description
 // TextArg is a single argument to a command. 'user is hello and age is 18'
@@ -280,37 +275,9 @@ func GlobalFlags() OptionSet {
 			Value:       BoolOf(new(bool)),
 		},
 		{
-			Flag:        "config-file",
-			Shorthand:   "c",
-			Description: "Path to the configuration file.",
-			Value:       StringOf(new(string)),
-		},
-		{
 			Flag:        "debug",
 			Description: "Enable debug mode.",
 			Value:       BoolOf(new(bool)),
-		},
-		{
-			Flag:        "log-level",
-			Description: "Set the logging level.",
-			Value:       StringOf(new(string)),
-			Default:     "info",
-		},
-		{
-			Flag:        "environment",
-			Shorthand:   "e",
-			Description: "Set the environment.",
-			Value:       StringOf(new(string)),
-		},
-		{
-			Flag:        "env-file",
-			Description: "Path to the environment file.",
-			Value:       StringOf(new(string)),
-		},
-		{
-			Flag:        "env-files",
-			Description: "Paths to the environment files.",
-			Value:       StringArrayOf(new([]string)),
 		},
 	}
 }

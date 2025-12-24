@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"unicode"
 
 	"github.com/spf13/pflag"
 )
@@ -97,13 +96,8 @@ func (c *Command) init() error {
 			if optName == "" && len(opt.Envs) > 0 {
 				optName = opt.Envs[0]
 			}
-			// Enforce that description uses sentence form.
-			if unicode.IsLower(rune(opt.Description[0])) {
-				merr = errors.Join(merr, fmt.Errorf("option %q description should start with a capital letter", optName))
-			}
-			if !strings.HasSuffix(opt.Description, ".") {
-				merr = errors.Join(merr, fmt.Errorf("option %q description should end with a period", optName))
-			}
+
+			opt.Description = strings.Trim(strings.ToTitle(strings.TrimSpace(opt.Description)), ".") + "."
 		}
 	}
 
@@ -179,7 +173,7 @@ func (c *Command) GetGlobalFlags() OptionSet {
 	var globalFlags OptionSet
 	for _, opt := range root.Options {
 		switch opt.Flag {
-		case "help", "version", "list-commands", "list-flags", "config-file", "debug", "log-level", "environment", "env-file", "env-files":
+		case "help", "version", "list-commands", "list-flags", "debug":
 			globalFlags = append(globalFlags, opt)
 		}
 	}
@@ -674,8 +668,28 @@ func (inv *Invocation) run(state *runState) error {
 		}
 	}
 
-	mw := inv.Command.Middleware
-	if mw == nil {
+	// Collect all middlewares from root to current command
+	// We collect from current (child) to root (parent), then reverse
+	// to get [root, parent, ..., child] order. Chain() will reverse again
+	// to ensure execution order is root -> parent -> ... -> child -> handler
+	var middlewareChain []MiddlewareFunc
+	cmd := inv.Command
+	for cmd != nil {
+		if cmd.Middleware != nil {
+			middlewareChain = append(middlewareChain, cmd.Middleware)
+		}
+		cmd = cmd.parent
+	}
+	// Reverse to get order from root (parent) to current (child)
+	// This ensures Chain() will execute them in the correct order: root -> parent -> child -> handler
+	for i, j := 0, len(middlewareChain)-1; i < j; i, j = i+1, j-1 {
+		middlewareChain[i], middlewareChain[j] = middlewareChain[j], middlewareChain[i]
+	}
+
+	var mw MiddlewareFunc
+	if len(middlewareChain) > 0 {
+		mw = Chain(middlewareChain...)
+	} else {
 		mw = Chain()
 	}
 
@@ -958,12 +972,12 @@ func (inv *Invocation) with(fn func(*Invocation)) *Invocation {
 type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
 func chain(ms ...MiddlewareFunc) MiddlewareFunc {
-	return MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+	return func(next HandlerFunc) HandlerFunc {
 		if len(ms) > 0 {
 			return chain(ms[1:]...)(ms[0](next))
 		}
 		return next
-	})
+	}
 }
 
 // Chain returns a Handler that first calls middleware in order.

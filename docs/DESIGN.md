@@ -124,12 +124,7 @@ Redant provides a set of default global flags, which are automatically added to 
 - `--version, -v`: Show version information
 - `--list-commands`: List all commands (including subcommands)
 - `--list-flags`: List all flags
-- `--config-file, -c`: Configuration file path
 - `--debug`: Enable debug mode
-- `--log-level`: Set log level (default: info)
-- `--environment, -e`: Set environment
-- `--env-file`: Environment file path
-- `--env-files`: Multiple environment file paths (array)
 
 Global flags can be obtained via the `GetGlobalFlags()` method and displayed separately in help information.
 
