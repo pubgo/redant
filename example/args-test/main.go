@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -25,7 +26,7 @@ func main() {
 			{Name: "arg2", Description: "Second argument.", Value: redant.Int64Of(new(int64))},
 			{Name: "arg3", Description: "Third argument.", Value: redant.StringOf(new(string))},
 		},
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("=== Multiple Positional Arguments ===")
 			fmt.Printf("Args count: %d\n", len(inv.Args))
 			for i, arg := range inv.Command.Args {
@@ -43,7 +44,7 @@ func main() {
 	queryCmd := &redant.Command{
 		Use:   "query",
 		Short: "Test URL query string format.",
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("=== URL Query String Format ===")
 			fmt.Printf("Args: %v\n", inv.Args)
 
@@ -72,7 +73,7 @@ func main() {
 	formCmd := &redant.Command{
 		Use:   "form",
 		Short: "Test form data format.",
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("=== Form Data Format ===")
 			fmt.Printf("Args: %v\n", inv.Args)
 
@@ -101,7 +102,7 @@ func main() {
 	jsonCmd := &redant.Command{
 		Use:   "json",
 		Short: "Test JSON format.",
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("=== JSON Format ===")
 			fmt.Printf("Args: %v\n", inv.Args)
 
@@ -135,7 +136,7 @@ func main() {
 	mixedCmd := &redant.Command{
 		Use:   "mixed",
 		Short: "Test mixed argument formats.",
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("=== Mixed Format ===")
 			fmt.Printf("Args: %v\n", inv.Args)
 
@@ -161,7 +162,7 @@ func main() {
 	conflictParentCmd := &redant.Command{
 		Use:   "conflict",
 		Short: "Test command with subcommand conflict.",
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("=== Conflict Parent Command ===")
 			fmt.Printf("Args: %v\n", inv.Args)
 
@@ -183,7 +184,7 @@ func main() {
 	conflictSubCmd := &redant.Command{
 		Use:   "sub",
 		Short: "Subcommand that might conflict with args.",
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("=== Conflict Subcommand ===")
 			fmt.Printf("Args: %v\n", inv.Args)
 			return nil
@@ -194,7 +195,7 @@ func main() {
 	complexCmd := &redant.Command{
 		Use:   "complex",
 		Short: "Test complex scenarios.",
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("=== Complex Scenario ===")
 			fmt.Printf("Args: %v\n", inv.Args)
 

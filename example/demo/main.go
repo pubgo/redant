@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -44,7 +45,7 @@ func main() {
 				Deprecated:  "This flag is deprecated. Please use the new configuration method.",
 			},
 		},
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("Server command executed")
 			// Get flag values
 			if inv.Flags != nil {
@@ -68,7 +69,7 @@ func main() {
 				Value:       redant.BoolOf(new(bool)),
 			},
 		},
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("Starting server...")
 
 			// Get flag values
@@ -87,7 +88,7 @@ func main() {
 		Use:   "config",
 		Short: "Configuration commands.",
 		Long:  "Commands for managing configuration.",
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("Config command executed")
 			return nil
 		},
@@ -98,7 +99,7 @@ func main() {
 		Use:   "show",
 		Short: "Show configuration.",
 		Long:  "Display current configuration.",
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("Showing configuration...")
 			return nil
 		},

@@ -2,6 +2,7 @@ package redant
 
 import (
 	"bufio"
+	"context"
 	_ "embed"
 	"flag"
 	"fmt"
@@ -326,7 +327,7 @@ func (e *UnknownSubcommandError) Error() string {
 // DefaultHelpFn returns a function that generates usage (help)
 // output for a given command.
 func DefaultHelpFn() HandlerFunc {
-	return func(inv *Invocation) error {
+	return func(ctx context.Context, inv *Invocation) error {
 		// We use stdout for help and not stderr since there's no straightforward
 		// way to distinguish between a user error and a help request.
 		//

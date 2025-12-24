@@ -200,6 +200,16 @@ func (c *Command) Invoke(args ...string) *Invocation {
 	}
 }
 
+func (c *Command) Run(ctx context.Context) error {
+	i := &Invocation{
+		Command: c,
+		Stdout:  io.Discard,
+		Stderr:  io.Discard,
+		Stdin:   strings.NewReader(""),
+	}
+	return i.WithOS().WithContext(ctx).Run()
+}
+
 // Invocation represents an instance of a command being executed.
 type Invocation struct {
 	ctx     context.Context
@@ -213,6 +223,9 @@ type Invocation struct {
 	Stdout io.Writer
 	Stderr io.Writer
 	Stdin  io.Reader
+
+	// Annotations is a map of arbitrary annotations to attach to the invocation.
+	Annotations map[string]any
 
 	// testing
 	signalNotifyContext func(parent context.Context, signals ...os.Signal) (ctx context.Context, stop context.CancelFunc)
@@ -678,15 +691,15 @@ func (inv *Invocation) run(state *runState) error {
 	// Check for help flag
 	if inv.Flags != nil {
 		if help, err := inv.Flags.GetBool("help"); err == nil && help {
-			return DefaultHelpFn()(inv)
+			return DefaultHelpFn()(ctx, inv)
 		}
 	}
 
 	if inv.Command.Handler == nil || errors.Is(state.flagParseErr, pflag.ErrHelp) {
-		return DefaultHelpFn()(inv)
+		return DefaultHelpFn()(ctx, inv)
 	}
 
-	err := mw(inv.Command.Handler)(inv)
+	err := mw(inv.Command.Handler)(ctx, inv)
 	if err != nil {
 		return &RunCommandError{
 			Cmd: inv.Command,
@@ -978,7 +991,7 @@ func RequireRangeArgs(start, end int) MiddlewareFunc {
 		panic("start must be >= 0")
 	}
 	return func(next HandlerFunc) HandlerFunc {
-		return func(i *Invocation) error {
+		return func(ctx context.Context, i *Invocation) error {
 			got := len(i.Args)
 			switch {
 			case start == end && got != start:
@@ -1005,7 +1018,7 @@ func RequireRangeArgs(start, end int) MiddlewareFunc {
 						got,
 					)
 				default:
-					return next(i)
+					return next(ctx, i)
 				}
 			case start > end:
 				panic("start must be <= end")
@@ -1016,7 +1029,7 @@ func RequireRangeArgs(start, end int) MiddlewareFunc {
 					got,
 				)
 			default:
-				return next(i)
+				return next(ctx, i)
 			}
 		}
 	}

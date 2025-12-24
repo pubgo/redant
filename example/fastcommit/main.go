@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -36,7 +37,7 @@ func main() {
 		Args: redant.ArgSet{
 			{Name: "files", Description: "Files to commit."},
 		},
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Printf("Commit command executed\n")
 			fmt.Printf("Args: %v\n", inv.Args)
 
@@ -88,7 +89,7 @@ func main() {
 		Args: redant.ArgSet{
 			{Name: "files", Description: "Files to commit."},
 		},
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Printf("Detailed commit command executed\n")
 			fmt.Printf("Args: %v\n", inv.Args)
 
