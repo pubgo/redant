@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"unicode"
 
 	"github.com/spf13/pflag"
 )
@@ -97,13 +96,8 @@ func (c *Command) init() error {
 			if optName == "" && len(opt.Envs) > 0 {
 				optName = opt.Envs[0]
 			}
-			// Enforce that description uses sentence form.
-			if unicode.IsLower(rune(opt.Description[0])) {
-				merr = errors.Join(merr, fmt.Errorf("option %q description should start with a capital letter", optName))
-			}
-			if !strings.HasSuffix(opt.Description, ".") {
-				merr = errors.Join(merr, fmt.Errorf("option %q description should end with a period", optName))
-			}
+
+			opt.Description = strings.Trim(strings.ToTitle(strings.TrimSpace(opt.Description)), ".") + "."
 		}
 	}
 
@@ -179,7 +173,7 @@ func (c *Command) GetGlobalFlags() OptionSet {
 	var globalFlags OptionSet
 	for _, opt := range root.Options {
 		switch opt.Flag {
-		case "help", "version", "list-commands", "list-flags", "config-file", "debug", "log-level", "environment", "env-file", "env-files":
+		case "help", "version", "list-commands", "list-flags", "debug":
 			globalFlags = append(globalFlags, opt)
 		}
 	}
@@ -200,6 +194,16 @@ func (c *Command) Invoke(args ...string) *Invocation {
 	}
 }
 
+func (c *Command) Run(ctx context.Context) error {
+	i := &Invocation{
+		Command: c,
+		Stdout:  io.Discard,
+		Stderr:  io.Discard,
+		Stdin:   strings.NewReader(""),
+	}
+	return i.WithOS().WithContext(ctx).Run()
+}
+
 // Invocation represents an instance of a command being executed.
 type Invocation struct {
 	ctx     context.Context
@@ -213,6 +217,9 @@ type Invocation struct {
 	Stdout io.Writer
 	Stderr io.Writer
 	Stdin  io.Reader
+
+	// Annotations is a map of arbitrary annotations to attach to the invocation.
+	Annotations map[string]any
 
 	// testing
 	signalNotifyContext func(parent context.Context, signals ...os.Signal) (ctx context.Context, stop context.CancelFunc)
@@ -661,8 +668,28 @@ func (inv *Invocation) run(state *runState) error {
 		}
 	}
 
-	mw := inv.Command.Middleware
-	if mw == nil {
+	// Collect all middlewares from root to current command
+	// We collect from current (child) to root (parent), then reverse
+	// to get [root, parent, ..., child] order. Chain() will reverse again
+	// to ensure execution order is root -> parent -> ... -> child -> handler
+	var middlewareChain []MiddlewareFunc
+	cmd := inv.Command
+	for cmd != nil {
+		if cmd.Middleware != nil {
+			middlewareChain = append(middlewareChain, cmd.Middleware)
+		}
+		cmd = cmd.parent
+	}
+	// Reverse to get order from root (parent) to current (child)
+	// This ensures Chain() will execute them in the correct order: root -> parent -> child -> handler
+	for i, j := 0, len(middlewareChain)-1; i < j; i, j = i+1, j-1 {
+		middlewareChain[i], middlewareChain[j] = middlewareChain[j], middlewareChain[i]
+	}
+
+	var mw MiddlewareFunc
+	if len(middlewareChain) > 0 {
+		mw = Chain(middlewareChain...)
+	} else {
 		mw = Chain()
 	}
 
@@ -678,15 +705,15 @@ func (inv *Invocation) run(state *runState) error {
 	// Check for help flag
 	if inv.Flags != nil {
 		if help, err := inv.Flags.GetBool("help"); err == nil && help {
-			return DefaultHelpFn()(inv)
+			return DefaultHelpFn()(ctx, inv)
 		}
 	}
 
 	if inv.Command.Handler == nil || errors.Is(state.flagParseErr, pflag.ErrHelp) {
-		return DefaultHelpFn()(inv)
+		return DefaultHelpFn()(ctx, inv)
 	}
 
-	err := mw(inv.Command.Handler)(inv)
+	err := mw(inv.Command.Handler)(ctx, inv)
 	if err != nil {
 		return &RunCommandError{
 			Cmd: inv.Command,
@@ -945,12 +972,12 @@ func (inv *Invocation) with(fn func(*Invocation)) *Invocation {
 type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
 func chain(ms ...MiddlewareFunc) MiddlewareFunc {
-	return MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+	return func(next HandlerFunc) HandlerFunc {
 		if len(ms) > 0 {
 			return chain(ms[1:]...)(ms[0](next))
 		}
 		return next
-	})
+	}
 }
 
 // Chain returns a Handler that first calls middleware in order.
@@ -978,7 +1005,7 @@ func RequireRangeArgs(start, end int) MiddlewareFunc {
 		panic("start must be >= 0")
 	}
 	return func(next HandlerFunc) HandlerFunc {
-		return func(i *Invocation) error {
+		return func(ctx context.Context, i *Invocation) error {
 			got := len(i.Args)
 			switch {
 			case start == end && got != start:
@@ -1005,7 +1032,7 @@ func RequireRangeArgs(start, end int) MiddlewareFunc {
 						got,
 					)
 				default:
-					return next(i)
+					return next(ctx, i)
 				}
 			case start > end:
 				panic("start must be <= end")
@@ -1016,7 +1043,7 @@ func RequireRangeArgs(start, end int) MiddlewareFunc {
 					got,
 				)
 			default:
-				return next(i)
+				return next(ctx, i)
 			}
 		}
 	}

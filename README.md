@@ -21,6 +21,7 @@ Redant is a powerful Go CLI framework designed for building large CLI applicatio
 package main
 
 import (
+    "context"
     "fmt"
     "os"
     
@@ -31,7 +32,7 @@ func main() {
     cmd := redant.Command{
         Use:   "echo <text>",
         Short: "Prints the given text to the console.",
-        Handler: func(inv *redant.Invocation) error {
+        Handler: func(ctx context.Context, inv *redant.Invocation) error {
             if len(inv.Args) == 0 {
                 return fmt.Errorf("missing text")
             }
@@ -53,6 +54,7 @@ func main() {
 package main
 
 import (
+    "context"
     "fmt"
     "os"
     "strings"
@@ -75,7 +77,7 @@ func main() {
         Args: redant.ArgSet{
             {},
         },
-        Handler: func(inv *redant.Invocation) error {
+        Handler: func(ctx context.Context, inv *redant.Invocation) error {
             if len(inv.Args) == 0 {
                 inv.Stderr.Write([]byte("error: missing text\n"))
                 os.Exit(1)
@@ -146,14 +148,14 @@ cmd := redant.Command{
     Middleware: redant.Chain(
         redant.RequireNArgs(1),
         func(next redant.HandlerFunc) redant.HandlerFunc {
-            return func(inv *redant.Invocation) error {
+            return func(ctx context.Context, inv *redant.Invocation) error {
                 // Log execution
                 fmt.Printf("Executing command: %s\n", inv.Command.Name())
-                return next(inv)
+                return next(ctx, inv)
             }
         },
     ),
-    Handler: func(inv *redant.Invocation) error {
+    Handler: func(ctx context.Context, inv *redant.Invocation) error {
         // ...
     },
 }

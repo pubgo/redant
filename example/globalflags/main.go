@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -27,7 +28,7 @@ func main() {
 				Value:       redant.StringOf(new(string)),
 			},
 		},
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("Test command executed")
 
 			// Get flag values
@@ -44,7 +45,7 @@ func main() {
 		Use:   "sub",
 		Short: "Sub command.",
 		Long:  "A sub command.",
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("Sub command executed")
 			return nil
 		},
@@ -55,7 +56,7 @@ func main() {
 		Use:   "nested",
 		Short: "Nested command.",
 		Long:  "A nested command.",
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("Nested command executed")
 			return nil
 		},

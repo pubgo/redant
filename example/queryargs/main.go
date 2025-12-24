@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -36,7 +37,7 @@ func main() {
 				Value:       redant.BoolOf(new(bool)),
 			},
 		},
-		Handler: func(inv *redant.Invocation) error {
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			fmt.Println("=== Query Args Test ===")
 
 			// Get flag values
