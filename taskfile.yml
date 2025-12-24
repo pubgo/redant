@@ -1,0 +1,26 @@
+# https://taskfile.dev
+
+version: '3'
+
+dotenv: [ '.env' ]
+
+tasks:
+  default:
+    desc: "default task"
+    cmds:
+      - task -a
+
+  vet:
+    desc: "go vet"
+    cmds:
+      - go vet ./...
+
+  test:
+    desc: "go test"
+    cmds:
+      - go test -short -race -v ./... -cover
+
+  lint:
+    desc: "golangci-lint"
+    cmds:
+      - golangci-lint run --verbose ./...
