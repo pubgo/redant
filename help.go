@@ -97,6 +97,22 @@ func wrapTTY(s string) string {
 	return wordwrap.WrapString(s, uint(ttyWidth()))
 }
 
+// indent indents a string with the given number of spaces and wraps it to terminal width
+func indent(body string, spaces int) string {
+	twidth := ttyWidth()
+	spacing := strings.Repeat(" ", spaces)
+	wrapLim := twidth - len(spacing)
+	body = wordwrap.WrapString(body, uint(wrapLim))
+	sc := bufio.NewScanner(strings.NewReader(body))
+	var sb strings.Builder
+	for sc.Scan() {
+		_, _ = sb.WriteString(spacing)
+		_, _ = sb.Write(sc.Bytes())
+		_, _ = sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
 var (
 	helpColorProfile termenv.Profile
 	helpColorOnce    sync.Once
@@ -322,6 +338,338 @@ type UnknownSubcommandError struct {
 
 func (e *UnknownSubcommandError) Error() string {
 	return fmt.Sprintf("unknown subcommand %q", strings.Join(e.Args, " "))
+}
+
+// formatCommandName formats a command name with keyword color
+func formatCommandName(name string) string {
+	optionFg := pretty.FgColor(helpColor("#04A777"))
+	txt := pretty.String(name)
+	optionFg.Format(txt)
+	return txt.String()
+}
+
+// formatFlagName formats a flag name with keyword color, returns colored shorthand and flag separately
+func formatFlagName(opt Option) (shorthandColored, flagColored string) {
+	optionFg := pretty.FgColor(helpColor("#04A777"))
+	if opt.Shorthand != "" {
+		shorthandTxt := pretty.String("-" + opt.Shorthand)
+		optionFg.Format(shorthandTxt)
+		shorthandColored = shorthandTxt.String()
+	}
+	flagTxt := pretty.String("--" + opt.Flag)
+	optionFg.Format(flagTxt)
+	flagColored = flagTxt.String()
+	return
+}
+
+// formatFlagType returns the type string for a flag
+func formatFlagType(opt Option) string {
+	if opt.Value == nil {
+		return "bool"
+	}
+	switch v := opt.Value.(type) {
+	case *Enum:
+		return strings.Join(v.Choices, "|")
+	case *EnumArray:
+		return fmt.Sprintf("[%s]", strings.Join(v.Choices, "|"))
+	default:
+		return v.Type()
+	}
+}
+
+// formatFlagEnvNames formats environment variable names
+func formatFlagEnvNames(opt Option) string {
+	if len(opt.Envs) == 0 {
+		return ""
+	}
+	envNames := make([]string, len(opt.Envs))
+	for i, env := range opt.Envs {
+		envNames[i] = "$" + env
+	}
+	optionFg := pretty.FgColor(helpColor("#04A777"))
+	envStr := strings.Join(envNames, ", ")
+	txt := pretty.String(envStr)
+	optionFg.Format(txt)
+	return txt.String()
+}
+
+// PrintCommands prints all commands in a formatted list with full paths, using help formatting style
+func PrintCommands(cmd *Command) {
+	// Collect all commands with their full paths
+	type cmdInfo struct {
+		path string
+		cmd  *Command
+	}
+	var commands []cmdInfo
+
+	// Recursive function to collect commands
+	var collectCommands func(*Command, string)
+	collectCommands = func(c *Command, prefix string) {
+		if c.Hidden {
+			return
+		}
+		// Build the full path for this command
+		var fullPath string
+		if prefix == "" {
+			fullPath = c.Name()
+		} else {
+			fullPath = prefix + ":" + c.Name()
+		}
+
+		// Add this command to the list
+		commands = append(commands, cmdInfo{
+			path: fullPath,
+			cmd:  c,
+		})
+
+		// Recursively collect child commands
+		for _, child := range c.Children {
+			collectCommands(child, fullPath)
+		}
+	}
+
+	// Start collecting from the root command's children
+	for _, child := range cmd.Children {
+		collectCommands(child, cmd.Name())
+	}
+
+	if len(commands) == 0 {
+		return
+	}
+
+	// Print header
+	fmt.Println(prettyHeader("COMMANDS"))
+	fmt.Println()
+
+	// Find the maximum path length for alignment
+	maxPathLen := 0
+	for _, info := range commands {
+		if len(info.path) > maxPathLen {
+			maxPathLen = len(info.path)
+		}
+	}
+
+	// Print all commands with aligned formatting similar to help
+	for _, info := range commands {
+		var sb strings.Builder
+		_, _ = fmt.Fprintf(&sb, "%s%s%s",
+			strings.Repeat(" ", 4), info.path, strings.Repeat(" ", maxPathLen-len(info.path)+4),
+		)
+
+		descStart := sb.Len()
+		twidth := ttyWidth()
+
+		if info.cmd.Short != "" {
+			for i, line := range strings.Split(
+				wordwrap.WrapString(info.cmd.Short, uint(twidth-descStart)), "\n",
+			) {
+				if i > 0 {
+					_, _ = sb.WriteString(strings.Repeat(" ", descStart))
+				}
+				_, _ = sb.WriteString(line)
+				_, _ = sb.WriteString("\n")
+			}
+		} else {
+			_, _ = sb.WriteString("\n")
+		}
+
+		// Format command name with color
+		coloredPath := formatCommandName(info.path)
+		output := strings.Replace(sb.String(), info.path, coloredPath, 1)
+		fmt.Print(output)
+	}
+}
+
+// PrintFlags prints all flags for all commands, using help formatting style
+func PrintFlags(rootCmd *Command) {
+	globalFlags := rootCmd.GetGlobalFlags()
+
+	// Collect all commands with their full paths
+	type cmdInfo struct {
+		cmd  *Command
+		path string
+	}
+	var commands []cmdInfo
+
+	// Recursive function to collect commands
+	var collectCommands func(*Command, string)
+	collectCommands = func(c *Command, prefix string) {
+		// Build the full path for this command
+		var fullPath string
+		if prefix == "" {
+			fullPath = c.Name()
+		} else {
+			fullPath = prefix + ":" + c.Name()
+		}
+
+		// Add this command to the list
+		commands = append(commands, cmdInfo{
+			cmd:  c,
+			path: fullPath,
+		})
+
+		// Recursively collect child commands
+		for _, child := range c.Children {
+			collectCommands(child, fullPath)
+		}
+	}
+
+	// Start collecting from the root command's children
+	for _, child := range rootCmd.Children {
+		collectCommands(child, rootCmd.Name())
+	}
+
+	// Print global flags
+	if len(globalFlags) > 0 {
+		fmt.Println(prettyHeader("Global Options"))
+		for _, opt := range globalFlags {
+			if opt.Flag == "" || opt.Hidden {
+				continue
+			}
+
+			var sb strings.Builder
+			shorthandColored, flagColored := formatFlagName(opt)
+			if opt.Shorthand != "" {
+				_, _ = fmt.Fprintf(&sb, "\n ")
+				_, _ = sb.WriteString(shorthandColored)
+				_, _ = sb.WriteString(", ")
+				_, _ = sb.WriteString(flagColored)
+			} else {
+				_, _ = sb.WriteString("\n      ")
+				_, _ = sb.WriteString(flagColored)
+			}
+
+			flagType := formatFlagType(opt)
+			if flagType != "" {
+				_, _ = fmt.Fprintf(&sb, " %s", flagType)
+			}
+
+			if len(opt.Envs) > 0 {
+				envStr := formatFlagEnvNames(opt)
+				_, _ = fmt.Fprintf(&sb, ", %s", envStr)
+			}
+
+			if opt.Default != "" || opt.Required {
+				_, _ = sb.WriteString(" (")
+				if opt.Default != "" {
+					_, _ = fmt.Fprintf(&sb, "default: %s", opt.Default)
+				}
+				if opt.Default != "" && opt.Required {
+					_, _ = sb.WriteString(", ")
+				}
+				if opt.Required {
+					_, _ = sb.WriteString("required")
+				}
+				_, _ = sb.WriteString(")")
+			}
+
+			if opt.Description != "" {
+				desc := indent(opt.Description, 10)
+				_, _ = sb.WriteString("\n")
+				_, _ = sb.WriteString(desc)
+			}
+
+			if opt.Deprecated != "" {
+				deprecatedMsg := fmt.Sprintf("DEPRECATED: %s", opt.Deprecated)
+				deprecatedIndented := indent(deprecatedMsg, 10)
+				_, _ = sb.WriteString("\n")
+				_, _ = sb.WriteString(deprecatedIndented)
+			}
+
+			fmt.Print(sb.String())
+		}
+		fmt.Println()
+	}
+
+	// Print flags for each command
+	hasCommandFlags := false
+	for _, info := range commands {
+		if len(info.cmd.Options) == 0 {
+			continue
+		}
+
+		// Filter out global flags from command options
+		var commandSpecificFlags OptionSet
+		for _, opt := range info.cmd.Options {
+			isGlobal := false
+			for _, globalOpt := range globalFlags {
+				if opt.Flag == globalOpt.Flag {
+					isGlobal = true
+					break
+				}
+			}
+			if !isGlobal && opt.Flag != "" && !opt.Hidden {
+				commandSpecificFlags = append(commandSpecificFlags, opt)
+			}
+		}
+
+		if len(commandSpecificFlags) > 0 {
+			if !hasCommandFlags {
+				fmt.Println(prettyHeader("Command-Specific Options"))
+				hasCommandFlags = true
+			}
+
+			fmt.Printf("\n  %s:\n", info.path)
+
+			for _, opt := range commandSpecificFlags {
+				var sb strings.Builder
+				shorthandColored, flagColored := formatFlagName(opt)
+				if opt.Shorthand != "" {
+					_, _ = fmt.Fprintf(&sb, "    ")
+					_, _ = sb.WriteString(shorthandColored)
+					_, _ = sb.WriteString(", ")
+					_, _ = sb.WriteString(flagColored)
+				} else {
+					_, _ = sb.WriteString("      ")
+					_, _ = sb.WriteString(flagColored)
+				}
+
+				flagType := formatFlagType(opt)
+				if flagType != "" {
+					_, _ = fmt.Fprintf(&sb, " %s", flagType)
+				}
+
+				if len(opt.Envs) > 0 {
+					envStr := formatFlagEnvNames(opt)
+					_, _ = fmt.Fprintf(&sb, ", %s", envStr)
+				}
+
+				if opt.Default != "" || opt.Required {
+					_, _ = sb.WriteString(" (")
+					if opt.Default != "" {
+						_, _ = fmt.Fprintf(&sb, "default: %s", opt.Default)
+					}
+					if opt.Default != "" && opt.Required {
+						_, _ = sb.WriteString(", ")
+					}
+					if opt.Required {
+						_, _ = sb.WriteString("required")
+					}
+					_, _ = sb.WriteString(")")
+				}
+
+				if opt.Description != "" {
+					desc := indent(opt.Description, 10)
+					_, _ = sb.WriteString("\n")
+					_, _ = sb.WriteString(desc)
+				}
+
+				if opt.Deprecated != "" {
+					deprecatedMsg := fmt.Sprintf("DEPRECATED: %s", opt.Deprecated)
+					deprecatedIndented := indent(deprecatedMsg, 10)
+					_, _ = sb.WriteString("\n")
+					_, _ = sb.WriteString(deprecatedIndented)
+				}
+
+				fmt.Print(sb.String())
+				fmt.Println()
+			}
+		}
+	}
+
+	if !hasCommandFlags && len(globalFlags) == 0 {
+		fmt.Println("No flags available.")
+	}
 }
 
 // DefaultHelpFn returns a function that generates usage (help)
