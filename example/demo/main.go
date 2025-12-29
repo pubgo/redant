@@ -11,11 +11,19 @@ import (
 )
 
 func main() {
+	var ok = true
 	// Create root command
 	rootCmd := &redant.Command{
 		Use:   "myapp",
 		Short: "My sample application.",
 		Long:  "A sample application demonstrating all the implemented features.",
+		Options: redant.OptionSet{
+			{
+				Flag:        "upper",
+				Value:       redant.BoolOf(&ok),
+				Description: "Prints the text in upper case.",
+			},
+		},
 	}
 
 	// Create server command

@@ -21,9 +21,6 @@ func main() {
 				Description: "Prints the text in upper case.",
 			},
 		},
-		Args: redant.ArgSet{
-			{},
-		},
 		Middleware: redant.Chain(func(next redant.HandlerFunc) redant.HandlerFunc {
 			return func(ctx context.Context, i *redant.Invocation) error {
 				fmt.Printf("Debug: Args = %v\n", i.Args)

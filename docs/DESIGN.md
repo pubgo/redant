@@ -7,7 +7,7 @@ Redant is a Go CLI framework based on Cobra, specifically designed for large CLI
 ## 2. Core Features
 
 1. **Command tree structure**: Supports complex nested command structures, subcommands can inherit options from parent commands
-2. **Multi-source configuration**: Options can be set from multiple sources including command line flags, environment variables, and configuration files
+2. **Multi-source configuration**: Options can be set from multiple sources including command line flags and environment variables
 3. **Middleware system**: Middleware system based on Chi router pattern, facilitating feature extension
 4. **Excellent help system**: Inspired by the help output style of Go toolchain
 5. **Easy to test**: Clearly separates standard input/output, making unit tests easier to write
