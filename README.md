@@ -5,7 +5,7 @@ Redant is a powerful Go CLI framework designed for building large CLI applicatio
 ## Features
 
 - **Command tree structure**: Supports complex nested command structures, subcommands can inherit options from parent commands
-- **Multi-source configuration**: Options can be set from multiple sources including command line flags, environment variables, and configuration files
+- **Multi-source configuration**: Options can be set from multiple sources including command line flags and environment variables
 - **Middleware system**: Middleware system based on Chi router pattern, facilitating feature extension
 - **Excellent help system**: Inspired by the help output style of Go toolchain
 - **Easy to test**: Clearly separates standard input/output, making unit tests easier to write

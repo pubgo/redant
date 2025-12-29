@@ -142,6 +142,11 @@ func (c *Command) FullName() string {
 	return strings.Join(names, " ")
 }
 
+// Parent returns the parent command of this command.
+func (c *Command) Parent() *Command {
+	return c.parent
+}
+
 func (c *Command) FullUsage() string {
 	var uses []string
 	if c.parent != nil {

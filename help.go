@@ -359,7 +359,7 @@ func formatFlagName(opt Option) (shorthandColored, flagColored string) {
 	flagTxt := pretty.String("--" + opt.Flag)
 	optionFg.Format(flagTxt)
 	flagColored = flagTxt.String()
-	return
+	return shorthandColored, flagColored
 }
 
 // formatFlagType returns the type string for a flag

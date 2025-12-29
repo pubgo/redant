@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Refactored project structure to separate command implementations from core framework code
+- Moved CompletionCommand to cmds/completioncmd directory
+- Removed configuration file support and related features for better simplicity
+- Removed fsnotify dependency used for config hot-reload
+
 ## [1.0.0] - 2025-12-24
 
 ### Added
