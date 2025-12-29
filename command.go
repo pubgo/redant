@@ -59,9 +59,6 @@ type Command struct {
 	Handler    HandlerFunc
 }
 
-// Version is the current version of the redant library
-const Version = "1.0.0"
-
 func ascendingSortFn[T cmp.Ordered](a, b T) int {
 	if a < b {
 		return -1
@@ -142,6 +139,11 @@ func (c *Command) FullName() string {
 	return strings.Join(names, " ")
 }
 
+// Parent returns the parent command of this command.
+func (c *Command) Parent() *Command {
+	return c.parent
+}
+
 func (c *Command) FullUsage() string {
 	var uses []string
 	if c.parent != nil {
@@ -173,7 +175,7 @@ func (c *Command) GetGlobalFlags() OptionSet {
 	var globalFlags OptionSet
 	for _, opt := range root.Options {
 		switch opt.Flag {
-		case "help", "version", "list-commands", "list-flags", "debug":
+		case "help", "list-commands", "list-flags":
 			globalFlags = append(globalFlags, opt)
 		}
 	}
@@ -493,12 +495,6 @@ func (inv *Invocation) run(state *runState) error {
 			PrintFlags(parent)
 			return nil
 		}
-
-		// Check for --version flag
-		if version, err := inv.Flags.GetBool("version"); err == nil && version {
-			fmt.Printf("Version: %s\n", Version)
-			return nil
-		}
 	}
 
 	// Run child command if found (next child only)
@@ -643,7 +639,8 @@ func (inv *Invocation) run(state *runState) error {
 	}
 
 	// Parse args and set values to Arg.Value if Args are defined
-	if len(inv.Command.Args) > 0 {
+	// Skip args parsing and validation if help was requested
+	if len(inv.Command.Args) > 0 && !isHelpRequested && !errors.Is(state.flagParseErr, pflag.ErrHelp) {
 		if err := parseAndSetArgs(inv.Command.Args, inv.Args); err != nil {
 			return fmt.Errorf("parsing args: %w", err)
 		}

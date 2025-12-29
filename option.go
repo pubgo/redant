@@ -60,6 +60,14 @@ func (optSet *OptionSet) Filter(filter func(opt Option) bool) OptionSet {
 	return cpy
 }
 
+// Type returns the type of the option value
+func (o Option) Type() string {
+	if o.Value != nil {
+		return o.Value.Type()
+	}
+	return "string"
+}
+
 func (optSet *OptionSet) FlagSet(name string) *pflag.FlagSet {
 	if optSet == nil {
 		return &pflag.FlagSet{}
