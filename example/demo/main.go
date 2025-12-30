@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	ok := true
+	ok := "true"
 	// Create root command
 	rootCmd := &redant.Command{
 		Use:   "myapp",
@@ -20,7 +20,8 @@ func main() {
 		Options: redant.OptionSet{
 			{
 				Flag:        "upper",
-				Value:       redant.BoolOf(&ok),
+				Value:       redant.StringOf(&ok),
+				Shorthand:   "u",
 				Description: "Prints the text in upper case.",
 			},
 		},
