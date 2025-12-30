@@ -164,6 +164,7 @@ func (c *Command) FullOptions() OptionSet {
 }
 
 // GetGlobalFlags returns the global flags from the root command
+// All non-hidden options in the root command are considered global flags
 func (c *Command) GetGlobalFlags() OptionSet {
 	// Traverse to the root command
 	root := c
@@ -171,11 +172,10 @@ func (c *Command) GetGlobalFlags() OptionSet {
 		root = root.parent
 	}
 
-	// Find global flags (they have specific names)
+	// Return all non-hidden options from root command as global flags
 	var globalFlags OptionSet
 	for _, opt := range root.Options {
-		switch opt.Flag {
-		case "help", "list-commands", "list-flags":
+		if opt.Flag != "" && !opt.Hidden {
 			globalFlags = append(globalFlags, opt)
 		}
 	}
@@ -617,6 +617,38 @@ func (inv *Invocation) run(state *runState) error {
 		}
 		if len(missing) > 0 {
 			return fmt.Errorf("missing values for the required flags: %s", strings.Join(missing, ", "))
+		}
+	}
+
+	// Execute Action callbacks for options that were set
+	// Don't execute actions if help was requested
+	if !isHelpRequested && !errors.Is(state.flagParseErr, pflag.ErrHelp) && inv.Flags != nil {
+		// Use a map to track which flags we've already processed
+		// This prevents executing Action multiple times for the same flag
+		processedFlags := make(map[string]bool)
+
+		// Get all options (including global and command-specific)
+		// Process from root to current command to respect override order
+		var allOptions OptionSet
+		cmd := inv.Command
+		for cmd != nil {
+			// Prepend to maintain order (root first, then parent, then current)
+			allOptions = append(cmd.Options, allOptions...)
+			cmd = cmd.parent
+		}
+
+		// Execute actions in reverse order (current command first, then parent, then root)
+		// This way, if a flag is overridden, we execute the most specific Action
+		for i := len(allOptions) - 1; i >= 0; i-- {
+			opt := allOptions[i]
+			if opt.Action != nil && opt.Flag != "" && !processedFlags[opt.Flag] {
+				if ff := inv.Flags.Lookup(opt.Flag); ff != nil && ff.Changed {
+					if err := opt.Action(ff.Value); err != nil {
+						return fmt.Errorf("action for flag %q failed: %w", opt.Flag, err)
+					}
+					processedFlags[opt.Flag] = true
+				}
+			}
 		}
 	}
 
