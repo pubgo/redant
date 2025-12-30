@@ -259,12 +259,6 @@ func GlobalFlags() OptionSet {
 			Value:       BoolOf(new(bool)),
 		},
 		{
-			Flag:        "version",
-			Shorthand:   "v",
-			Description: "Show version information.",
-			Value:       BoolOf(new(bool)),
-		},
-		{
 			Flag:        "list-commands",
 			Description: "List all commands, including subcommands.",
 			Value:       BoolOf(new(bool)),
@@ -272,11 +266,6 @@ func GlobalFlags() OptionSet {
 		{
 			Flag:        "list-flags",
 			Description: "List all flags.",
-			Value:       BoolOf(new(bool)),
-		},
-		{
-			Flag:        "debug",
-			Description: "Enable debug mode.",
 			Value:       BoolOf(new(bool)),
 		},
 	}

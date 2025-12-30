@@ -7,7 +7,7 @@ Redant is a Go CLI framework based on Cobra, specifically designed for large CLI
 ## 2. Core Features
 
 1. **Command tree structure**: Supports complex nested command structures, subcommands can inherit options from parent commands
-2. **Multi-source configuration**: Options can be set from multiple sources including command line flags, environment variables, and configuration files
+2. **Multi-source configuration**: Options can be set from multiple sources including command line flags and environment variables
 3. **Middleware system**: Middleware system based on Chi router pattern, facilitating feature extension
 4. **Excellent help system**: Inspired by the help output style of Go toolchain
 5. **Easy to test**: Clearly separates standard input/output, making unit tests easier to write
@@ -87,6 +87,20 @@ Redant supports three parameter formats:
 5. If parsing fails, the parameter is treated as a regular parameter
 
 #### 3.3.4 Parameter Help Information Display
+
+Parameters (args) are displayed in help information and `--list-commands` output:
+
+**In `--list-commands` output:**
+```
+  server:start
+    Start the server.
+    arg1 string (default: 8080)
+      Server port number.
+    arg2 int (required)
+      Server timeout in seconds.
+```
+
+**In help output:**
 ```
 args:
      name int, this is name , env=[$ABC] default=[123] required=[true] enums=[]
@@ -121,12 +135,15 @@ type Option struct {
 Redant provides a set of default global flags, which are automatically added to the root command:
 
 - `--help, -h`: Show help information
-- `--version, -v`: Show version information
 - `--list-commands`: List all commands (including subcommands)
 - `--list-flags`: List all flags
-- `--debug`: Enable debug mode
 
-Global flags can be obtained via the `GetGlobalFlags()` method and displayed separately in help information.
+**Global Flags Display:**
+- All options defined in the root command's `Options` field (non-hidden) are displayed as global flags in help information
+- This includes both the default global flags and any custom flags defined by the application
+- Global flags are displayed in the "Global Options" section in help output and `--list-flags` output
+
+Global flags can be obtained via the `GetGlobalFlags()` method, which returns only the predefined global flags. However, in help display, all root command options are shown as global flags.
 
 #### 3.4.4 Flag Help Information Display
 ```
@@ -217,8 +234,19 @@ Command initialization is automatically called in the `Run()` method, including:
 5. Support color output (in non-test environment)
 
 #### 4.2.3 Special Help Commands
-- `--list-commands`: List all commands (including subcommands), using colon-separated path format
-- `--list-flags`: List all flags, distinguishing between global flags and command-specific flags
+
+**`--list-commands`**: List all commands (including subcommands)
+- Commands are displayed without the "COMMANDS" header
+- Command paths use colon-separated format (e.g., `server:start`)
+- Command descriptions are shown below the command name
+- If a command defines `Args`, they are displayed below the description with their types, defaults, and requirements
+- All commands are indented with minimal spacing
+
+**`--list-flags`**: List all flags
+- Global flags are displayed first in the "Global Options" section
+- Command-specific flags are displayed in the "Command-Specific Options" section
+- Subcommand paths in the command-specific section do not include the root command name (e.g., `server:start` instead of `myapp:server:start`)
+- Subcommand paths are displayed without trailing colons
 
 ### 4.3 Command Execution Process (`run()`)
 
@@ -244,7 +272,6 @@ Detailed execution flow:
 7. **Process global flags**:
    - `--list-commands`: List all commands and return
    - `--list-flags`: List all flags and return
-   - `--version`: Show version information and return
 
 8. **Recursively look up subcommands**: If there are still unparsed parameters, try to look up subcommands
 

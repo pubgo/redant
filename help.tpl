@@ -22,6 +22,15 @@
 {{- indent . 2}}
 {{ "\n" }}
 {{- end }}
+{{- with .Args }}
+{{- if gt (len .) 0 }}
+{{ prettyHeader "Arguments" }}
+{{- "\n" }}
+{{- range $index, $arg := . }}
+{{- formatArg $arg $index }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{ with visibleChildren . }}
 {{- range $index, $child := . }}
 {{- if eq $index 0 }}

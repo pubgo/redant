@@ -46,9 +46,12 @@ func getOptionGroupsByCommand(cmd *Command) []optionGroup {
 			// Filter out global flags for non-root commands
 			var opts OptionSet
 			if c.parent == nil {
-				// Root command: filter to only global flags
-				globalFlags := c.GetGlobalFlags()
-				opts = globalFlags
+				// Root command: show all options as global options
+				for _, opt := range c.Options {
+					if opt.Flag != "" && !opt.Hidden {
+						opts = append(opts, opt)
+					}
+				}
 			} else {
 				// Non-root command: filter out global flags
 				globalFlags := c.GetGlobalFlags()
@@ -57,7 +60,7 @@ func getOptionGroupsByCommand(cmd *Command) []optionGroup {
 					globalFlagMap[gf.Flag] = true
 				}
 				for _, opt := range c.Options {
-					if !globalFlagMap[opt.Flag] {
+					if !globalFlagMap[opt.Flag] && opt.Flag != "" && !opt.Hidden {
 						opts = append(opts, opt)
 					}
 				}
@@ -271,6 +274,56 @@ var defaultHelpTemplate = func() *template.Template {
 				"hasParent": func(cmd *Command) bool {
 					return cmd.parent != nil
 				},
+				"argTypeHelper": func(arg Arg) string {
+					return formatArgType(arg)
+				},
+				"formatArg": func(arg Arg, index int) string {
+					var sb strings.Builder
+					argName := arg.Name
+					if argName == "" {
+						argName = fmt.Sprintf("arg%d", index+1)
+					}
+
+					// Format arg name with color (using the keyword function from template)
+					argNameTxt := pretty.String(argName)
+					optionFg := pretty.FgColor(helpColor("#04A777"))
+					optionFg.Format(argNameTxt)
+					argNameColored := argNameTxt.String()
+					_, _ = sb.WriteString("    ")
+					_, _ = sb.WriteString(argNameColored)
+
+					// Add type
+					argType := formatArgType(arg)
+					if argType != "" {
+						_, _ = fmt.Fprintf(&sb, " %s", argType)
+					}
+
+					// Add default and required info
+					if arg.Default != "" || arg.Required {
+						_, _ = sb.WriteString(" (")
+						if arg.Default != "" {
+							_, _ = fmt.Fprintf(&sb, "default: %s", arg.Default)
+						}
+						if arg.Default != "" && arg.Required {
+							_, _ = sb.WriteString(", ")
+						}
+						if arg.Required {
+							_, _ = sb.WriteString("required")
+						}
+						_, _ = sb.WriteString(")")
+					}
+
+					// Add description
+					if arg.Description != "" {
+						_, _ = sb.WriteString("\n")
+						desc := indent(arg.Description, 10)
+						_, _ = sb.WriteString(desc)
+					} else {
+						_, _ = sb.WriteString("\n")
+					}
+
+					return sb.String()
+				},
 			},
 		).Parse(helpTemplateRaw),
 	)
@@ -359,7 +412,7 @@ func formatFlagName(opt Option) (shorthandColored, flagColored string) {
 	flagTxt := pretty.String("--" + opt.Flag)
 	optionFg.Format(flagTxt)
 	flagColored = flagTxt.String()
-	return
+	return shorthandColored, flagColored
 }
 
 // formatFlagType returns the type string for a flag
@@ -391,6 +444,21 @@ func formatFlagEnvNames(opt Option) string {
 	txt := pretty.String(envStr)
 	optionFg.Format(txt)
 	return txt.String()
+}
+
+// formatArgType returns the type string for an arg
+func formatArgType(arg Arg) string {
+	if arg.Value == nil {
+		return "string"
+	}
+	switch v := arg.Value.(type) {
+	case *Enum:
+		return strings.Join(v.Choices, "|")
+	case *EnumArray:
+		return fmt.Sprintf("[%s]", strings.Join(v.Choices, "|"))
+	default:
+		return v.Type()
+	}
 }
 
 // PrintCommands prints all commands in a formatted list with full paths, using help formatting style
@@ -437,10 +505,6 @@ func PrintCommands(cmd *Command) {
 		return
 	}
 
-	// Print header
-	fmt.Println(prettyHeader("COMMANDS"))
-	fmt.Println()
-
 	// Find the maximum path length for alignment
 	maxPathLen := 0
 	for _, info := range commands {
@@ -452,37 +516,71 @@ func PrintCommands(cmd *Command) {
 	// Print all commands with aligned formatting similar to help
 	for _, info := range commands {
 		var sb strings.Builder
-		_, _ = fmt.Fprintf(&sb, "%s%s%s",
-			strings.Repeat(" ", 4), info.path, strings.Repeat(" ", maxPathLen-len(info.path)+4),
-		)
-
-		descStart := sb.Len()
-		twidth := ttyWidth()
-
-		if info.cmd.Short != "" {
-			for i, line := range strings.Split(
-				wordwrap.WrapString(info.cmd.Short, uint(twidth-descStart)), "\n",
-			) {
-				if i > 0 {
-					_, _ = sb.WriteString(strings.Repeat(" ", descStart))
-				}
-				_, _ = sb.WriteString(line)
-				_, _ = sb.WriteString("\n")
-			}
-		} else {
-			_, _ = sb.WriteString("\n")
-		}
 
 		// Format command name with color
 		coloredPath := formatCommandName(info.path)
-		output := strings.Replace(sb.String(), info.path, coloredPath, 1)
-		fmt.Print(output)
+		_, _ = fmt.Fprintf(&sb, "%s%s\n",
+			strings.Repeat(" ", 2), coloredPath,
+		)
+
+		// Print description below the command name
+		if info.cmd.Short != "" {
+			desc := indent(info.cmd.Short, 4)
+			_, _ = sb.WriteString(desc)
+		}
+
+		// Print args if defined
+		if len(info.cmd.Args) > 0 {
+			if info.cmd.Short != "" {
+				_, _ = sb.WriteString("\n")
+			}
+			argsIndent := strings.Repeat(" ", 4)
+			for i, arg := range info.cmd.Args {
+				argName := arg.Name
+				if argName == "" {
+					argName = fmt.Sprintf("arg%d", i+1)
+				}
+
+				argType := formatArgType(arg)
+				_, _ = fmt.Fprintf(&sb, "%s%s %s", argsIndent, argName, argType)
+
+				if arg.Default != "" || arg.Required {
+					_, _ = sb.WriteString(" (")
+					if arg.Default != "" {
+						_, _ = fmt.Fprintf(&sb, "default: %s", arg.Default)
+					}
+					if arg.Default != "" && arg.Required {
+						_, _ = sb.WriteString(", ")
+					}
+					if arg.Required {
+						_, _ = sb.WriteString("required")
+					}
+					_, _ = sb.WriteString(")")
+				}
+
+				if arg.Description != "" {
+					_, _ = sb.WriteString("\n")
+					desc := indent(arg.Description, 6)
+					_, _ = sb.WriteString(desc)
+				} else {
+					_, _ = sb.WriteString("\n")
+				}
+			}
+		}
+
+		fmt.Print(sb.String())
 	}
 }
 
 // PrintFlags prints all flags for all commands, using help formatting style
 func PrintFlags(rootCmd *Command) {
-	globalFlags := rootCmd.GetGlobalFlags()
+	// Get all root command options as global flags (not just predefined ones)
+	var globalFlags OptionSet
+	for _, opt := range rootCmd.Options {
+		if opt.Flag != "" && !opt.Hidden {
+			globalFlags = append(globalFlags, opt)
+		}
+	}
 
 	// Collect all commands with their full paths
 	type cmdInfo struct {
@@ -516,7 +614,7 @@ func PrintFlags(rootCmd *Command) {
 
 	// Start collecting from the root command's children
 	for _, child := range rootCmd.Children {
-		collectCommands(child, rootCmd.Name())
+		collectCommands(child, "")
 	}
 
 	// Print global flags
@@ -609,7 +707,7 @@ func PrintFlags(rootCmd *Command) {
 				hasCommandFlags = true
 			}
 
-			fmt.Printf("\n  %s:\n", info.path)
+			fmt.Printf("\n  %s\n", info.path)
 
 			for _, opt := range commandSpecificFlags {
 				var sb strings.Builder

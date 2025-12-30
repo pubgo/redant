@@ -6,7 +6,11 @@ import (
 	"os"
 
 	"github.com/pubgo/redant"
+	"github.com/pubgo/redant/cmds/completioncmd"
 )
+
+// mkdir -p ~/.zsh/completions
+// go run example/fastcommit/main.go completion zsh > ~/.zsh/completions/_fastcommit
 
 func main() {
 	// Create root command
@@ -123,6 +127,7 @@ func main() {
 	// Build command tree
 	commitCmd.Children = append(commitCmd.Children, detailedCmd)
 	rootCmd.Children = append(rootCmd.Children, commitCmd)
+	rootCmd.Children = append(rootCmd.Children, completioncmd.New())
 
 	// Run command
 	err := rootCmd.Invoke().WithOS().Run()
