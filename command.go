@@ -164,6 +164,7 @@ func (c *Command) FullOptions() OptionSet {
 }
 
 // GetGlobalFlags returns the global flags from the root command
+// All non-hidden options in the root command are considered global flags
 func (c *Command) GetGlobalFlags() OptionSet {
 	// Traverse to the root command
 	root := c
@@ -171,11 +172,10 @@ func (c *Command) GetGlobalFlags() OptionSet {
 		root = root.parent
 	}
 
-	// Find global flags (they have specific names)
+	// Return all non-hidden options from root command as global flags
 	var globalFlags OptionSet
 	for _, opt := range root.Options {
-		switch opt.Flag {
-		case "help", "list-commands", "list-flags":
+		if opt.Flag != "" && !opt.Hidden {
 			globalFlags = append(globalFlags, opt)
 		}
 	}
@@ -620,6 +620,30 @@ func (inv *Invocation) run(state *runState) error {
 		}
 	}
 
+	// Execute Action callbacks for options that were set
+	// Don't execute actions if help was requested
+	if !isHelpRequested && !errors.Is(state.flagParseErr, pflag.ErrHelp) && inv.Flags != nil {
+		// Use a map to track which flags we've already processed
+		// This prevents executing Action multiple times for the same flag
+		processedFlags := make(map[string]bool)
+
+		// Execute actions for flags, starting from the current command and moving up to the root.
+		// This ensures that if a flag is defined in multiple commands (e.g., overridden),
+		// the action of the most specific command (the current one) is executed.
+		for cmd := inv.Command; cmd != nil; cmd = cmd.parent {
+			for _, opt := range cmd.Options {
+				if opt.Action != nil && opt.Flag != "" && !processedFlags[opt.Flag] {
+					if ff := inv.Flags.Lookup(opt.Flag); ff != nil && ff.Changed {
+						if err := opt.Action(ff.Value); err != nil {
+							return fmt.Errorf("action for flag %q failed: %w", opt.Flag, err)
+						}
+						processedFlags[opt.Flag] = true
+					}
+				}
+			}
+		}
+	}
+
 	// Parse and assign arguments
 	if inv.Command.RawArgs {
 		// If we're at the root command, then the name is omitted
@@ -670,12 +694,11 @@ func (inv *Invocation) run(state *runState) error {
 	// to get [root, parent, ..., child] order. Chain() will reverse again
 	// to ensure execution order is root -> parent -> ... -> child -> handler
 	var middlewareChain []MiddlewareFunc
-	cmd := inv.Command
-	for cmd != nil {
+	for cmd := inv.Command; cmd != nil; cmd = cmd.parent {
 		if cmd.Middleware != nil {
 			middlewareChain = append(middlewareChain, cmd.Middleware)
 		}
-		cmd = cmd.parent
+
 	}
 	// Reverse to get order from root (parent) to current (child)
 	// This ensures Chain() will execute them in the correct order: root -> parent -> child -> handler
