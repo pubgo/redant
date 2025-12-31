@@ -39,6 +39,11 @@ type Option struct {
 	Deprecated string
 
 	Category string
+
+	// Action is called after the flag is parsed and set.
+	// It receives the flag value and can perform additional validation or side effects.
+	// If Action returns an error, command execution will fail.
+	Action func(val pflag.Value) error `json:"-"`
 }
 
 // OptionSet is a group of options that can be applied to a command.
