@@ -14,7 +14,7 @@ func main() {
 	ok := "true"
 	// Create root command
 	rootCmd := &redant.Command{
-		Use:   "myapp",
+		Use:   "myapp <abc>",
 		Short: "My sample application.",
 		Long:  "A sample application demonstrating all the implemented features.",
 		Options: redant.OptionSet{

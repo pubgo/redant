@@ -4,29 +4,60 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/pubgo/redant)](https://goreportcard.com/report/github.com/pubgo/redant)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-English | [简体中文](README_CN.md)
+[English](README.md) | 简体中文
 
-Redant is a powerful Go CLI framework designed for building large CLI applications. It provides flexible option configuration, excellent default help output, and a middleware-based composition pattern.
+Redant 是一个强大的 Go CLI 框架，专为构建大型命令行应用而设计。它提供灵活的选项配置、优秀的帮助输出和基于中间件的组合模式。
 
-## Features
+## 特性
 
-- **Command Tree Structure**: Supports complex nested command structures with flag inheritance
-- **Multi-source Configuration**: Options can be set from command line flags and environment variables
-- **Middleware System**: Based on Chi router pattern for easy feature extension
-- **Excellent Help System**: Inspired by Go toolchain's help output style
-- **Easy to Test**: Clear separation of stdin/stdout/stderr for unit testing
-- **Flexible Parameter Formats**: Supports query string, form data, and JSON formats
-- **Rich Value Types**: String, Int64, Float64, Bool, Duration, Enum, URL, HostPort, and more
+- **命令树结构**：支持复杂的嵌套命令结构，子命令可继承父命令的标志
+- **多源配置**：选项可从命令行标志和环境变量设置
+- **中间件系统**：基于 Chi 路由器模式，便于功能扩展
+- **优秀的帮助系统**：借鉴 Go 工具链的帮助输出风格
+- **易于测试**：清晰分离 stdin/stdout/stderr，便于单元测试
+- **灵活的参数格式**：支持查询字符串、表单数据和 JSON 格式
+- **丰富的值类型**：String、Int64、Float64、Bool、Duration、Enum、URL、HostPort 等
 
-## Installation
+## 安装
 
 ```bash
 go get github.com/pubgo/redant
 ```
 
-## Quick Start
+## 快速开始
 
-### Basic Usage
+### 基本用法
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    
+    "github.com/pubgo/redant"
+)
+
+func main() {
+    cmd := redant.Command{
+        Use:   "echo <text>",
+        Short: "将给定文本打印到控制台",
+        Handler: func(ctx context.Context, inv *redant.Invocation) error {
+            if len(inv.Args) == 0 {
+                return fmt.Errorf("缺少文本参数")
+            }
+            fmt.Fprintln(inv.Stdout, inv.Args[0])
+            return nil
+        },
+    }
+
+    if err := cmd.Invoke().WithOS().Run(); err != nil {
+        panic(err)
+    }
+}
+```
+
+### 带选项的命令
 
 ```go
 package main
@@ -40,39 +71,6 @@ import (
 )
 
 func main() {
-    cmd := redant.Command{
-        Use:   "echo <text>",
-        Short: "Prints the given text to the console.",
-        Handler: func(ctx context.Context, inv *redant.Invocation) error {
-            if len(inv.Args) == 0 {
-                return fmt.Errorf("missing text")
-            }
-            fmt.Fprintln(inv.Stdout, inv.Args[0])
-            return nil
-        },
-    }
-
-    err := cmd.Invoke().WithOS().Run()
-    if err != nil {
-        panic(err)
-    }
-}
-```
-
-### Command with Options
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "strings"
-    
-    "github.com/pubgo/redant"
-)
-
-func main() {
     var (
         port    int64
         host    string
@@ -81,18 +79,18 @@ func main() {
     
     cmd := redant.Command{
         Use:   "server",
-        Short: "Start the HTTP server",
+        Short: "启动 HTTP 服务器",
         Options: redant.OptionSet{
             {
                 Flag:        "port",
                 Shorthand:   "p",
-                Description: "Port to listen on",
+                Description: "监听端口",
                 Default:     "8080",
                 Value:       redant.Int64Of(&port),
             },
             {
                 Flag:        "host",
-                Description: "Host to bind",
+                Description: "绑定地址",
                 Default:     "localhost",
                 Envs:        []string{"SERVER_HOST"},
                 Value:       redant.StringOf(&host),
@@ -100,14 +98,14 @@ func main() {
             {
                 Flag:        "verbose",
                 Shorthand:   "v",
-                Description: "Enable verbose output",
+                Description: "启用详细输出",
                 Value:       redant.BoolOf(&verbose),
             },
         },
         Handler: func(ctx context.Context, inv *redant.Invocation) error {
-            fmt.Fprintf(inv.Stdout, "Starting server on %s:%d\n", host, port)
+            fmt.Fprintf(inv.Stdout, "在 %s:%d 启动服务器\n", host, port)
             if verbose {
-                fmt.Fprintln(inv.Stdout, "Verbose mode enabled")
+                fmt.Fprintln(inv.Stdout, "详细模式已启用")
             }
             return nil
         },
@@ -120,7 +118,7 @@ func main() {
 }
 ```
 
-### Nested Commands
+### 嵌套命令
 
 ```go
 package main
@@ -135,28 +133,28 @@ import (
 func main() {
     rootCmd := &redant.Command{
         Use:   "app",
-        Short: "An example application",
+        Short: "示例应用",
     }
     
     serverCmd := &redant.Command{
         Use:   "server",
-        Short: "Server commands",
+        Short: "服务器命令",
     }
     
     startCmd := &redant.Command{
         Use:   "start",
-        Short: "Start the server",
+        Short: "启动服务器",
         Handler: func(ctx context.Context, inv *redant.Invocation) error {
-            fmt.Fprintln(inv.Stdout, "Server started!")
+            fmt.Fprintln(inv.Stdout, "服务器已启动！")
             return nil
         },
     }
     
     stopCmd := &redant.Command{
         Use:   "stop",
-        Short: "Stop the server",
+        Short: "停止服务器",
         Handler: func(ctx context.Context, inv *redant.Invocation) error {
-            fmt.Fprintln(inv.Stdout, "Server stopped!")
+            fmt.Fprintln(inv.Stdout, "服务器已停止！")
             return nil
         },
     }
@@ -170,24 +168,24 @@ func main() {
 }
 ```
 
-## Value Types
+## 值类型
 
-Redant provides a rich set of value types:
+Redant 提供丰富的值类型：
 
-| Type | Function | Description |
-|------|----------|-------------|
-| `String` | `StringOf(&v)` | String value |
-| `Int64` | `Int64Of(&v)` | 64-bit integer |
-| `Float64` | `Float64Of(&v)` | 64-bit float |
-| `Bool` | `BoolOf(&v)` | Boolean value |
-| `Duration` | `DurationOf(&v)` | Time duration |
-| `StringArray` | `StringArrayOf(&v)` | String slice |
-| `Enum` | `EnumOf(&v, choices...)` | Enum with validation |
-| `EnumArray` | `EnumArrayOf(&v, choices...)` | Enum array |
-| `URL` | `&URL{}` | URL parsing |
-| `HostPort` | `&HostPort{}` | Host:port parsing |
+| 类型 | 函数 | 描述 |
+|------|------|------|
+| `String` | `StringOf(&v)` | 字符串值 |
+| `Int64` | `Int64Of(&v)` | 64位整数 |
+| `Float64` | `Float64Of(&v)` | 64位浮点数 |
+| `Bool` | `BoolOf(&v)` | 布尔值 |
+| `Duration` | `DurationOf(&v)` | 时间间隔 |
+| `StringArray` | `StringArrayOf(&v)` | 字符串切片 |
+| `Enum` | `EnumOf(&v, choices...)` | 枚举（带验证） |
+| `EnumArray` | `EnumArrayOf(&v, choices...)` | 枚举数组 |
+| `URL` | `&URL{}` | URL 解析 |
+| `HostPort` | `&HostPort{}` | Host:Port 解析 |
 
-### Validation
+### 验证器
 
 ```go
 var port int64
@@ -196,72 +194,72 @@ opt := redant.Option{
     Flag:  "port",
     Value: redant.Validate(redant.Int64Of(&port), func(v *redant.Int64) error {
         if v.Value() < 1 || v.Value() > 65535 {
-            return fmt.Errorf("port must be between 1 and 65535")
+            return fmt.Errorf("端口必须在 1-65535 之间")
         }
         return nil
     }),
 }
 ```
 
-## Middleware
+## 中间件
 
-Redant supports a middleware pattern for cross-cutting concerns:
+Redant 支持中间件模式处理横切关注点：
 
 ```go
 cmd := redant.Command{
     Use:   "example",
-    Short: "Example command",
+    Short: "示例命令",
     Middleware: redant.Chain(
-        // Require exactly 1 argument
+        // 要求恰好 1 个参数
         redant.RequireNArgs(1),
-        // Custom logging middleware
+        // 自定义日志中间件
         func(next redant.HandlerFunc) redant.HandlerFunc {
             return func(ctx context.Context, inv *redant.Invocation) error {
-                fmt.Printf("Executing: %s\n", inv.Command.Name())
+                fmt.Printf("执行: %s\n", inv.Command.Name())
                 err := next(ctx, inv)
-                fmt.Printf("Completed: %s\n", inv.Command.Name())
+                fmt.Printf("完成: %s\n", inv.Command.Name())
                 return err
             }
         },
     ),
     Handler: func(ctx context.Context, inv *redant.Invocation) error {
-        // Handler logic
+        // 处理逻辑
         return nil
     },
 }
 ```
 
-## Parameter Formats
+## 参数格式
 
-Redant supports multiple parameter formats:
+Redant 支持多种参数格式：
 
 ```bash
-# Positional parameters
+# 位置参数
 app arg1 arg2 arg3
 
-# Query string format
+# 查询字符串格式
 app "name=value&age=30"
 
-# Form data format  
+# 表单数据格式
 app "name=value age=30"
 
-# JSON format
+# JSON 格式
 app '{"name":"value","age":30}'
 ```
 
-## Global Flags
+## 全局标志
 
-Built-in global flags available for all commands:
+所有命令都可使用的内置全局标志：
 
-| Flag | Description |
-|------|-------------|
-| `--help, -h` | Show help information |
-| `--list-commands` | List all available commands |
-| `--list-flags` | List all flags |
+| 标志 | 描述 |
+|------|------|
+| `--help, -h` | 显示帮助信息 |
+| `--list-commands` | 列出所有可用命令 |
+| `--list-flags` | 列出所有标志 |
 
-## Testing
+## 测试
 
-Redant makes testing easy by separating I/O:
+Redant 通过分离 I/O 使测试变得简单：
 
 ```go
 func TestCommand(t *testing.T) {
@@ -290,28 +288,23 @@ func TestCommand(t *testing.T) {
 }
 ```
 
-## Documentation
+## 文档
 
-- [Design Document](docs/DESIGN.md) - Detailed architecture and design decisions
-- [Evaluation Report](docs/EVALUATION.md) - Framework evaluation and recommendations
-- [Changelog](docs/CHANGELOG.md) - Version history and changes
-- [Examples](example/) - Example applications
+- [设计文档](docs/DESIGN.md) - 详细的架构和设计决策
+- [评估报告](docs/EVALUATION.md) - 框架评估和改进建议
+- [更新日志](docs/CHANGELOG.md) - 版本历史和变更记录
+- [示例](example/) - 示例应用
 
-## Examples
+## 示例
 
-For more examples, check the [example](example/) directory:
+更多示例请查看 [example](example/) 目录：
 
-- [echo](example/echo/) - Simple echo command
-- [demo](example/demo/) - Feature demonstration
-- [args-test](example/args-test/) - Parameter format testing
-- [env-test](example/env-test/) - Environment variable testing
-- [globalflags](example/globalflags/) - Global flags usage
+- [echo](example/echo/) - 简单的 echo 命令
+- [demo](example/demo/) - 功能演示
+- [args-test](example/args-test/) - 参数格式测试
+- [env-test](example/env-test/) - 环境变量测试
+- [globalflags](example/globalflags/) - 全局标志用法
 
-## License
+## 许可证
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-```
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件。
