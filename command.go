@@ -462,6 +462,16 @@ func (inv *Invocation) run(state *runState) error {
 		}
 	})
 
+	// Add flags from all parent commands to support flag inheritance
+	// This allows child commands to use flags defined in parent commands
+	for p := inv.Command.parent; p != nil; p = p.parent {
+		p.Options.FlagSet(p.Name()).VisitAll(func(f *pflag.Flag) {
+			if inv.Flags.Lookup(f.Name) == nil {
+				inv.Flags.AddFlag(f)
+			}
+		})
+	}
+
 	// If we find a duplicate flag, we want the deeper command's flag to override
 	// the shallow one. Unfortunately, pflag has no way to remove a flag, so we
 	// have to create a copy of the flagset without a value.
@@ -506,50 +516,22 @@ func (inv *Invocation) run(state *runState) error {
 			child.parent = inv.Command
 			inv.Command = child
 			state.commandDepth++
+			// Clear the Deprecated field on already-parsed flags to avoid
+			// printing duplicate deprecated warnings when re-parsing in child commands.
+			// The flags are shared between parent and child FlagSets.
+			inv.Flags.VisitAll(func(f *pflag.Flag) {
+				if f.Changed {
+					f.Deprecated = ""
+				}
+			})
 			return inv.run(state)
 		}
 	}
 
-	// At this point, we have the final command, so collect args
-	// Query string, form data, and JSON format args should be kept as args
-	// for the handler to process, not parsed into flags
-	remainingArgs := make([]string, 0, len(state.allArgs))
-	for _, arg := range state.allArgs {
-		// Skip flags
-		if strings.HasPrefix(arg, "-") {
-			remainingArgs = append(remainingArgs, arg)
-			continue
-		}
-
-		// Check if the argument is in JSON format (starts with { or [)
-		// JSON args should be kept as args, not parsed into flags
-		trimmedArg := strings.TrimSpace(arg)
-		if (strings.HasPrefix(trimmedArg, "{") && strings.HasSuffix(trimmedArg, "}")) ||
-			(strings.HasPrefix(trimmedArg, "[") && strings.HasSuffix(trimmedArg, "]")) {
-			// JSON format args should be kept as args for handler to process
-			remainingArgs = append(remainingArgs, arg)
-			continue
-		}
-
-		// Check if the argument is in query string or form format
-		// These should be treated as args, not flags
-		if strings.Contains(arg, "=") {
-			// Query string and form format args should be kept as args
-			// They will be available in inv.Args for the handler to process
-			remainingArgs = append(remainingArgs, arg)
-		} else {
-			remainingArgs = append(remainingArgs, arg)
-		}
-	}
-
-	// Update state.allArgs with remaining args and re-parse flags
-	state.allArgs = remainingArgs
-	if !inv.Command.RawArgs {
-		state.flagParseErr = inv.Flags.Parse(state.allArgs)
-		parsedArgs = inv.Flags.Args()
-	} else {
-		parsedArgs = state.allArgs
-	}
+	// At this point, we have the final command, so collect remaining args
+	// (non-flag arguments) for the handler
+	// Note: flags have already been parsed above, so parsedArgs contains
+	// the remaining positional arguments
 
 	ignoreFlagParseErrors := inv.Command.RawArgs
 
@@ -698,7 +680,6 @@ func (inv *Invocation) run(state *runState) error {
 		if cmd.Middleware != nil {
 			middlewareChain = append(middlewareChain, cmd.Middleware)
 		}
-
 	}
 	// Reverse to get order from root (parent) to current (child)
 	// This ensures Chain() will execute them in the correct order: root -> parent -> child -> handler

@@ -97,6 +97,11 @@ func (optSet *OptionSet) FlagSet(name string) *pflag.FlagSet {
 			val = DiscardValue
 		}
 
+		// Apply default value to the Value before adding the flag
+		if opt.Default != "" && val != DiscardValue {
+			_ = val.Set(opt.Default) // Ignore error, will be caught during validation
+		}
+
 		fs.AddFlag(&pflag.Flag{
 			Name:        opt.Flag,
 			Shorthand:   opt.Shorthand,

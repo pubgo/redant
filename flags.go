@@ -101,11 +101,11 @@ func (i Int64) Value() int64 {
 }
 
 func (i Int64) String() string {
-	return strconv.Itoa(int(i))
+	return strconv.FormatInt(int64(i), 10)
 }
 
 func (Int64) Type() string {
-	return "int"
+	return "int64"
 }
 
 type Float64 float64

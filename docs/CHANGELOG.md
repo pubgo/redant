@@ -5,7 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.0.5] - 2026-01-20
+
+### Fixed
+- **Int64.Type() return value**: Fixed `Int64.Type()` returning `"int"` instead of `"int64"`, which caused `pflag.GetInt64()` to fail
+- **Duplicate deprecated warnings**: Fixed deprecated flag warnings being displayed twice when using deprecated flags
+- **Flag inheritance**: Fixed child commands not being able to access parent command flags
+- **Default value not applied**: Fixed `Option.Default` values not being applied to the actual `Value` field
+
+### Added
+- Comprehensive unit tests for command execution (`command_test.go`)
+- Comprehensive unit tests for flag value types (`flags_test.go`)
+- Framework evaluation report (`docs/EVALUATION.md`)
 
 ### Changed
 - Refactored project structure to separate command implementations from core framework code
@@ -25,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Previously only predefined global flags (help, version, etc.) were shown
   - Custom flags defined in root command's `Options` are now properly displayed
 
-## [1.0.0] - 2025-12-24
+## [0.0.4] - 2025-12-24
 
 ### Added
 - Initial release of Redant, a powerful Go CLI framework
