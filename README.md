@@ -170,6 +170,15 @@ func main() {
 }
 ```
 
+### Busybox-style invocation (argv0 dispatch)
+
+Redant can route commands based on the executable name (\`argv[0]\`), so you can expose subcommands as standalone binaries via symlinks/hardlinks—similar to busybox.
+
+1. Define your command tree as usual; you can also provide alternative names via \`Aliases\` on a command.
+2. Build your binary, then create symlinks for the subcommands you want to expose, for example: \`ln -sf /usr/local/bin/app /usr/local/bin/echo\`.
+3. Invoking \`echo ...\` (through the symlink) will dispatch directly to the \`echo\` command; the traditional \`app echo ...\` form still works and takes precedence when both are present.
+4. For tests or simulations you can override the executable name manually: \`cmd.Invoke(args...).WithArgv0("echo").Run()\`.
+
 ## Value Types
 
 Redant provides a rich set of value types:

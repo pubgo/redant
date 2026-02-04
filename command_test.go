@@ -423,3 +423,89 @@ func TestDeprecatedFlag(t *testing.T) {
 	// Note: pflag prints deprecation warnings to os.Stderr directly,
 	// not to the provided inv.Stderr. This is expected pflag behavior.
 }
+
+func TestBusyboxArgv0Dispatch(t *testing.T) {
+	var gotArgs []string
+	root := &Command{Use: "app"}
+	child := &Command{
+		Use: "echo",
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			gotArgs = append([]string(nil), inv.Args...)
+			return nil
+		},
+	}
+	root.Children = append(root.Children, child)
+
+	inv := root.Invoke("hello", "world")
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+	inv = inv.WithArgv0("echo")
+
+	if err := inv.Run(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(gotArgs) != 2 || gotArgs[0] != "hello" || gotArgs[1] != "world" {
+		t.Fatalf("unexpected args: %#v", gotArgs)
+	}
+}
+
+func TestBusyboxArgv0Alias(t *testing.T) {
+	var executed bool
+	root := &Command{Use: "app"}
+	child := &Command{
+		Use:     "serve",
+		Aliases: []string{"svc"},
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			executed = true
+			return nil
+		},
+	}
+	root.Children = append(root.Children, child)
+
+	inv := root.Invoke()
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+	inv = inv.WithArgv0("svc")
+
+	if err := inv.Run(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !executed {
+		t.Fatalf("handler for alias was not executed")
+	}
+}
+
+func TestBusyboxArgv0DoesNotOverrideExplicitArgs(t *testing.T) {
+	var executed string
+	root := &Command{Use: "app"}
+	foo := &Command{
+		Use: "foo",
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			executed = "foo"
+			return nil
+		},
+	}
+	bar := &Command{
+		Use: "bar",
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			executed = "bar"
+			return nil
+		},
+	}
+	root.Children = append(root.Children, foo, bar)
+
+	inv := root.Invoke("bar")
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+	inv = inv.WithArgv0("foo")
+
+	if err := inv.Run(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if executed != "bar" {
+		t.Fatalf("expected explicit args to win (bar), got %q", executed)
+	}
+}

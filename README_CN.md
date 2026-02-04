@@ -168,6 +168,15 @@ func main() {
 }
 ```
 
+### Busybox 风格的 argv0 调度
+
+Redant 支持根据可执行文件名（\`argv[0]\`）分发子命令，可以通过软链接/硬链接把子命令暴露成独立命令，类似 busybox。
+
+1. 像平常一样定义命令树；需要额外名字时，可以在命令上设置 \`Aliases\`。
+2. 构建二进制后，为想暴露的子命令创建软链，例如：\`ln -sf /usr/local/bin/app /usr/local/bin/echo\`。
+3. 通过软链执行 \`echo ...\` 会直接命中 \`echo\` 子命令；显式的 \`app echo ...\` 依旧可用，并在两者同时存在时优先使用显式参数。
+4. 在测试或模拟场景，可使用 \`cmd.Invoke(args...).WithArgv0("echo").Run()\` 手动设置 \`argv0\`。
+
 ## 值类型
 
 Redant 提供丰富的值类型：

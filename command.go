@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -216,6 +217,11 @@ type Invocation struct {
 	// during Run.
 	Args []string
 
+	// Arg0 is the executable name used to invoke the program (typically os.Args[0]).
+	// It enables busybox-style dispatch where the binary name maps directly to
+	// a subcommand.
+	Arg0 string
+
 	Stdout io.Writer
 	Stderr io.Writer
 	Stdin  io.Reader
@@ -234,7 +240,17 @@ func (inv *Invocation) WithOS() *Invocation {
 		i.Stdout = os.Stdout
 		i.Stderr = os.Stderr
 		i.Stdin = os.Stdin
+		i.Arg0 = os.Args[0]
 		i.Args = os.Args[1:]
+	})
+}
+
+// WithArgv0 overrides the executable name used for busybox-style dispatch.
+// This is primarily useful for testing or when simulating invocation via
+// symlinked binaries.
+func (inv *Invocation) WithArgv0(arg0 string) *Invocation {
+	return inv.with(func(i *Invocation) {
+		i.Arg0 = arg0
 	})
 }
 
@@ -332,14 +348,8 @@ func getExecCommand(parentCmd *Command, commands map[string]*Command, args []str
 		}
 	}
 
-	// Check if args is empty
 	if len(args) == 0 {
 		return parentCmd, 0
-	}
-
-	// Try to find command by exact match first
-	if cmd, exists := commands[args[0]]; exists {
-		return cmd, 1
 	}
 
 	// Try to find command by colon-separated path
@@ -368,10 +378,18 @@ func getExecCommand(parentCmd *Command, commands map[string]*Command, args []str
 		}
 	}
 
-	// Handle multiple arguments - look for command in the chain
 	currentCmd := parentCmd
 	consumedArgs := 0
-	for i, arg := range args {
+
+	// Seed the traversal using the command map (supports aliases) if available.
+	if cmd, exists := commands[args[0]]; exists {
+		currentCmd = cmd
+		consumedArgs = 1
+	}
+
+	// Walk down the command tree using remaining args.
+	for i := consumedArgs; i < len(args); i++ {
+		arg := args[i]
 		found := false
 		for _, child := range currentCmd.Children {
 			if child.Name() == arg {
@@ -389,6 +407,30 @@ func getExecCommand(parentCmd *Command, commands map[string]*Command, args []str
 	return currentCmd, consumedArgs
 }
 
+func normalizeArgv0(arg0 string) string {
+	if arg0 == "" {
+		return ""
+	}
+
+	base := filepath.Base(arg0)
+	ext := filepath.Ext(base)
+	if ext != "" {
+		base = strings.TrimSuffix(base, ext)
+	}
+
+	return base
+}
+
+func addCommandMapping(commandMap map[string]*Command, key string, cmd *Command) {
+	if key == "" {
+		return
+	}
+	if existing := commandMap[key]; existing != nil && existing != cmd {
+		log.Panicf("duplicate command name: %s", key)
+	}
+	commandMap[key] = cmd
+}
+
 func getCommands(cmd *Command, parentName string) map[string]*Command {
 	if cmd == nil {
 		return nil
@@ -401,17 +443,50 @@ func getCommands(cmd *Command, parentName string) map[string]*Command {
 		name = cmd.Name()
 	}
 
-	commandMap[name] = cmd
+	addCommandMapping(commandMap, name, cmd)
+
+	// Allow busybox-style short lookups for root-level children (one hop away from root).
+	if cmd.parent != nil && cmd.parent.parent == nil {
+		addCommandMapping(commandMap, cmd.Name(), cmd)
+	}
+
+	for _, alias := range cmd.Aliases {
+		alias = strings.TrimSpace(alias)
+		if alias == "" {
+			continue
+		}
+
+		aliasName := parentName + ":" + alias
+		if parentName == "" {
+			aliasName = alias
+		}
+
+		addCommandMapping(commandMap, aliasName, cmd)
+
+		if cmd.parent != nil && cmd.parent.parent == nil {
+			addCommandMapping(commandMap, alias, cmd)
+		}
+	}
 	for _, child := range cmd.Children {
 		for n, command := range getCommands(child, name) {
-			if commandMap[n] != nil {
-				log.Panicf("duplicate command name: %s", n)
-			}
-			commandMap[n] = command
+			addCommandMapping(commandMap, n, command)
 		}
 	}
 
 	return commandMap
+}
+
+func resolveArgv0Command(arg0 string, commands map[string]*Command) *Command {
+	normalized := normalizeArgv0(arg0)
+	if normalized == "" {
+		return nil
+	}
+
+	cmd, ok := commands[normalized]
+	if !ok {
+		return nil
+	}
+	return cmd
 }
 
 func (inv *Invocation) setParentCommand(parent *Command, children []*Command) {
@@ -442,6 +517,11 @@ func (inv *Invocation) run(state *runState) error {
 	// Use the command returned by getExecCommand
 	var consumed int
 	inv.Command, consumed = getExecCommand(parent, commands, state.allArgs)
+	if consumed == 0 {
+		if cmd := resolveArgv0Command(inv.Arg0, commands); cmd != nil {
+			inv.Command = cmd
+		}
+	}
 	if consumed > 0 && consumed <= len(state.allArgs) {
 		state.allArgs = state.allArgs[consumed:]
 	}
