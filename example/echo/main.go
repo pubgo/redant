@@ -32,7 +32,9 @@ func main() {
 			fmt.Printf("Handler: Args = %v\n", inv.Args)
 			fmt.Printf("Handler: upper = %v\n", upper)
 			if len(inv.Args) == 0 {
-				inv.Stderr.Write([]byte("error: missing text\n"))
+				if _, err := inv.Stderr.Write([]byte("error: missing text\n")); err != nil {
+					return err
+				}
 				os.Exit(1)
 			}
 
@@ -41,7 +43,9 @@ func main() {
 				text = strings.ToUpper(text)
 			}
 
-			inv.Stdout.Write([]byte(text))
+			if _, err := inv.Stdout.Write([]byte(text)); err != nil {
+				return err
+			}
 			return nil
 		},
 	}

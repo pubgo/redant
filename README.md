@@ -1,32 +1,49 @@
-# Redant
+# Redant 命令行框架
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/pubgo/redant.svg)](https://pkg.go.dev/github.com/pubgo/redant)
-[![Go Report Card](https://goreportcard.com/badge/github.com/pubgo/redant)](https://goreportcard.com/report/github.com/pubgo/redant)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+Redant 是一个用于构建大型 Go 命令行程序的框架，提供命令树、选项系统、中间件链、帮助系统与多格式参数解析能力。
 
-English | [简体中文](README_CN.md)
+## 文档导航
 
-Redant is a powerful Go CLI framework designed for building large CLI applications. It provides flexible option configuration, excellent default help output, and a middleware-based composition pattern.
-
-## Features
-
-- **Command Tree Structure**: Supports complex nested command structures with flag inheritance
-- **Multi-source Configuration**: Options can be set from command line flags and environment variables
-- **Middleware System**: Based on Chi router pattern for easy feature extension
-- **Excellent Help System**: Inspired by Go toolchain's help output style
-- **Easy to Test**: Clear separation of stdin/stdout/stderr for unit testing
-- **Flexible Parameter Formats**: Supports query string, form data, and JSON formats
-- **Rich Value Types**: String, Int64, Float64, Bool, Duration, Enum, URL, HostPort, and more
-
-## Installation
-
-```bash
-go get github.com/pubgo/redant
+```mermaid
+flowchart TD
+    A[README 总览] --> B[docs/INDEX.md 文档索引]
+    B --> C[docs/DESIGN.md 架构与执行设计]
+    B --> D[docs/EVALUATION.md 质量评估与改进]
+    B --> E[docs/CHANGELOG.md 版本变更]
+    B --> F[example/args-test/README.md 参数解析示例]
 ```
 
-## Quick Start
+- 文档总索引：[`docs/INDEX.md`](docs/INDEX.md)
+- 使用规范速览：[`docs/USAGE_AT_A_GLANCE.md`](docs/USAGE_AT_A_GLANCE.md)
+- 架构设计：[`docs/DESIGN.md`](docs/DESIGN.md)
+- 评估报告：[`docs/EVALUATION.md`](docs/EVALUATION.md)
+- 版本记录：[`docs/CHANGELOG.md`](docs/CHANGELOG.md)
+- 参数示例：[`example/args-test/README.md`](example/args-test/README.md)
 
-### Basic Usage
+术语使用请参考：[`docs/INDEX.md`](docs/INDEX.md) 的“术语约定”章节。
+
+## 核心能力
+
+- 命令树与子命令继承（支持嵌套）
+- 选项多来源配置（命令行、环境变量、默认值）
+- 中间件链式编排
+- 自动帮助信息与全局标志
+- 多格式参数解析（位置参数、查询串、表单、JSON）
+- Busybox 风格 argv0 调度（软链接命令入口）
+
+## 架构总览
+
+```mermaid
+flowchart LR
+    U[用户输入] --> P[命令解析]
+    P --> F[标志解析]
+    F --> A[参数解析]
+    A --> M[中间件链]
+    M --> H[命令处理器]
+    H --> O[输出与退出码]
+```
+
+## 快速开始
 
 ```go
 package main
@@ -35,80 +52,19 @@ import (
     "context"
     "fmt"
     "os"
-    
+
     "github.com/pubgo/redant"
 )
 
 func main() {
     cmd := redant.Command{
         Use:   "echo <text>",
-        Short: "Prints the given text to the console.",
+        Short: "输出传入文本",
         Handler: func(ctx context.Context, inv *redant.Invocation) error {
             if len(inv.Args) == 0 {
-                return fmt.Errorf("missing text")
+                return fmt.Errorf("缺少文本参数")
             }
             fmt.Fprintln(inv.Stdout, inv.Args[0])
-            return nil
-        },
-    }
-
-    err := cmd.Invoke().WithOS().Run()
-    if err != nil {
-        panic(err)
-    }
-}
-```
-
-### Command with Options
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "strings"
-    
-    "github.com/pubgo/redant"
-)
-
-func main() {
-    var (
-        port    int64
-        host    string
-        verbose bool
-    )
-    
-    cmd := redant.Command{
-        Use:   "server",
-        Short: "Start the HTTP server",
-        Options: redant.OptionSet{
-            {
-                Flag:        "port",
-                Shorthand:   "p",
-                Description: "Port to listen on",
-                Default:     "8080",
-                Value:       redant.Int64Of(&port),
-            },
-            {
-                Flag:        "host",
-                Description: "Host to bind",
-                Default:     "localhost",
-                Envs:        []string{"SERVER_HOST"},
-                Value:       redant.StringOf(&host),
-            },
-            {
-                Flag:        "verbose",
-                Shorthand:   "v",
-                Description: "Enable verbose output",
-                Value:       redant.BoolOf(&verbose),
-            },
-        },
-        Handler: func(ctx context.Context, inv *redant.Invocation) error {
-            fmt.Fprintf(inv.Stdout, "Starting server on %s:%d\n", host, port)
-            if verbose {
-                fmt.Fprintln(inv.Stdout, "Verbose mode enabled")
-            }
             return nil
         },
     }
@@ -120,198 +76,133 @@ func main() {
 }
 ```
 
-### Nested Commands
+## Busybox 风格命令入口
 
-```go
-package main
+通过软链接将一个二进制映射为多个独立命令名，框架会根据 `argv0` 自动分发到对应子命令。
 
-import (
-    "context"
-    "fmt"
-    
-    "github.com/pubgo/redant"
-)
+### 完整调用流程（构建到分发）
 
-func main() {
-    rootCmd := &redant.Command{
-        Use:   "app",
-        Short: "An example application",
-    }
-    
-    serverCmd := &redant.Command{
-        Use:   "server",
-        Short: "Server commands",
-    }
-    
-    startCmd := &redant.Command{
-        Use:   "start",
-        Short: "Start the server",
-        Handler: func(ctx context.Context, inv *redant.Invocation) error {
-            fmt.Fprintln(inv.Stdout, "Server started!")
-            return nil
-        },
-    }
-    
-    stopCmd := &redant.Command{
-        Use:   "stop",
-        Short: "Stop the server",
-        Handler: func(ctx context.Context, inv *redant.Invocation) error {
-            fmt.Fprintln(inv.Stdout, "Server stopped!")
-            return nil
-        },
-    }
-    
-    serverCmd.Children = append(serverCmd.Children, startCmd, stopCmd)
-    rootCmd.Children = append(rootCmd.Children, serverCmd)
-    
-    if err := rootCmd.Invoke().WithOS().Run(); err != nil {
-        panic(err)
-    }
-}
+```mermaid
+flowchart TD
+    A[编译生成二进制: app] --> B[创建软连接: ln -sf app echo]
+    B --> C[调用软连接: ./echo hello]
+    C --> D[程序读取 argv0]
+    D --> E{argv0 名称是否与命令/别名一致}
+    E -- 是 --> F[选择对应子命令并执行]
+    E -- 否 --> G[回退到显式参数解析或根命令]
 ```
 
-## Value Types
+流程说明：
 
-Redant provides a rich set of value types:
+1. 先构建主二进制（例如 `app`）。
+2. 通过 `ln -sf` 创建软连接（例如 `echo -> app`）。
+3. 用户调用软连接名（例如 `echo hello`）。
+4. 框架读取 `argv0`（此时通常为 `echo`）。
+5. 若 `argv0` 与命令名或别名匹配，则直接调用该子命令；否则按常规参数路径继续解析。
 
-| Type | Function | Description |
-|------|----------|-------------|
-| `String` | `StringOf(&v)` | String value |
-| `Int64` | `Int64Of(&v)` | 64-bit integer |
-| `Float64` | `Float64Of(&v)` | 64-bit float |
-| `Bool` | `BoolOf(&v)` | Boolean value |
-| `Duration` | `DurationOf(&v)` | Time duration |
-| `StringArray` | `StringArrayOf(&v)` | String slice |
-| `Enum` | `EnumOf(&v, choices...)` | Enum with validation |
-| `EnumArray` | `EnumArrayOf(&v, choices...)` | Enum array |
-| `URL` | `&URL{}` | URL parsing |
-| `HostPort` | `&HostPort{}` | Host:port parsing |
-
-### Validation
-
-```go
-var port int64
-
-opt := redant.Option{
-    Flag:  "port",
-    Value: redant.Validate(redant.Int64Of(&port), func(v *redant.Int64) error {
-        if v.Value() < 1 || v.Value() > 65535 {
-            return fmt.Errorf("port must be between 1 and 65535")
-        }
-        return nil
-    }),
-}
+```mermaid
+flowchart TD
+    A[启动可执行文件] --> B{是否显式提供子命令}
+    B -- 是 --> C[按参数分发]
+    B -- 否 --> D[按 argv0 分发]
+    C --> E[执行目标命令]
+    D --> E
 ```
 
-## Middleware
+示例：
 
-Redant supports a middleware pattern for cross-cutting concerns:
+- 显式调用：`app echo hello`
+- 软链接调用：`echo hello`
 
-```go
-cmd := redant.Command{
-    Use:   "example",
-    Short: "Example command",
-    Middleware: redant.Chain(
-        // Require exactly 1 argument
-        redant.RequireNArgs(1),
-        // Custom logging middleware
-        func(next redant.HandlerFunc) redant.HandlerFunc {
-            return func(ctx context.Context, inv *redant.Invocation) error {
-                fmt.Printf("Executing: %s\n", inv.Command.Name())
-                err := next(ctx, inv)
-                fmt.Printf("Completed: %s\n", inv.Command.Name())
-                return err
-            }
-        },
-    ),
-    Handler: func(ctx context.Context, inv *redant.Invocation) error {
-        // Handler logic
-        return nil
-    },
-}
+## 参数解析流程
+
+框架在命令分发完成后，会进入统一参数解析阶段，支持位置参数、查询串、表单与 JSON。
+
+```mermaid
+flowchart TD
+    A[接收命令行输入] --> B[完成命令分发]
+    B --> C[解析全局/局部标志]
+    C --> D[提取剩余参数]
+    D --> E{参数形态判断}
+    E -- 普通 token --> F[位置参数]
+    E -- 包含 '=' 且含 '&' --> G[查询串参数]
+    E -- 包含 '=' 且含空格 --> H[表单参数]
+    E -- 以 '{' 或 '[' 开头 --> I[JSON 参数]
+    F --> J[写入 ArgSet / inv.Args]
+    G --> J
+    H --> J
+    I --> J
+    J --> K[必填与类型校验]
+    K --> L[进入中间件与 Handler]
 ```
 
-## Parameter Formats
+参数解析落地示例见：[`example/args-test/README.md`](example/args-test/README.md)。
 
-Redant supports multiple parameter formats:
+### 参数解析优先级
 
-```bash
-# Positional parameters
-app arg1 arg2 arg3
-
-# Query string format
-app "name=value&age=30"
-
-# Form data format  
-app "name=value age=30"
-
-# JSON format
-app '{"name":"value","age":30}'
+```mermaid
+flowchart TD
+    A[输入命令行] --> B{是否命中显式子命令}
+    B -- 是 --> C[按显式子命令执行]
+    B -- 否 --> D{argv0 是否命中命令/别名}
+    D -- 是 --> E[按 argv0 分发子命令]
+    D -- 否 --> F[保留根命令路径]
+    C --> G[解析标志]
+    E --> G
+    F --> G
+    G --> H[解析剩余参数]
+    H --> I[进入中间件与 Handler]
 ```
 
-## Global Flags
+优先级顺序：
 
-Built-in global flags available for all commands:
+1. 显式子命令（最高）
+2. `argv0` 命令/别名分发
+3. 根命令默认路径
+4. 标志解析与参数格式解析
 
-| Flag | Description |
-|------|-------------|
-| `--help, -h` | Show help information |
-| `--list-commands` | List all available commands |
-| `--list-flags` | List all flags |
+## 全局标志
 
-## Testing
+- `--help, -h`：显示帮助
+- `--list-commands`：列出命令树
+- `--list-flags`：列出所有标志
 
-Redant makes testing easy by separating I/O:
+## 示例目录
 
-```go
-func TestCommand(t *testing.T) {
-    var stdout, stderr bytes.Buffer
-    
-    cmd := &redant.Command{
-        Use: "test",
-        Handler: func(ctx context.Context, inv *redant.Invocation) error {
-            fmt.Fprintln(inv.Stdout, "Hello, World!")
-            return nil
-        },
-    }
-    
-    inv := cmd.Invoke()
-    inv.Stdout = &stdout
-    inv.Stderr = &stderr
-    
-    err := inv.Run()
-    if err != nil {
-        t.Fatal(err)
-    }
-    
-    if got := stdout.String(); got != "Hello, World!\n" {
-        t.Errorf("got %q, want %q", got, "Hello, World!\n")
-    }
-}
-```
+- `example/demo`：综合示例
+- `example/echo`：最小命令示例
+- `example/env-test`：环境变量示例
+- `example/globalflags`：全局标志示例
+- `example/args-test`：参数格式解析示例
 
-## Documentation
+## AI 协作：文档与 Changelog 维护
 
-- [Design Document](docs/DESIGN.md) - Detailed architecture and design decisions
-- [Evaluation Report](docs/EVALUATION.md) - Framework evaluation and recommendations
-- [Changelog](docs/CHANGELOG.md) - Version history and changes
-- [Examples](example/) - Example applications
+本仓库已提供面向 Copilot Chat 的文档与变更日志维护配置，便于在多人协作时保持文风一致、结构稳定、条目可追溯。
 
-## Examples
+### 相关文件
 
-For more examples, check the [example](example/) directory:
+- 工作区总指引：`.github/copilot-instructions.md`
+- 文档专项规则：`.github/instructions/documentation.instructions.md`
+- Changelog 专项规则：`.github/instructions/changelog.instructions.md`
+- Changelog 维护提示词：`.github/prompts/changelog-maintenance.prompt.md`
+- Changelog 模板参考：`docs/CHANGELOG_LLM_PROMPT.md`
 
-- [echo](example/echo/) - Simple echo command
-- [demo](example/demo/) - Feature demonstration
-- [args-test](example/args-test/) - Parameter format testing
-- [env-test](example/env-test/) - Environment variable testing
-- [globalflags](example/globalflags/) - Global flags usage
+### 怎么使用
 
-## License
+1. 常规文档维护（`README.md`、`docs/**`、`example/**/README.md` 等）：
+    - 直接在聊天中描述文档修改需求，文档专项规则会自动参与。
+2. 维护 `docs/CHANGELOG.md`（推荐）：
+    - 在聊天输入：`/changelog-maintenance draft`
+    - 用于根据当前改动更新 `Unreleased`。
+3. 发布前落版 `CHANGELOG`：
+    - 在聊天输入：`/changelog-maintenance release`
+    - 由 agent 按 `.version/VERSION` 自动执行版本落版。
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-```
+### 维护建议
 
-## License
+- 当前 changelog 流程采用 LLM/agent 维护，不再依赖本地脚本与 task 子命令。
+- 建议在合并前执行一次 `/changelog-maintenance draft`，发布前执行 `/changelog-maintenance release`。
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## 许可证
+
+本项目采用 MIT 许可证，详见 [`LICENSE`](LICENSE)。

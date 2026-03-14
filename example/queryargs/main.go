@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/pubgo/redant"
 )
@@ -66,7 +67,11 @@ func main() {
 				// Convert age value
 				var age int64
 				if ageStr != "" {
-					fmt.Sscanf(ageStr, "%d", &age)
+					parsedAge, err := strconv.ParseInt(ageStr, 10, 64)
+					if err != nil {
+						return fmt.Errorf("invalid age %q: %w", ageStr, err)
+					}
+					age = parsedAge
 				}
 
 				fmt.Printf("Name: %s\n", name)
