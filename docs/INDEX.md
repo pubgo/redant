@@ -23,6 +23,7 @@ flowchart TD
 6. [`../example/args-test/README.md`](../example/args-test/README.md)：参数解析实操样例。
 7. [`../internal/pretty/README.md`](../internal/pretty/README.md)：内部样式库维护说明（依赖迁移与维护边界）。
 8. [`CHANGELOG_LLM_PROMPT.md`](CHANGELOG_LLM_PROMPT.md)：基于 LLM 自动维护 changelog 的提示词模板。
+9. [`../README.md#mcp-集成`](../README.md#mcp-集成)：MCP 工具暴露与命令挂载入口。
 
 ## 维护约定
 

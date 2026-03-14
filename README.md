@@ -30,6 +30,7 @@ flowchart TD
 - 自动帮助信息与全局标志
 - 多格式参数解析（位置参数、查询串、表单、JSON）
 - Busybox 风格 argv0 调度（软链接命令入口）
+- MCP 工具暴露（将命令树映射为 Model Context Protocol Tools）
 
 ## 架构总览
 
@@ -204,6 +205,18 @@ app demo --env-file .env,.env.local
 - `example/env-test`：环境变量示例
 - `example/globalflags`：全局标志示例
 - `example/args-test`：参数格式解析示例
+
+## MCP 集成
+
+Redant 支持将命令树直接映射为 MCP Tools。推荐通过 `cmds/mcpcmd` 挂载命令：
+
+- `mcpcmd.AddMCPCommand(rootCmd)`：将 `mcp` 子命令添加到根命令。
+- `mcp serve --transport stdio`：以 stdio 方式启动 MCP 服务。
+
+说明：
+
+- 工具列表来自当前命令树（默认过滤隐藏命令/隐藏标志）。
+- `tools/call` 会复用现有命令执行链路（标志解析、参数解析、中间件、Handler）。
 
 ## AI 协作：文档与 Changelog 维护
 
