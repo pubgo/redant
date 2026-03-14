@@ -14,10 +14,13 @@ flowchart TD
 ```
 
 - 文档总索引：[`docs/INDEX.md`](docs/INDEX.md)
+- 使用规范速览：[`docs/USAGE_AT_A_GLANCE.md`](docs/USAGE_AT_A_GLANCE.md)
 - 架构设计：[`docs/DESIGN.md`](docs/DESIGN.md)
 - 评估报告：[`docs/EVALUATION.md`](docs/EVALUATION.md)
 - 版本记录：[`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - 参数示例：[`example/args-test/README.md`](example/args-test/README.md)
+
+术语使用请参考：[`docs/INDEX.md`](docs/INDEX.md) 的“术语约定”章节。
 
 ## 核心能力
 
@@ -77,6 +80,26 @@ func main() {
 
 通过软链接将一个二进制映射为多个独立命令名，框架会根据 `argv0` 自动分发到对应子命令。
 
+### 完整调用流程（构建到分发）
+
+```mermaid
+flowchart TD
+    A[编译生成二进制: app] --> B[创建软连接: ln -sf app echo]
+    B --> C[调用软连接: ./echo hello]
+    C --> D[程序读取 argv0]
+    D --> E{argv0 名称是否与命令/别名一致}
+    E -- 是 --> F[选择对应子命令并执行]
+    E -- 否 --> G[回退到显式参数解析或根命令]
+```
+
+流程说明：
+
+1. 先构建主二进制（例如 `app`）。
+2. 通过 `ln -sf` 创建软连接（例如 `echo -> app`）。
+3. 用户调用软连接名（例如 `echo hello`）。
+4. 框架读取 `argv0`（此时通常为 `echo`）。
+5. 若 `argv0` 与命令名或别名匹配，则直接调用该子命令；否则按常规参数路径继续解析。
+
 ```mermaid
 flowchart TD
     A[启动可执行文件] --> B{是否显式提供子命令}
@@ -90,6 +113,53 @@ flowchart TD
 
 - 显式调用：`app echo hello`
 - 软链接调用：`echo hello`
+
+## 参数解析流程
+
+框架在命令分发完成后，会进入统一参数解析阶段，支持位置参数、查询串、表单与 JSON。
+
+```mermaid
+flowchart TD
+    A[接收命令行输入] --> B[完成命令分发]
+    B --> C[解析全局/局部标志]
+    C --> D[提取剩余参数]
+    D --> E{参数形态判断}
+    E -- 普通 token --> F[位置参数]
+    E -- 包含 '=' 且含 '&' --> G[查询串参数]
+    E -- 包含 '=' 且含空格 --> H[表单参数]
+    E -- 以 '{' 或 '[' 开头 --> I[JSON 参数]
+    F --> J[写入 ArgSet / inv.Args]
+    G --> J
+    H --> J
+    I --> J
+    J --> K[必填与类型校验]
+    K --> L[进入中间件与 Handler]
+```
+
+参数解析落地示例见：[`example/args-test/README.md`](example/args-test/README.md)。
+
+### 参数解析优先级
+
+```mermaid
+flowchart TD
+    A[输入命令行] --> B{是否命中显式子命令}
+    B -- 是 --> C[按显式子命令执行]
+    B -- 否 --> D{argv0 是否命中命令/别名}
+    D -- 是 --> E[按 argv0 分发子命令]
+    D -- 否 --> F[保留根命令路径]
+    C --> G[解析标志]
+    E --> G
+    F --> G
+    G --> H[解析剩余参数]
+    H --> I[进入中间件与 Handler]
+```
+
+优先级顺序：
+
+1. 显式子命令（最高）
+2. `argv0` 命令/别名分发
+3. 根命令默认路径
+4. 标志解析与参数格式解析
 
 ## 全局标志
 

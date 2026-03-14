@@ -46,6 +46,62 @@ flowchart TD
     K --> L[执行 Handler]
 ```
 
+### 3.1 参数解析细分流程
+
+```mermaid
+flowchart TD
+    A[进入参数解析阶段] --> B{RawArgs 是否开启}
+    B -- 是 --> C[跳过标志解析并保留原始参数]
+    B -- 否 --> D[使用 pflag 解析标志]
+    D --> E[得到 parsedArgs]
+    C --> F[参数格式识别]
+    E --> F
+    F --> G{参数是否包含 '='}
+    G -- 否 --> H[位置参数处理]
+    G -- 是 --> I{是否包含 '&'}
+    I -- 是 --> J[按查询串解析]
+    I -- 否 --> K{是否包含空格}
+    K -- 是 --> L[按表单解析]
+    K -- 否 --> M{是否 JSON 对象/数组}
+    M -- 是 --> N[按 JSON 解析]
+    M -- 否 --> O[作为普通键值参数]
+    H --> P[写入 inv.Args / ArgSet]
+    J --> P
+    L --> P
+    N --> P
+    O --> P
+    P --> Q[执行必填项与类型校验]
+    Q --> R[交给中间件链与 Handler]
+```
+
+关键点：
+
+- 参数解析发生在命令定位与标志合并之后。
+- `RawArgs=true` 时，命令自行处理参数；框架不做常规标志解析。
+- 对于复杂参数场景，建议在处理器中显式调用 `ParseQueryArgs`、`ParseFormArgs`、`ParseJSONArgs`。
+
+### 3.2 解析优先级规则
+
+```mermaid
+flowchart TD
+    A[命令输入] --> B{显式子命令是否匹配}
+    B -- 是 --> C[选择显式子命令]
+    B -- 否 --> D{argv0 是否匹配命令/别名}
+    D -- 是 --> E[选择 argv0 对应子命令]
+    D -- 否 --> F[使用根命令]
+    C --> G[合并并解析标志]
+    E --> G
+    F --> G
+    G --> H[参数形态识别与解析]
+    H --> I[校验与执行]
+```
+
+规则摘要：
+
+1. 显式子命令优先于 `argv0`。
+2. `argv0` 仅在未显式指定子命令时生效。
+3. 命令最终确定后，才进入标志解析与参数解析阶段。
+
 ## 4. 执行状态机
 
 ```mermaid
@@ -93,6 +149,30 @@ flowchart TD
 - 显式子命令优先于 argv0。
 - argv0 支持命令名与别名。
 - 行为用于软链接入口场景，便于将子命令暴露为独立命令。
+
+### 6.1 部署与运行时序（构建 + 软连接）
+
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant FS as 文件系统
+    participant Bin as app 二进制
+    participant RT as 运行时分发器
+
+    Dev->>Bin: 构建生成 app
+    Dev->>FS: ln -sf app echo
+    Dev->>FS: 执行 ./echo hello
+    FS->>Bin: 启动 app（argv0=echo）
+    Bin->>RT: 传入 argv0 与参数
+    RT->>RT: 检查 argv0 是否匹配命令/别名
+    alt 匹配成功
+        RT->>RT: 选择对应子命令
+        RT-->>Dev: 执行子命令结果
+    else 未匹配
+        RT->>RT: 回退到显式参数解析或根命令
+        RT-->>Dev: 帮助信息或默认执行结果
+    end
+```
 
 ## 7. 扩展点
 
