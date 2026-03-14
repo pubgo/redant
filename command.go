@@ -720,6 +720,23 @@ func (inv *Invocation) run(state *runState) error {
 		inv.Args = parsedArgs[state.commandDepth:]
 	}
 
+	if inv.Flags != nil {
+		if internalArgsFlag := inv.Flags.Lookup(internalArgsOverrideFlag); internalArgsFlag != nil && internalArgsFlag.Changed {
+			var overriddenArgs []string
+			switch v := internalArgsFlag.Value.(type) {
+			case *StringArray:
+				overriddenArgs = append(overriddenArgs, (*v)...)
+			default:
+				parsed, err := readAsCSV(internalArgsFlag.Value.String())
+				if err != nil {
+					return fmt.Errorf("reading %q override values: %w", internalArgsOverrideFlag, err)
+				}
+				overriddenArgs = append(overriddenArgs, parsed...)
+			}
+			inv.Args = append([]string(nil), overriddenArgs...)
+		}
+	}
+
 	// Parse args and set values to Arg.Value if Args are defined
 	// Skip args parsing and validation if help was requested
 	if len(inv.Command.Args) > 0 && !isHelpRequested && !errors.Is(state.flagParseErr, pflag.ErrHelp) {

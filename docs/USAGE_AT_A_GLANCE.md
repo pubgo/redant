@@ -61,10 +61,11 @@ flowchart TD
 | 环境变量回退 | `GIT_AUTHOR=alice app repo commit` | `Envs` 配置生效      |
 | 默认值       | 未传值时自动应用                   | 由 `Default` 指定    |
 
-内建全局环境标志：
+内建全局标志：
 
 - `--env, -e KEY=VALUE`：设置环境变量（支持重复与 CSV）。
 - `--env-file FILE`：从 env 文件加载环境变量（支持重复与 CSV）。
+- `--args VALUE`：内部隐藏标志；支持重复与 CSV，用于覆盖命令位置参数。
 
 快速示例：
 
@@ -74,7 +75,11 @@ app demo --env A=1,B=2
 app demo --env-file .env
 app demo --env-file .env --env-file .env.local
 app demo --env-file .env,.env.local
+app demo --args first --args second
+app demo --args first,second
 ```
+
+说明：`--args` 为内部能力，默认不会出现在帮助信息与 `--list-flags` 输出中。
 
 ## 4) 通用输入模板
 

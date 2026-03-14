@@ -77,6 +77,7 @@ flowchart TD
 关键点：
 
 - 参数解析发生在命令定位与标志合并之后。
+- 非 `RawArgs` 模式下，若设置隐藏内部标志 `--args`，则在参数解析前用其值覆盖 `inv.Args`（支持重复与 CSV）。
 - `RawArgs=true` 时，命令自行处理参数；框架不做常规标志解析。
 - 对于复杂参数场景，建议在处理器中显式调用 `ParseQueryArgs`、`ParseFormArgs`、`ParseJSONArgs`。
 

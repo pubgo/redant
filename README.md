@@ -168,6 +168,9 @@ flowchart TD
 - `--list-flags`：列出所有标志
 - `--env, -e KEY=VALUE`：设置环境变量（支持重复与 CSV 批量）
 - `--env-file FILE`：从 env 文件加载环境变量（支持重复与 CSV 批量）
+- `--args VALUE`：内部隐藏标志；支持重复与 CSV，用于直接覆盖命令位置参数
+
+> 说明：`--args` 为内部能力，默认不会出现在帮助与标志列表中。
 
 ### 环境标志使用示例
 

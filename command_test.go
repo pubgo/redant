@@ -763,3 +763,42 @@ func TestBusyboxArgv0DoesNotOverrideExplicitArgs(t *testing.T) {
 		t.Fatalf("expected explicit args to win (bar), got %q", executed)
 	}
 }
+
+func TestInternalArgsFlagOverridesParsedArgs(t *testing.T) {
+	var gotFirst string
+	var gotSecond string
+
+	cmd := &Command{
+		Use:   "app",
+		Short: "test internal args flag",
+		Args: ArgSet{
+			{Name: "first", Value: StringOf(&gotFirst)},
+			{Name: "second", Value: StringOf(&gotSecond)},
+		},
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			if len(inv.Args) != 2 {
+				t.Fatalf("inv.Args length = %d, want 2", len(inv.Args))
+			}
+			if inv.Args[0] != "from-flag-1" || inv.Args[1] != "from-flag-2" {
+				t.Fatalf("inv.Args = %#v, want [from-flag-1 from-flag-2]", inv.Args)
+			}
+			return nil
+		},
+	}
+
+	inv := cmd.Invoke("from-cli-1", "from-cli-2", "--args", "from-flag-1", "--args", "from-flag-2")
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+
+	err := inv.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotFirst != "from-flag-1" {
+		t.Fatalf("first arg value = %q, want %q", gotFirst, "from-flag-1")
+	}
+	if gotSecond != "from-flag-2" {
+		t.Fatalf("second arg value = %q, want %q", gotSecond, "from-flag-2")
+	}
+}
