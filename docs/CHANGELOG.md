@@ -1,68 +1,49 @@
-# Changelog
+# 变更日志
 
-All notable changes to this project will be documented in this file.
+本文档记录项目的关键版本变化。
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+> 关联文档：[`文档索引`](INDEX.md) · [`设计文档`](DESIGN.md) · [`评估报告`](EVALUATION.md)
+
+## 版本演进图
+
+```mermaid
+flowchart LR
+    V004[v0.0.4 初始版本] --> V005[v0.0.5 稳定性与可用性增强]
+```
 
 ## [v0.0.5] - 2026-01-20
 
-### Fixed
-- **Int64.Type() return value**: Fixed `Int64.Type()` returning `"int"` instead of `"int64"`, which caused `pflag.GetInt64()` to fail
-- **Duplicate deprecated warnings**: Fixed deprecated flag warnings being displayed twice when using deprecated flags
-- **Flag inheritance**: Fixed child commands not being able to access parent command flags
-- **Default value not applied**: Fixed `Option.Default` values not being applied to the actual `Value` field
+### 修复
 
-### Added
-- Comprehensive unit tests for command execution (`command_test.go`)
-- Comprehensive unit tests for flag value types (`flags_test.go`)
-- Framework evaluation report (`docs/EVALUATION.md`)
+- 修复 `Int64.Type()` 返回类型错误导致 `pflag.GetInt64()` 获取失败的问题。
+- 修复废弃标志告警重复显示的问题。
+- 修复子命令无法继承父命令标志的问题。
+- 修复 `Option.Default` 默认值未正确应用到实际值的问题。
 
-### Changed
-- Refactored project structure to separate command implementations from core framework code
-- Moved CompletionCommand to cmds/completioncmd directory
-- Removed configuration file support and related features for better simplicity
-- Removed fsnotify dependency used for config hot-reload
-- Improved `--list-commands` output format:
-  - Removed "COMMANDS" header for cleaner display
-  - Command descriptions now appear below command names
-  - Commands with defined `Args` now display argument information (name, type, defaults, requirements)
-  - Reduced indentation for more compact display
-- Improved `--list-flags` output format:
-  - Subcommand paths no longer include root command name
-  - Removed trailing colons from subcommand paths
-- Enhanced global flags display:
-  - All root command options (non-hidden) are now displayed as global flags in help and `--list-flags`
-  - Previously only predefined global flags (help, version, etc.) were shown
-  - Custom flags defined in root command's `Options` are now properly displayed
+### 新增
 
-## [0.0.4] - 2025-12-24
+- 增加命令执行相关单元测试（`command_test.go`）。
+- 增加标志值类型相关单元测试（`flags_test.go`）。
+- 增加框架评估文档（`docs/EVALUATION.md`）。
 
-### Added
-- Initial release of Redant, a powerful Go CLI framework
-- Command tree structure with support for complex nested commands
-- Multi-source configuration from command line flags, environment variables, and configuration files
-- Middleware system based on Chi router pattern
-- Excellent help system inspired by Go toolchain
-- Easy testing with clear separation of standard input/output
-- Colon-separated command paths (`command:sub-cmd` format)
-- Flexible parameter formats (positional, query string, form data, JSON)
-- Global flag system with unified management
-- Support for various argument formats including:
-  - Positional arguments
-  - Query string format (e.g., `name=value&age=30`)
-  - Form data format (e.g., `name=value age=30`)
-  - JSON format (object and array)
-- Comprehensive example applications demonstrating all features
-- Environment variable support with multiple fallback options
-- Enum and enum array value types
-- Command-specific and global option handling
-- Automatic help generation for commands and flags
-- Subcommand conflict resolution
-- Argument parsing with type validation
-- Support for required and optional flags with default values
-- Flag shorthand support
-- Nested command support with inheritance
-- Rich set of value types (string, int, bool, etc.)
-- Customizable help templates
-- Comprehensive test examples
+### 变更
+
+- 优化目录结构，分离核心框架与命令实现。
+- 将补全命令移动到 `cmds/completioncmd`。
+- 移除配置文件与热更新相关能力，以保持框架简洁。
+- 优化 `--list-commands` 输出格式：去掉冗余标题、增强参数展示。
+- 优化 `--list-flags` 输出格式：精简子命令路径展示。
+- 增强全局标志显示：根命令中非隐藏标志可统一展示为全局标志。
+
+## [v0.0.4] - 2025-12-24
+
+### 新增
+
+- 发布 Redant 初始版本。
+- 支持命令树结构与多级子命令。
+- 支持命令行标志与环境变量多来源配置。
+- 支持中间件链式编排。
+- 支持自动帮助系统。
+- 支持多格式参数：位置参数、查询串、表单、JSON。
+- 支持统一全局标志管理。
+- 提供示例工程与基础测试。
