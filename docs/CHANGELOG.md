@@ -8,8 +8,20 @@
 
 ```mermaid
 flowchart LR
+    U[Unreleased 当前开发中] --> V005[v0.0.5 稳定性与可用性增强]
     V004[v0.0.4 初始版本] --> V005[v0.0.5 稳定性与可用性增强]
 ```
+
+## [Unreleased]
+
+### 变更
+
+- 将 `github.com/coder/pretty` 迁移为内部实现 `internal/pretty`，以消除上游停止维护带来的依赖风险。
+- `help.go` 改为使用内部导入路径：`github.com/pubgo/redant/internal/pretty`。
+
+### 文档
+
+- 新增内部维护文档：`internal/pretty/README.md`。
 
 ## [v0.0.5] - 2026-01-20
 

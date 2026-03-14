@@ -13,9 +13,9 @@ import (
 	"text/tabwriter"
 	"text/template"
 
-	"github.com/coder/pretty"
 	"github.com/mitchellh/go-wordwrap"
 	"github.com/muesli/termenv"
+	"github.com/pubgo/redant/internal/pretty"
 	"golang.org/x/term"
 )
 
