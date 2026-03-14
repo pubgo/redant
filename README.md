@@ -9,7 +9,7 @@ flowchart TD
     A[README 总览] --> B[docs/INDEX.md 文档索引]
     B --> C[docs/DESIGN.md 架构与执行设计]
     B --> D[docs/EVALUATION.md 质量评估与改进]
-    B --> E[docs/CHANGELOG.md 版本变更]
+    B --> E[.version/changelog/README.md 版本变更]
     B --> F[example/args-test/README.md 参数解析示例]
 ```
 
@@ -17,7 +17,7 @@ flowchart TD
 - 使用规范速览：[`docs/USAGE_AT_A_GLANCE.md`](docs/USAGE_AT_A_GLANCE.md)
 - 架构设计：[`docs/DESIGN.md`](docs/DESIGN.md)
 - 评估报告：[`docs/EVALUATION.md`](docs/EVALUATION.md)
-- 版本记录：[`docs/CHANGELOG.md`](docs/CHANGELOG.md)
+- 版本记录：[`.version/changelog/README.md`](.version/changelog/README.md)
 - 参数示例：[`example/args-test/README.md`](example/args-test/README.md)
 
 术语使用请参考：[`docs/INDEX.md`](docs/INDEX.md) 的“术语约定”章节。
@@ -218,9 +218,9 @@ app demo --env-file .env,.env.local
 
 1. 常规文档维护（`README.md`、`docs/**`、`example/**/README.md` 等）：
     - 直接在聊天中描述文档修改需求，文档专项规则会自动参与。
-2. 维护 `docs/CHANGELOG.md`（推荐）：
+2. 维护 `.version/changelog/Unreleased.md`（推荐）：
     - 在聊天输入：`/changelog-maintenance draft`
-    - 用于根据当前改动更新 `Unreleased`。
+    - 用于根据当前改动更新 `Unreleased.md`。
 3. 发布前落版 `CHANGELOG`：
     - 在聊天输入：`/changelog-maintenance release`
     - 由 agent 按 `.version/VERSION` 自动执行版本落版。

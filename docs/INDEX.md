@@ -19,7 +19,7 @@ flowchart TD
 2. [`USAGE_AT_A_GLANCE.md`](USAGE_AT_A_GLANCE.md)：子命令命名、参数形态与标志（Flag）规范速览。
 3. [`DESIGN.md`](DESIGN.md)：核心模型、解析流程、状态机、扩展点。
 4. [`EVALUATION.md`](EVALUATION.md)：当前质量评估、风险、优化建议。
-5. [`CHANGELOG.md`](CHANGELOG.md)：版本增量变化，便于追踪设计演进。
+5. [`../.version/changelog/README.md`](../.version/changelog/README.md)：版本增量变化，便于追踪设计演进。
 6. [`../example/args-test/README.md`](../example/args-test/README.md)：参数解析实操样例。
 7. [`../internal/pretty/README.md`](../internal/pretty/README.md)：内部样式库维护说明（依赖迁移与维护边界）。
 8. [`CHANGELOG_LLM_PROMPT.md`](CHANGELOG_LLM_PROMPT.md)：基于 LLM 自动维护 changelog 的提示词模板。
@@ -27,7 +27,7 @@ flowchart TD
 ## 维护约定
 
 - 新增模块时：先更新 `DESIGN.md`，再补充对应示例文档。
-- 变更行为时：同步更新 `CHANGELOG.md` 与 `EVALUATION.md` 的风险项。
+- 变更行为时：同步更新 `.version/changelog/Unreleased.md` 与 `EVALUATION.md` 的风险项。
 - 文档统一使用中文，并优先使用 Mermaid 图表达流程、结构与状态。
 - 外部依赖迁移到内部实现时，需补充对应内部模块维护文档（如 `internal/*/README.md`）。
 

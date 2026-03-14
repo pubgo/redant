@@ -43,7 +43,7 @@
 
 - 文档入口：`docs/INDEX.md`。
 - 涉及架构或流程变化时，先更新 `docs/DESIGN.md`，再补示例/说明文档。
-- 行为变更需同步 `docs/CHANGELOG.md`，必要时更新 `docs/EVALUATION.md`。
+- 行为变更需同步 `.version/changelog/Unreleased.md`，必要时更新 `docs/EVALUATION.md`。
 - 文档默认使用中文，流程图优先 Mermaid。
 
 ## 实施原则（对 AI 代理）
