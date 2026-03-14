@@ -166,6 +166,33 @@ flowchart TD
 - `--help, -h`：显示帮助
 - `--list-commands`：列出命令树
 - `--list-flags`：列出所有标志
+- `--env, -e KEY=VALUE`：设置环境变量（支持重复与 CSV 批量）
+- `--env-file FILE`：从 env 文件加载环境变量（支持重复与 CSV 批量）
+
+### 环境标志使用示例
+
+```text
+# 单个变量
+app demo --env APP_MODE=dev
+
+# 简写
+app demo -e APP_MODE=dev
+
+# 重复传参
+app demo -e APP_MODE=dev -e APP_REGION=cn
+
+# CSV 批量
+app demo --env APP_MODE=dev,APP_REGION=cn
+
+# 读取单个 env 文件
+app demo --env-file .env
+
+# 重复读取多个 env 文件
+app demo --env-file .env --env-file .env.local
+
+# CSV 批量读取多个 env 文件
+app demo --env-file .env,.env.local
+```
 
 ## 示例目录
 

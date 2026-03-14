@@ -991,6 +991,16 @@ func parseAndSetArgs(argsDef ArgSet, args []string) error {
 //
 //nolint:revive
 func (inv *Invocation) Run() (err error) {
+	restoreEnv, preloadErr := preloadEnvFromArgs(inv.Args)
+	if preloadErr != nil {
+		return fmt.Errorf("preloading environment variables: %w", preloadErr)
+	}
+	defer func() {
+		if restoreEnv != nil {
+			err = errors.Join(err, restoreEnv())
+		}
+	}()
+
 	for _, child := range inv.Command.Children {
 		child.parent = inv.Command
 	}

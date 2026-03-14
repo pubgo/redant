@@ -19,6 +19,14 @@ flowchart LR
 > - 使用 LLM 提示词自动更新：[`CHANGELOG_LLM_PROMPT.md`](CHANGELOG_LLM_PROMPT.md)
 > - 建议通过 agent 提示词执行：`/changelog-maintenance draft|release`
 
+### 新增
+
+- 新增内建全局环境标志：`--env`（简写 `-e`）与 `--env-file`，支持在命令解析前注入环境变量。
+
+### 修复
+
+- 修复 `preloadEnvFromArgs` 在预解析失败时可能残留已写入环境变量的问题，失败路径会自动回滚已变更项。
+
 ### 变更
 
 - 将 `github.com/coder/pretty` 迁移为内部实现 `internal/pretty`，以消除上游停止维护带来的依赖风险。
@@ -27,6 +35,7 @@ flowchart LR
 ### 文档
 
 - 新增内部维护文档：`internal/pretty/README.md`。
+- 更新 `README.md` 与 `docs/USAGE_AT_A_GLANCE.md`，补充全局环境标志说明与使用示例。
 
 ## [v0.0.5] - 2026-01-20
 

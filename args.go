@@ -268,6 +268,17 @@ func GlobalFlags() OptionSet {
 			Description: "List all flags.",
 			Value:       BoolOf(new(bool)),
 		},
+		{
+			Flag:        "env",
+			Shorthand:   "e",
+			Description: "Set environment variables (format: KEY=VALUE). Supports repeat and CSV.",
+			Value:       StringArrayOf(new([]string)),
+		},
+		{
+			Flag:        "env-file",
+			Description: "Load environment variables from file(s). Supports repeat and CSV.",
+			Value:       StringArrayOf(new([]string)),
+		},
 	}
 }
 
