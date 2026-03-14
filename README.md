@@ -175,6 +175,34 @@ flowchart TD
 - `example/globalflags`：全局标志示例
 - `example/args-test`：参数格式解析示例
 
+## AI 协作：文档与 Changelog 维护
+
+本仓库已提供面向 Copilot Chat 的文档与变更日志维护配置，便于在多人协作时保持文风一致、结构稳定、条目可追溯。
+
+### 相关文件
+
+- 工作区总指引：`.github/copilot-instructions.md`
+- 文档专项规则：`.github/instructions/documentation.instructions.md`
+- Changelog 专项规则：`.github/instructions/changelog.instructions.md`
+- Changelog 维护提示词：`.github/prompts/changelog-maintenance.prompt.md`
+- Changelog 模板参考：`docs/CHANGELOG_LLM_PROMPT.md`
+
+### 怎么使用
+
+1. 常规文档维护（`README.md`、`docs/**`、`example/**/README.md` 等）：
+    - 直接在聊天中描述文档修改需求，文档专项规则会自动参与。
+2. 维护 `docs/CHANGELOG.md`（推荐）：
+    - 在聊天输入：`/changelog-maintenance draft`
+    - 用于根据当前改动更新 `Unreleased`。
+3. 发布前落版 `CHANGELOG`：
+    - 在聊天输入：`/changelog-maintenance release`
+    - 由 agent 按 `.version/VERSION` 自动执行版本落版。
+
+### 维护建议
+
+- 当前 changelog 流程采用 LLM/agent 维护，不再依赖本地脚本与 task 子命令。
+- 建议在合并前执行一次 `/changelog-maintenance draft`，发布前执行 `/changelog-maintenance release`。
+
 ## 许可证
 
 本项目采用 MIT 许可证，详见 [`LICENSE`](LICENSE)。

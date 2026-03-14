@@ -14,6 +14,11 @@ flowchart LR
 
 ## [Unreleased]
 
+> 推荐维护方式：
+>
+> - 使用 LLM 提示词自动更新：[`CHANGELOG_LLM_PROMPT.md`](CHANGELOG_LLM_PROMPT.md)
+> - 建议通过 agent 提示词执行：`/changelog-maintenance draft|release`
+
 ### 变更
 
 - 将 `github.com/coder/pretty` 迁移为内部实现 `internal/pretty`，以消除上游停止维护带来的依赖风险。
