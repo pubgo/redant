@@ -15,8 +15,9 @@ import (
 
 	"github.com/mitchellh/go-wordwrap"
 	"github.com/muesli/termenv"
-	"github.com/pubgo/redant/internal/pretty"
 	"golang.org/x/term"
+
+	"github.com/pubgo/redant/internal/pretty"
 )
 
 //go:embed help.tpl

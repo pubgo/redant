@@ -29,7 +29,9 @@ See each sub-command's help for details on how to use the generated script.`,
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			if len(inv.Args) == 0 {
-				fmt.Fprintf(inv.Stderr, "error: shell argument is required. Available shells: bash, zsh, fish\n")
+				if _, err := fmt.Fprintf(inv.Stderr, "error: shell argument is required. Available shells: bash, zsh, fish\n"); err != nil {
+					return fmt.Errorf("write stderr: %w", err)
+				}
 				return fmt.Errorf("missing shell argument")
 			}
 
@@ -42,7 +44,9 @@ See each sub-command's help for details on how to use the generated script.`,
 			case "fish":
 				return generateFishCompletion(ctx, inv)
 			default:
-				fmt.Fprintf(inv.Stderr, "error: unsupported shell: %s. Available shells: bash, zsh, fish\n", shell)
+				if _, err := fmt.Fprintf(inv.Stderr, "error: unsupported shell: %s. Available shells: bash, zsh, fish\n", shell); err != nil {
+					return fmt.Errorf("write stderr: %w", err)
+				}
 				return fmt.Errorf("unsupported shell: %s", shell)
 			}
 		},
@@ -100,9 +104,15 @@ complete -F %s %s
 `, progName, progName)
 
 	// Write the full script
-	fmt.Fprint(inv.Stdout, header)
-	commandsBuf.WriteTo(inv.Stdout)
-	fmt.Fprint(inv.Stdout, footer)
+	if _, err := fmt.Fprint(inv.Stdout, header); err != nil {
+		return err
+	}
+	if _, err := commandsBuf.WriteTo(inv.Stdout); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprint(inv.Stdout, footer); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -113,10 +123,10 @@ func generateBashCommandCompletions(cmd *redant.Command, indent string, buf *byt
 	fullName := cmd.FullName()
 
 	// Generate option completions for this command
-	buf.WriteString(fmt.Sprintf(`    %q)
+	fmt.Fprintf(buf, `    %q)
         # Completions for %s
         local opts="--help "
-`, fullName, cmdName))
+`, fullName, cmdName)
 
 	// Add all options
 	for _, opt := range cmd.FullOptions() {
@@ -124,9 +134,9 @@ func generateBashCommandCompletions(cmd *redant.Command, indent string, buf *byt
 			continue
 		}
 		if opt.Flag != "" {
-			buf.WriteString(fmt.Sprintf("        opts+='--%s '\n", opt.Flag))
+			fmt.Fprintf(buf, "        opts+='--%s '\n", opt.Flag)
 			if opt.Shorthand != "" {
-				buf.WriteString(fmt.Sprintf("        opts+='-%s '\n", opt.Shorthand))
+				fmt.Fprintf(buf, "        opts+='-%s '\n", opt.Shorthand)
 			}
 		}
 	}
@@ -136,7 +146,7 @@ func generateBashCommandCompletions(cmd *redant.Command, indent string, buf *byt
 		buf.WriteString("        local subcmds=\"")
 		for _, child := range cmd.Children {
 			if !child.Hidden {
-				buf.WriteString(fmt.Sprintf("%s ", child.Name()))
+				buf.WriteString(child.Name() + " ")
 			}
 		}
 		buf.WriteString("\"\n")
@@ -188,9 +198,15 @@ func generateZshCompletion(ctx context.Context, inv *redant.Invocation) error {
 `, progName)
 
 	// Write the full script
-	fmt.Fprint(inv.Stdout, header)
-	commandsBuf.WriteTo(inv.Stdout)
-	fmt.Fprint(inv.Stdout, footer)
+	if _, err := fmt.Fprint(inv.Stdout, header); err != nil {
+		return err
+	}
+	if _, err := commandsBuf.WriteTo(inv.Stdout); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprint(inv.Stdout, footer); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -202,10 +218,7 @@ func generateZshCommandCompletions(cmd *redant.Command, buf *bytes.Buffer) {
 
 	// Generate command entry
 	if fullName == cmdName { // Root command
-		buf.WriteString(fmt.Sprintf("    '::subcommands:(%s)'", getZshSubcommands(cmd)))
-	} else {
-		// For subcommands, we need to add them to the appropriate context
-		// This is a simplified version - full zsh completion would require more complex context management
+		fmt.Fprintf(buf, "    '::subcommands:(%s)'", getZshSubcommands(cmd))
 	}
 
 	// Add options
@@ -221,7 +234,7 @@ func generateZshCommandCompletions(cmd *redant.Command, buf *bytes.Buffer) {
 			optDef = fmt.Sprintf("'--%s[%s]'", opt.Flag, opt.Description)
 		}
 
-		buf.WriteString(fmt.Sprintf(" %s", optDef))
+		buf.WriteString(" " + optDef)
 	}
 
 	// Generate completions for subcommands
@@ -239,7 +252,7 @@ func generateZshCommandCompletions(cmd *redant.Command, buf *bytes.Buffer) {
             local subcommands=(")
 		for _, child := range cmd.Children {
 			if !child.Hidden {
-				buf.WriteString(fmt.Sprintf("'%s:%s' ", child.Name(), child.Short))
+				buf.WriteString("'" + child.Name() + ":" + child.Short + "' ")
 			}
 		}
 		buf.WriteString(")")
@@ -283,8 +296,12 @@ complete -c %s -n "__fish_use_subcommand" -a "completion" -d "Generate the autoc
 	generateFishCommandCompletions(cmd, &commandsBuf)
 
 	// Write the full script
-	fmt.Fprint(inv.Stdout, header)
-	commandsBuf.WriteTo(inv.Stdout)
+	if _, err := fmt.Fprint(inv.Stdout, header); err != nil {
+		return err
+	}
+	if _, err := commandsBuf.WriteTo(inv.Stdout); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -327,13 +344,11 @@ func generateFishCommandCompletions(cmd *redant.Command, buf *bytes.Buffer) {
 
 	// Generate completions for subcommands
 	if len(cmd.Children) > 0 {
-		var subcmds []string
 		for _, child := range cmd.Children {
 			if !child.Hidden {
-				subcmds = append(subcmds, child.Name())
-				buf.WriteString(fmt.Sprintf("complete -c %s -n \"__fish_seen_subcommand_from %s\" -a \"%s\" -d \"%s\"\n",
+				fmt.Fprintf(buf, "complete -c %s -n \"__fish_seen_subcommand_from %s\" -a \"%s\" -d \"%s\"\n",
 					cmdParts[0], strings.Join(cmdParts[1:], " "),
-					child.Name(), child.Short))
+					child.Name(), child.Short)
 			}
 		}
 	}

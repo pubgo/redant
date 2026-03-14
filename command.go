@@ -89,12 +89,6 @@ func (c *Command) init() error {
 			merr = errors.Join(merr, fmt.Errorf("option must have a Flag or Env field"))
 		}
 		if opt.Description != "" {
-			// Get option name for error messages
-			optName := opt.Flag
-			if optName == "" && len(opt.Envs) > 0 {
-				optName = opt.Envs[0]
-			}
-
 			opt.Description = strings.Trim(strings.ToTitle(strings.TrimSpace(opt.Description)), ".") + "."
 		}
 	}
@@ -504,11 +498,13 @@ func (inv *Invocation) run(state *runState) error {
 	inv.setParentCommand(inv.Command, inv.Command.Children)
 
 	if inv.Command.Deprecated != "" {
-		fmt.Fprintf(inv.Stderr, "%s %q is deprecated!. %s\n",
+		if _, err := fmt.Fprintf(inv.Stderr, "%s %q is deprecated!. %s\n",
 			prettyHeader("warning"),
 			inv.Command.FullName(),
 			inv.Command.Deprecated,
-		)
+		); err != nil {
+			return fmt.Errorf("write deprecated warning: %w", err)
+		}
 	}
 
 	// Organize command tree
