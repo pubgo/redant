@@ -3,6 +3,8 @@ package redant
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -387,6 +389,258 @@ func TestEnvVarFlag(t *testing.T) {
 	}
 }
 
+func TestGlobalEnvFlagSetsOptionEnvAndRestores(t *testing.T) {
+	const envName = "REDANT_TEST_GLOBAL_ENV"
+	t.Setenv(envName, "original")
+
+	var value string
+	cmd := &Command{
+		Use:   "test",
+		Short: "Test command",
+		Options: OptionSet{
+			{
+				Flag:        "value",
+				Description: "A value from env",
+				Value:       StringOf(&value),
+				Envs:        []string{envName},
+			},
+		},
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			return nil
+		},
+	}
+
+	inv := cmd.Invoke("--env", envName+"=from-flag")
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+
+	err := inv.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if value != "from-flag" {
+		t.Errorf("value = %q, want %q", value, "from-flag")
+	}
+
+	if got := os.Getenv(envName); got != "original" {
+		t.Errorf("env %s after run = %q, want %q", envName, got, "original")
+	}
+}
+
+func TestGlobalEnvFileFlagSetsOptionEnvAndRestores(t *testing.T) {
+	const envName = "REDANT_TEST_ENV_FILE"
+	t.Setenv(envName, "original")
+
+	tmpFile := filepath.Join(t.TempDir(), ".env")
+	err := os.WriteFile(tmpFile, []byte("# comment\nexport REDANT_TEST_ENV_FILE=from-file\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+
+	var value string
+	cmd := &Command{
+		Use:   "test",
+		Short: "Test command",
+		Options: OptionSet{
+			{
+				Flag:        "value",
+				Description: "A value from env file",
+				Value:       StringOf(&value),
+				Envs:        []string{envName},
+			},
+		},
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			return nil
+		},
+	}
+
+	inv := cmd.Invoke("--env-file", tmpFile)
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+
+	err = inv.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if value != "from-file" {
+		t.Errorf("value = %q, want %q", value, "from-file")
+	}
+
+	if got := os.Getenv(envName); got != "original" {
+		t.Errorf("env %s after run = %q, want %q", envName, got, "original")
+	}
+}
+
+func TestGlobalEnvFileCSVAndEnvOrder(t *testing.T) {
+	const envName = "REDANT_TEST_ENV_FILES_ORDER"
+	t.Setenv(envName, "original")
+
+	tmpDir := t.TempDir()
+	file1 := filepath.Join(tmpDir, "a.env")
+	file2 := filepath.Join(tmpDir, "b.env")
+	if err := os.WriteFile(file1, []byte(envName+"=from-file1\n"), 0o600); err != nil {
+		t.Fatalf("write file1: %v", err)
+	}
+	if err := os.WriteFile(file2, []byte(envName+"=from-file2\n"), 0o600); err != nil {
+		t.Fatalf("write file2: %v", err)
+	}
+
+	var value string
+	cmd := &Command{
+		Use:   "test",
+		Short: "Test command",
+		Options: OptionSet{
+			{
+				Flag:        "value",
+				Description: "A value from env",
+				Value:       StringOf(&value),
+				Envs:        []string{envName},
+			},
+		},
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			return nil
+		},
+	}
+
+	inv := cmd.Invoke(
+		"--env-file", file1+","+file2,
+		"--env", envName+"=from-env",
+	)
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+
+	err := inv.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if value != "from-env" {
+		t.Errorf("value = %q, want %q", value, "from-env")
+	}
+
+	if got := os.Getenv(envName); got != "original" {
+		t.Errorf("env %s after run = %q, want %q", envName, got, "original")
+	}
+}
+
+func TestGlobalEnvShorthandAndCSV(t *testing.T) {
+	const envName = "REDANT_TEST_GLOBAL_ENV_SHORT"
+	t.Setenv(envName, "original")
+
+	var value string
+	cmd := &Command{
+		Use:   "test",
+		Short: "Test command",
+		Options: OptionSet{
+			{
+				Flag:        "value",
+				Description: "A value from env",
+				Value:       StringOf(&value),
+				Envs:        []string{envName},
+			},
+		},
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			return nil
+		},
+	}
+
+	inv := cmd.Invoke("-e", "ANOTHER_KEY=123,"+envName+"=from-short-csv")
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+
+	err := inv.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if value != "from-short-csv" {
+		t.Errorf("value = %q, want %q", value, "from-short-csv")
+	}
+
+	if got := os.Getenv(envName); got != "original" {
+		t.Errorf("env %s after run = %q, want %q", envName, got, "original")
+	}
+}
+
+func TestGlobalEnvShorthandRepeat(t *testing.T) {
+	const envA = "REDANT_TEST_SHORT_REPEAT_A"
+	const envB = "REDANT_TEST_SHORT_REPEAT_B"
+	t.Setenv(envA, "orig-a")
+	t.Setenv(envB, "orig-b")
+
+	var valueA string
+	var valueB string
+	cmd := &Command{
+		Use:   "test",
+		Short: "Test command",
+		Options: OptionSet{
+			{
+				Flag:        "value-a",
+				Description: "A value from env A",
+				Value:       StringOf(&valueA),
+				Envs:        []string{envA},
+			},
+			{
+				Flag:        "value-b",
+				Description: "A value from env B",
+				Value:       StringOf(&valueB),
+				Envs:        []string{envB},
+			},
+		},
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			return nil
+		},
+	}
+
+	inv := cmd.Invoke("-e", envA+"=1", "-e", envB+"=2")
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+
+	err := inv.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if valueA != "1" {
+		t.Errorf("valueA = %q, want %q", valueA, "1")
+	}
+	if valueB != "2" {
+		t.Errorf("valueB = %q, want %q", valueB, "2")
+	}
+
+	if got := os.Getenv(envA); got != "orig-a" {
+		t.Errorf("env %s after run = %q, want %q", envA, got, "orig-a")
+	}
+	if got := os.Getenv(envB); got != "orig-b" {
+		t.Errorf("env %s after run = %q, want %q", envB, got, "orig-b")
+	}
+}
+
+func TestGlobalEnvFlagInvalidAssignment(t *testing.T) {
+	cmd := &Command{
+		Use:   "test",
+		Short: "Test command",
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			return nil
+		},
+	}
+
+	inv := cmd.Invoke("--env", "INVALID")
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+
+	err := inv.Run()
+	if err == nil {
+		t.Fatalf("expected error for invalid --env assignment")
+	}
+
+	if !strings.Contains(err.Error(), "invalid --env value") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestDeprecatedFlag(t *testing.T) {
 	var deprecated string
 
@@ -507,5 +761,44 @@ func TestBusyboxArgv0DoesNotOverrideExplicitArgs(t *testing.T) {
 
 	if executed != "bar" {
 		t.Fatalf("expected explicit args to win (bar), got %q", executed)
+	}
+}
+
+func TestInternalArgsFlagOverridesParsedArgs(t *testing.T) {
+	var gotFirst string
+	var gotSecond string
+
+	cmd := &Command{
+		Use:   "app",
+		Short: "test internal args flag",
+		Args: ArgSet{
+			{Name: "first", Value: StringOf(&gotFirst)},
+			{Name: "second", Value: StringOf(&gotSecond)},
+		},
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			if len(inv.Args) != 2 {
+				t.Fatalf("inv.Args length = %d, want 2", len(inv.Args))
+			}
+			if inv.Args[0] != "from-flag-1" || inv.Args[1] != "from-flag-2" {
+				t.Fatalf("inv.Args = %#v, want [from-flag-1 from-flag-2]", inv.Args)
+			}
+			return nil
+		},
+	}
+
+	inv := cmd.Invoke("from-cli-1", "from-cli-2", "--args", "from-flag-1", "--args", "from-flag-2")
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+
+	err := inv.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotFirst != "from-flag-1" {
+		t.Fatalf("first arg value = %q, want %q", gotFirst, "from-flag-1")
+	}
+	if gotSecond != "from-flag-2" {
+		t.Fatalf("second arg value = %q, want %q", gotSecond, "from-flag-2")
 	}
 }

@@ -19,7 +19,7 @@ applyTo: "**/*.md"
 
 - 文档入口为 `docs/INDEX.md`，新增文档时需补充索引关系（如适用）。
 - 涉及架构或流程变化时，先更新 `docs/DESIGN.md`，再补示例/说明文档。
-- 行为变更需同步 `docs/CHANGELOG.md`；必要时同步 `docs/EVALUATION.md`。
+- 行为变更需同步 `.version/changelog/Unreleased.md`；必要时同步 `docs/EVALUATION.md`。
 - 术语遵循 `docs/INDEX.md`，明确区分“参数（Args）”与“标志（Flag）”。
 
 ## 写作与更新策略
@@ -31,6 +31,6 @@ applyTo: "**/*.md"
 
 ## Changelog 联动
 
-- 变更日志遵循 `docs/CHANGELOG.md` 现有结构：`新增 / 修复 / 变更 / 文档`。
+- 变更日志遵循 `.version/changelog/` 现有结构：`新增 / 修复 / 变更 / 文档`。
 - 自动维护建议优先参考 `docs/CHANGELOG_LLM_PROMPT.md`。
 - 发布前落版建议通过 agent 提示词执行：`/changelog-maintenance draft|release`。

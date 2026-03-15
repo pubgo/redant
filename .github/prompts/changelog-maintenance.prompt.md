@@ -1,6 +1,6 @@
 ---
 name: changelog-maintenance
-description: 维护 docs/CHANGELOG.md（更新 Unreleased 或执行版本落版）
+description: 维护 .version/changelog（更新 Unreleased 或执行版本落版）
 argument-hint: "模式：draft（更新 Unreleased）或 release（按 .version/VERSION 落版）"
 agent: agent
 ---
@@ -9,15 +9,16 @@ agent: agent
 
 ## 目标
 
-- `draft` 模式：根据当前改动更新 `docs/CHANGELOG.md` 的 `[Unreleased]`。
-- `release` 模式：将 `[Unreleased]` 落版为 `.version/VERSION` 对应版本，并重建空的 `[Unreleased]` 模板。
+- `draft` 模式：根据当前改动更新 `.version/changelog/Unreleased.md`。
+- `release` 模式：将 `Unreleased.md` 落版为 `.version/VERSION` 对应版本文件，并重建空模板。
 
 ## 必读上下文
 
 在开始前先读取并遵循：
 
 - `.github/copilot-instructions.md`
-- `docs/CHANGELOG.md`
+- `.version/changelog/README.md`
+- `.version/changelog/Unreleased.md`
 - `docs/CHANGELOG_LLM_PROMPT.md`
 - `.version/VERSION`
 - 当前工作区 diff（如可获取）
@@ -33,20 +34,21 @@ agent: agent
 
 ### draft
 
-- 仅更新 `[Unreleased]` 区域。
+- 仅更新 `.version/changelog/Unreleased.md`。
 - 若缺少分类小节则补齐；无内容的小节写“暂无”。
 - 直接基于当前工作区改动与提交语义生成草稿，不依赖本地脚本输出。
 
 ### release
 
 - 读取 `.version/VERSION` 作为目标版本号（如 `v0.0.6`）。
-- 将 `[Unreleased]` 内容迁移为新版本块：`## [<VERSION>] - <YYYY-MM-DD>`。
-- 在顶部重建新的 `[Unreleased]`，包含四个小节且初始值为“暂无”。
-- 直接在文档中完成落版，不依赖本地 task 或脚本。
+- 将 `Unreleased.md` 内容迁移到新版本文件：`.version/changelog/<VERSION>.md`。
+- 版本文件标题格式：`# [<VERSION>] - <YYYY-MM-DD>`。
+- 重建 `.version/changelog/Unreleased.md` 空模板（四个分类且初始值为“暂无”）。
+- 同步更新 `.version/changelog/README.md` 中的版本索引。
 
 ## 输出要求
 
-- 直接给出对 `docs/CHANGELOG.md` 的修改（补丁或已应用结果）。
+- 直接给出对 `.version/changelog/` 相关文件的修改（补丁或已应用结果）。
 - 末尾附一段简短自检：
   - 是否仅改动允许范围；
   - 是否完成分类与去重；

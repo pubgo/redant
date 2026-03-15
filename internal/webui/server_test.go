@@ -1,0 +1,310 @@
+package webui
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/pubgo/redant"
+	"github.com/pubgo/redant/cmds/completioncmd"
+)
+
+func TestCommandsEndpoint(t *testing.T) {
+	var global string
+	var local string
+	var format string
+
+	root := &redant.Command{
+		Use: "testapp",
+		Options: redant.OptionSet{
+			{Flag: "global", Description: "global flag", Envs: []string{"GLOBAL_ENV"}, Value: redant.StringOf(&global)},
+		},
+	}
+
+	echoCmd := &redant.Command{
+		Use:     "echo [text]",
+		Aliases: []string{"e"},
+		Short:   "echo text",
+		Long:    "echo text long description",
+		Options: redant.OptionSet{
+			{Flag: "local", Description: "local flag", Value: redant.StringOf(&local)},
+			{Flag: "format", Description: "output format", Value: redant.EnumOf(&format, "json", "text")},
+		},
+		Args: redant.ArgSet{
+			{Name: "text", Description: "text to print", Required: true, Value: redant.StringOf(new(string))},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			_, _ = inv.Stdout.Write([]byte("ok"))
+			return nil
+		},
+	}
+
+	webCmd := &redant.Command{Use: "web", Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil }}
+	root.Children = append(root.Children, echoCmd, webCmd)
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/commands")
+	if err != nil {
+		t.Fatalf("request commands: %v", err)
+	}
+	defer closeResponseBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status: %d", resp.StatusCode)
+	}
+
+	var payload commandListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode commands response: %v", err)
+	}
+
+	if len(payload.Commands) != 1 {
+		t.Fatalf("expected 1 command (web should be excluded), got %d", len(payload.Commands))
+	}
+
+	cmd := payload.Commands[0]
+	if cmd.ID != "echo" {
+		t.Fatalf("expected command id echo, got %s", cmd.ID)
+	}
+	if cmd.Use != "echo [text]" {
+		t.Fatalf("expected use echo [text], got %s", cmd.Use)
+	}
+	if !slices.Equal(cmd.Aliases, []string{"e"}) {
+		t.Fatalf("unexpected aliases: %+v", cmd.Aliases)
+	}
+	if cmd.Short != "echo text" {
+		t.Fatalf("unexpected short: %s", cmd.Short)
+	}
+	if cmd.Long != "echo text long description" {
+		t.Fatalf("unexpected long: %s", cmd.Long)
+	}
+	if len(cmd.Args) != 1 || cmd.Args[0].Name != "text" {
+		t.Fatalf("unexpected args metadata: %+v", cmd.Args)
+	}
+
+	flagNames := make([]string, 0, len(cmd.Flags))
+	flagByName := make(map[string]FlagMeta, len(cmd.Flags))
+	for _, f := range cmd.Flags {
+		flagNames = append(flagNames, f.Name)
+		flagByName[f.Name] = f
+	}
+	if !slices.Contains(flagNames, "global") || !slices.Contains(flagNames, "local") {
+		t.Fatalf("expected global+local flags, got: %v", flagNames)
+	}
+	if !slices.Equal(flagByName["format"].EnumValues, []string{"json", "text"}) {
+		t.Fatalf("unexpected format enum values: %+v", flagByName["format"].EnumValues)
+	}
+	if strings.TrimSpace(flagByName["local"].Description) == "" {
+		t.Fatalf("expected local flag description, got empty")
+	}
+	if !slices.Equal(flagByName["global"].Envs, []string{"GLOBAL_ENV"}) {
+		t.Fatalf("unexpected global envs: %+v", flagByName["global"].Envs)
+	}
+}
+
+func TestIndexPageServedFromStatic(t *testing.T) {
+	root := &redant.Command{Use: "testapp"}
+	root.Children = append(root.Children, &redant.Command{Use: "echo", Handler: func(ctx context.Context, inv *redant.Invocation) error {
+		return nil
+	}})
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("request index: %v", err)
+	}
+	defer closeResponseBody(t, resp)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read index body: %v", err)
+	}
+
+	page := string(body)
+	if !strings.Contains(page, "cdn.tailwindcss.com") {
+		t.Fatalf("expected tailwindcdn tag in page")
+	}
+	if !strings.Contains(page, "alpinejs") {
+		t.Fatalf("expected alpinejs tag in page")
+	}
+}
+
+func TestRunEndpoint(t *testing.T) {
+	var text string
+	var upper bool
+
+	root := &redant.Command{Use: "testapp"}
+	echoCmd := &redant.Command{
+		Use: "echo",
+		Options: redant.OptionSet{
+			{Flag: "upper", Description: "uppercase", Value: redant.BoolOf(&upper)},
+		},
+		Args: redant.ArgSet{
+			{Name: "text", Required: true, Value: redant.StringOf(&text)},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			out := text
+			if upper {
+				out = strings.ToUpper(text)
+			}
+			_, _ = inv.Stdout.Write([]byte(out))
+			return nil
+		},
+	}
+	root.Children = append(root.Children, echoCmd)
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	requestBody := `{"command":"echo","flags":{"upper":true},"args":{"text":"hello"}}`
+	resp, err := http.Post(ts.URL+"/api/run", "application/json", bytes.NewBufferString(requestBody))
+	if err != nil {
+		t.Fatalf("run command request: %v", err)
+	}
+	defer closeResponseBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status: %d", resp.StatusCode)
+	}
+
+	var runResp RunResponse
+	if err := json.NewDecoder(resp.Body).Decode(&runResp); err != nil {
+		t.Fatalf("decode run response: %v", err)
+	}
+
+	if !runResp.OK {
+		t.Fatalf("expected ok response, got error=%s stderr=%s", runResp.Error, runResp.Stderr)
+	}
+	if runResp.Stdout != "HELLO" {
+		t.Fatalf("expected HELLO, got %q", runResp.Stdout)
+	}
+	if !strings.Contains(runResp.Invocation, "echo") || !strings.Contains(runResp.Invocation, "--upper") {
+		t.Fatalf("unexpected invocation: %s", runResp.Invocation)
+	}
+}
+
+func TestRunEndpointMissingRequiredArg(t *testing.T) {
+	root := &redant.Command{Use: "testapp"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:  "echo",
+		Args: redant.ArgSet{{Name: "text", Required: true, Value: redant.StringOf(new(string))}},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			return nil
+		},
+	})
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/api/run", "application/json", bytes.NewBufferString(`{"command":"echo","args":{}}`))
+	if err != nil {
+		t.Fatalf("run command request: %v", err)
+	}
+	defer closeResponseBody(t, resp)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing arg, got %d", resp.StatusCode)
+	}
+}
+
+func TestRunEndpointUsesRawArgsFallback(t *testing.T) {
+	var text string
+	root := &redant.Command{Use: "testapp"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:  "echo",
+		Args: redant.ArgSet{{Name: "text", Required: true, Value: redant.StringOf(&text)}},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			_, _ = inv.Stdout.Write([]byte(text))
+			return nil
+		},
+	})
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/api/run", "application/json", bytes.NewBufferString(`{"command":"echo","rawArgs":["fallback-text"]}`))
+	if err != nil {
+		t.Fatalf("run command request: %v", err)
+	}
+	defer closeResponseBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		payload, _ := io.ReadAll(resp.Body)
+		t.Fatalf("unexpected status: %d body=%s", resp.StatusCode, string(payload))
+	}
+
+	var runResp RunResponse
+	if err := json.NewDecoder(resp.Body).Decode(&runResp); err != nil {
+		t.Fatalf("decode run response: %v", err)
+	}
+	if !runResp.OK {
+		t.Fatalf("expected ok, got error=%s", runResp.Error)
+	}
+	if runResp.Stdout != "fallback-text" {
+		t.Fatalf("expected fallback-text, got %q", runResp.Stdout)
+	}
+	if !strings.Contains(runResp.Invocation, "fallback-text") {
+		t.Fatalf("expected invocation contains arg, got %q", runResp.Invocation)
+	}
+}
+
+func TestRunEndpointWithPreInitializedRootNoDuplicateEnvPanic(t *testing.T) {
+	root := &redant.Command{Use: "testapp"}
+	completioncmd.AddCompletionCommand(root)
+
+	// 先执行一次命令，模拟 web 子命令启动前根命令已初始化的真实场景。
+	pre := root.Invoke("completion", "bash")
+	pre.Stdout = &bytes.Buffer{}
+	pre.Stderr = &bytes.Buffer{}
+	if err := pre.Run(); err != nil {
+		t.Fatalf("pre-initialize root failed: %v", err)
+	}
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	body := `{"command":"completion","args":{"shell":"bash"}}`
+	for i := 0; i < 2; i++ {
+		resp, err := http.Post(ts.URL+"/api/run", "application/json", bytes.NewBufferString(body))
+		if err != nil {
+			t.Fatalf("run request %d failed: %v", i+1, err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			payload, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			t.Fatalf("unexpected status on run %d: %d body=%s", i+1, resp.StatusCode, string(payload))
+		}
+
+		var out RunResponse
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			_ = resp.Body.Close()
+			t.Fatalf("decode run response %d: %v", i+1, err)
+		}
+		_ = resp.Body.Close()
+
+		if !out.OK {
+			t.Fatalf("run %d failed, error=%s stderr=%s", i+1, out.Error, out.Stderr)
+		}
+	}
+}
+
+func closeResponseBody(t *testing.T, resp *http.Response) {
+	t.Helper()
+	if resp == nil || resp.Body == nil {
+		return
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("close response body: %v", err)
+	}
+}

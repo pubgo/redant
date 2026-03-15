@@ -9,7 +9,7 @@
 - 可测试性与可维护性
 - 文档一致性与可读性
 
-> 关联文档：[`设计文档`](DESIGN.md) · [`变更日志`](CHANGELOG.md) · [`参数示例`](../example/args-test/README.md)
+> 关联文档：[`设计文档`](DESIGN.md) · [`变更日志`](../.version/changelog/README.md) · [`参数示例`](../example/args-test/README.md)
 
 ## 2. 评估流程
 
@@ -69,5 +69,5 @@ stateDiagram-v2
 ## 6. 版本关联建议
 
 - 每次功能变化先更新 `DESIGN.md` 的流程或状态图。
-- 合并前更新 `CHANGELOG.md`，记录“新增/修复/变更”。
+- 合并前更新 `.version/changelog/Unreleased.md`，记录“新增/修复/变更/文档”。
 - 复杂参数变化同步更新 `example/args-test/README.md`。
