@@ -7,6 +7,7 @@ import (
 
 	"github.com/pubgo/redant"
 	"github.com/pubgo/redant/cmds/completioncmd"
+	"github.com/pubgo/redant/cmds/mcpcmd"
 )
 
 // mkdir -p ~/.zsh/completions
@@ -128,6 +129,7 @@ func main() {
 	commitCmd.Children = append(commitCmd.Children, detailedCmd)
 	rootCmd.Children = append(rootCmd.Children, commitCmd)
 	rootCmd.Children = append(rootCmd.Children, completioncmd.New())
+	rootCmd.Children = append(rootCmd.Children, mcpcmd.New())
 
 	// Run command
 	err := rootCmd.Invoke().WithOS().Run()

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/pubgo/redant"
@@ -42,7 +43,7 @@ func TestAddMCPCommand(t *testing.T) {
 	}
 }
 
-func TestMCPListCommandPrintsToolInfos(t *testing.T) {
+func TestMCPListCommandPrintsToolInfosJSONByDefault(t *testing.T) {
 	root := &redant.Command{Use: "app"}
 
 	var message string
@@ -89,5 +90,42 @@ func TestMCPListCommandPrintsToolInfos(t *testing.T) {
 	}
 	if _, ok := echoTool["outputSchema"].(map[string]any); !ok {
 		t.Fatalf("echo outputSchema missing: %#v", echoTool)
+	}
+}
+
+func TestMCPListCommandPrintsToolInfosText(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+
+	var message string
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "echo",
+		Short: "echo one message",
+		Args: redant.ArgSet{
+			{Name: "message", Required: true, Value: redant.StringOf(&message), Description: "text to echo"},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+
+	AddMCPCommand(root)
+
+	var stdout bytes.Buffer
+	inv := root.Invoke("mcp", "list", "--format", "text")
+	inv.Stdout = &stdout
+
+	if err := inv.Run(); err != nil {
+		t.Fatalf("run mcp list --format text: %v", err)
+	}
+
+	out := stdout.String()
+	for _, mustContain := range []string{
+		"1. echo",
+		"description: echo one message",
+		"path: echo",
+		"inputSchema: yes",
+		"outputSchema: yes",
+	} {
+		if !strings.Contains(out, mustContain) {
+			t.Fatalf("text output missing %q\noutput:\n%s", mustContain, out)
+		}
 	}
 }
