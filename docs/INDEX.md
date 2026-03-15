@@ -24,6 +24,8 @@ flowchart TD
 7. [`../internal/pretty/README.md`](../internal/pretty/README.md)：内部样式库维护说明（依赖迁移与维护边界）。
 8. [`CHANGELOG_LLM_PROMPT.md`](CHANGELOG_LLM_PROMPT.md)：基于 LLM 自动维护 changelog 的提示词模板。
 9. [`../README.md#mcp-集成`](../README.md#mcp-集成)：MCP 工具暴露与命令挂载入口。
+10. [`../README.md#web-调试界面web-子命令`](../README.md#web-%E8%B0%83%E8%AF%95%E7%95%8C%E9%9D%A2web-%E5%AD%90%E5%91%BD%E4%BB%A4)：Web 控制台使用与调用过程展示说明。
+11. [`MCP.md`](MCP.md)：MCP 子命令、工具映射规则、输入输出协议与排查建议。
 
 ## 维护约定
 

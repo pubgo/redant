@@ -84,7 +84,7 @@ app demo --args first,second
 ## 4) 通用输入模板
 
 ```text
-app [command[:sub-command] | command sub-command] [args...] [flags...]
+app [command[:sub-command] | command sub-command] [flags...] [args...]
 ```
 
 示例：
@@ -93,7 +93,24 @@ app [command[:sub-command] | command sub-command] [args...] [flags...]
 app repo commit "message=feat&sign=true" --author=alice --sign
 ```
 
-## 5) 解析优先级
+补充说明：
+
+- 非 `RawArgs` 模式下，`[flags...]` 与 `[args...]` 的先后位置均可解析。
+- 为减少与子命令名称冲突的歧义，推荐使用“先 flags，后 args”的写法。
+
+## 5) Web 调用过程展示约定
+
+`web` 子命令执行后，页面中的“调用过程”会展示两部分：
+
+1. `curl` 风格请求（便于复现 API 调用）。
+2. CLI 多行命令（`\` 续行，便于检查长参数链路）。
+
+其中 CLI 视图默认将 Args 放在末尾，并附加注释行用于核对命名参数映射：
+
+- `# args: version=v0.0.1-alpha.10`
+- `# rawArgs: [v0.0.1-alpha.10]`
+
+## 6) 解析优先级
 
 ```mermaid
 flowchart TD
@@ -116,7 +133,7 @@ flowchart TD
 3. 根命令
 4. 标志与参数解析
 
-## 6) 最小实现示例（命令、参数与标志）
+## 7) 最小实现示例（命令、参数与标志）
 
 ```go
 root := &redant.Command{Use: "app"}

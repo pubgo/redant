@@ -130,6 +130,20 @@ stateDiagram-v2
 | 帮助系统       | `help.go` / `help.tpl`               | 帮助渲染、命令与标志展示               |
 | 中间件与处理器 | `handler.go`                         | 执行链组装与业务回调                   |
 | MCP 集成       | `internal/mcpserver` + `cmds/mcpcmd` | 命令树到 MCP Tools 的映射与 stdio 服务 |
+| Web 控制台     | `cmds/webcmd` + `internal/webui`     | 可视化命令调试、调用过程展示与执行回放 |
+
+### 5.1 Web 调用过程重建（可观测性）
+
+`internal/webui` 在执行前会根据命令元数据与页面输入重建调用参数：
+
+1. 组装 `argv`（命令路径 + flags + args/rawArgs）。
+2. 生成单行 `invocation`（用于后端日志与兼容输出）。
+3. 返回 `program + argv` 给前端，前端按 token 渲染为多行 CLI（`\` 续行）。
+
+这样可以同时满足：
+
+- 后端保留稳定的一行调用表示；
+- 前端获得可读性更高、便于人工核对的长命令展示。
 
 ## 6. Busybox 风格 argv0 分发
 
@@ -188,4 +202,5 @@ sequenceDiagram
 
 - 上游：[`README`](../README.md) 提供入口与使用视图。
 - 同级：[`EVALUATION.md`](EVALUATION.md) 提供质量视图。
+- 同级：[`MCP.md`](MCP.md) 提供 MCP 子命令、Schema 与调用协议说明。
 - 下游：[`../example/args-test/README.md`](../example/args-test/README.md) 提供参数解析落地示例。
