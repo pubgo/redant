@@ -12,11 +12,13 @@ import (
 	"testing"
 
 	"github.com/pubgo/redant"
+	"github.com/pubgo/redant/cmds/completioncmd"
 )
 
 func TestCommandsEndpoint(t *testing.T) {
 	var global string
 	var local string
+	var format string
 
 	root := &redant.Command{
 		Use: "testapp",
@@ -32,6 +34,7 @@ func TestCommandsEndpoint(t *testing.T) {
 		Long:    "echo text long description",
 		Options: redant.OptionSet{
 			{Flag: "local", Description: "local flag", Value: redant.StringOf(&local)},
+			{Flag: "format", Description: "output format", Value: redant.EnumOf(&format, "json", "text")},
 		},
 		Args: redant.ArgSet{
 			{Name: "text", Description: "text to print", Required: true, Value: redant.StringOf(new(string))},
@@ -52,7 +55,7 @@ func TestCommandsEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request commands: %v", err)
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(t, resp)
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("unexpected status: %d", resp.StatusCode)
@@ -96,6 +99,9 @@ func TestCommandsEndpoint(t *testing.T) {
 	if !slices.Contains(flagNames, "global") || !slices.Contains(flagNames, "local") {
 		t.Fatalf("expected global+local flags, got: %v", flagNames)
 	}
+	if !slices.Equal(flagByName["format"].EnumValues, []string{"json", "text"}) {
+		t.Fatalf("unexpected format enum values: %+v", flagByName["format"].EnumValues)
+	}
 	if strings.TrimSpace(flagByName["local"].Description) == "" {
 		t.Fatalf("expected local flag description, got empty")
 	}
@@ -117,7 +123,7 @@ func TestIndexPageServedFromStatic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request index: %v", err)
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(t, resp)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -165,7 +171,7 @@ func TestRunEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run command request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(t, resp)
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("unexpected status: %d", resp.StatusCode)
@@ -204,9 +210,101 @@ func TestRunEndpointMissingRequiredArg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run command request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(t, resp)
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400 for missing arg, got %d", resp.StatusCode)
+	}
+}
+
+func TestRunEndpointUsesRawArgsFallback(t *testing.T) {
+	var text string
+	root := &redant.Command{Use: "testapp"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:  "echo",
+		Args: redant.ArgSet{{Name: "text", Required: true, Value: redant.StringOf(&text)}},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			_, _ = inv.Stdout.Write([]byte(text))
+			return nil
+		},
+	})
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/api/run", "application/json", bytes.NewBufferString(`{"command":"echo","rawArgs":["fallback-text"]}`))
+	if err != nil {
+		t.Fatalf("run command request: %v", err)
+	}
+	defer closeResponseBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		payload, _ := io.ReadAll(resp.Body)
+		t.Fatalf("unexpected status: %d body=%s", resp.StatusCode, string(payload))
+	}
+
+	var runResp RunResponse
+	if err := json.NewDecoder(resp.Body).Decode(&runResp); err != nil {
+		t.Fatalf("decode run response: %v", err)
+	}
+	if !runResp.OK {
+		t.Fatalf("expected ok, got error=%s", runResp.Error)
+	}
+	if runResp.Stdout != "fallback-text" {
+		t.Fatalf("expected fallback-text, got %q", runResp.Stdout)
+	}
+	if !strings.Contains(runResp.Invocation, "fallback-text") {
+		t.Fatalf("expected invocation contains arg, got %q", runResp.Invocation)
+	}
+}
+
+func TestRunEndpointWithPreInitializedRootNoDuplicateEnvPanic(t *testing.T) {
+	root := &redant.Command{Use: "testapp"}
+	completioncmd.AddCompletionCommand(root)
+
+	// 先执行一次命令，模拟 web 子命令启动前根命令已初始化的真实场景。
+	pre := root.Invoke("completion", "bash")
+	pre.Stdout = &bytes.Buffer{}
+	pre.Stderr = &bytes.Buffer{}
+	if err := pre.Run(); err != nil {
+		t.Fatalf("pre-initialize root failed: %v", err)
+	}
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	body := `{"command":"completion","args":{"shell":"bash"}}`
+	for i := 0; i < 2; i++ {
+		resp, err := http.Post(ts.URL+"/api/run", "application/json", bytes.NewBufferString(body))
+		if err != nil {
+			t.Fatalf("run request %d failed: %v", i+1, err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			payload, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			t.Fatalf("unexpected status on run %d: %d body=%s", i+1, resp.StatusCode, string(payload))
+		}
+
+		var out RunResponse
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			_ = resp.Body.Close()
+			t.Fatalf("decode run response %d: %v", i+1, err)
+		}
+		_ = resp.Body.Close()
+
+		if !out.OK {
+			t.Fatalf("run %d failed, error=%s stderr=%s", i+1, out.Error, out.Stderr)
+		}
+	}
+}
+
+func closeResponseBody(t *testing.T, resp *http.Response) {
+	t.Helper()
+	if resp == nil || resp.Body == nil {
+		return
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("close response body: %v", err)
 	}
 }

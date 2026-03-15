@@ -101,6 +101,7 @@
                                                 <span class="ml-3" x-show="flag.required">required</span>
                                                 <span class="ml-3" x-show="flag.default !== ''">default: <span
                                                         class="text-slate-200" x-text="flag.default"></span></span>
+                                                <span class="ml-3" x-show="isStructType(flag.type)">json object</span>
                                             </div>
                                             <div class="mt-1 text-xs text-slate-400"
                                                 x-show="(flag.envs || []).length > 0">env: <span
@@ -108,6 +109,14 @@
                                                     x-text="flag.envs.join(', ')"></span></div>
                                             <div class="mt-2 text-xs text-slate-300"
                                                 x-text="flag.description || '(无描述)'"></div>
+                                            <div class="mt-2 flex flex-wrap gap-1" x-show="enumValues(flag).length > 0">
+                                                <template x-for="val in enumValues(flag)"
+                                                    :key="flag.name + '-enum-' + val">
+                                                    <span
+                                                        class="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-emerald-300"
+                                                        x-text="val"></span>
+                                                </template>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -123,28 +132,63 @@
 
                                         <template x-if="flag.type !== 'bool'">
                                             <div>
-                                                <template x-if="isStructType(flag.type)">
-                                                    <textarea rows="3"
-                                                        class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                                        placeholder='{"key":"value"}' x-model="flagInputs[flag.name]"
-                                                        @input="flagTouched[flag.name] = true"></textarea>
+                                                <template x-if="isEnumArrayType(flag.type)">
+                                                    <div class="grid grid-cols-2 gap-2">
+                                                        <template x-for="val in enumValues(flag)"
+                                                            :key="flag.name + '-pick-' + val">
+                                                            <label
+                                                                class="inline-flex items-center gap-2 rounded border border-slate-700 bg-slate-900/50 px-2 py-1 text-xs text-slate-200">
+                                                                <input type="checkbox"
+                                                                    class="rounded border-slate-600 bg-slate-950"
+                                                                    :value="val" x-model="flagInputs[flag.name]"
+                                                                    @change="flagTouched[flag.name] = true" />
+                                                                <span x-text="val"></span>
+                                                            </label>
+                                                        </template>
+                                                    </div>
                                                 </template>
 
-                                                <template x-if="!isStructType(flag.type)">
+                                                <template
+                                                    x-if="!isEnumArrayType(flag.type) && enumValues(flag).length > 0">
                                                     <select
-                                                        x-show="enumValues(flag.type).length > 0 && !isEnumArrayType(flag.type)"
                                                         class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500"
                                                         x-model="flagInputs[flag.name]"
                                                         @change="flagTouched[flag.name] = true">
                                                         <option value="">(请选择)</option>
-                                                        <template x-for="val in enumValues(flag.type)" :key="val">
+                                                        <template x-for="val in enumValues(flag)" :key="val">
                                                             <option :value="val" x-text="val"></option>
                                                         </template>
                                                     </select>
                                                 </template>
 
                                                 <template
-                                                    x-if="enumValues(flag.type).length === 0 || isEnumArrayType(flag.type)">
+                                                    x-if="!isEnumArrayType(flag.type) && enumValues(flag).length === 0 && isStructType(flag.type)">
+                                                    <div class="space-y-2">
+                                                        <div class="flex items-center gap-2">
+                                                            <button type="button"
+                                                                class="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+                                                                @click="applyObjectTemplate('flag', flag.name, flag.type); flagTouched[flag.name] = true">
+                                                                模板
+                                                            </button>
+                                                            <button type="button"
+                                                                class="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+                                                                @click="formatObjectInput('flag', flag.name)">
+                                                                格式化 JSON
+                                                            </button>
+                                                        </div>
+                                                        <textarea rows="4"
+                                                            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-mono outline-none focus:border-blue-500"
+                                                            :placeholder="objectPlaceholder(flag.type)"
+                                                            x-model="flagInputs[flag.name]"
+                                                            @input="flagTouched[flag.name] = true; clearObjectError('flag', flag.name)"></textarea>
+                                                        <p class="text-[11px] text-rose-300"
+                                                            x-show="hasObjectError('flag', flag.name)"
+                                                            x-text="getObjectError('flag', flag.name)"></p>
+                                                    </div>
+                                                </template>
+
+                                                <template
+                                                    x-if="!isEnumArrayType(flag.type) && enumValues(flag).length === 0 && !isStructType(flag.type)">
                                                     <input type="text"
                                                         class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500"
                                                         :placeholder="isArrayType(flag.type) ? 'a,b,c' : ''"
@@ -178,16 +222,72 @@
                                         <span class="ml-3" x-show="arg.required">required</span>
                                         <span class="ml-3" x-show="arg.default !== ''">default: <span
                                                 class="text-slate-200" x-text="arg.default"></span></span>
+                                        <span class="ml-3" x-show="isStructType(arg.type)">json object</span>
                                     </div>
                                     <div class="mt-2 text-xs text-slate-300" x-text="arg.description || '(无描述)'"></div>
+                                    <div class="mt-2 flex flex-wrap gap-1" x-show="enumValues(arg).length > 0">
+                                        <template x-for="val in enumValues(arg)" :key="arg.name + '-enum-' + val">
+                                            <span
+                                                class="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-emerald-300"
+                                                x-text="val"></span>
+                                        </template>
+                                    </div>
 
                                     <div class="mt-3">
-                                        <template x-if="isStructType(arg.type)">
-                                            <textarea rows="3"
-                                                class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                                placeholder='{"key":"value"}' x-model="argInputs[arg.name]"></textarea>
+                                        <template x-if="isEnumArrayType(arg.type)">
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <template x-for="val in enumValues(arg)"
+                                                    :key="arg.name + '-pick-' + val">
+                                                    <label
+                                                        class="inline-flex items-center gap-2 rounded border border-slate-700 bg-slate-900/50 px-2 py-1 text-xs text-slate-200">
+                                                        <input type="checkbox"
+                                                            class="rounded border-slate-600 bg-slate-950" :value="val"
+                                                            x-model="argInputs[arg.name]" />
+                                                        <span x-text="val"></span>
+                                                    </label>
+                                                </template>
+                                            </div>
                                         </template>
-                                        <template x-if="!isStructType(arg.type)">
+
+                                        <template x-if="!isEnumArrayType(arg.type) && enumValues(arg).length > 0">
+                                            <select
+                                                class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                                                x-model="argInputs[arg.name]">
+                                                <option value="">(请选择)</option>
+                                                <template x-for="val in enumValues(arg)"
+                                                    :key="arg.name + '-option-' + val">
+                                                    <option :value="val" x-text="val"></option>
+                                                </template>
+                                            </select>
+                                        </template>
+
+                                        <template
+                                            x-if="!isEnumArrayType(arg.type) && enumValues(arg).length === 0 && isStructType(arg.type)">
+                                            <div class="space-y-2">
+                                                <div class="flex items-center gap-2">
+                                                    <button type="button"
+                                                        class="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+                                                        @click="applyObjectTemplate('arg', arg.name, arg.type)">
+                                                        模板
+                                                    </button>
+                                                    <button type="button"
+                                                        class="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+                                                        @click="formatObjectInput('arg', arg.name)">
+                                                        格式化 JSON
+                                                    </button>
+                                                </div>
+                                                <textarea rows="4"
+                                                    class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-mono outline-none focus:border-blue-500"
+                                                    :placeholder="objectPlaceholder(arg.type)"
+                                                    x-model="argInputs[arg.name]"
+                                                    @input="clearObjectError('arg', arg.name)"></textarea>
+                                                <p class="text-[11px] text-rose-300"
+                                                    x-show="hasObjectError('arg', arg.name)"
+                                                    x-text="getObjectError('arg', arg.name)"></p>
+                                            </div>
+                                        </template>
+                                        <template
+                                            x-if="!isEnumArrayType(arg.type) && enumValues(arg).length === 0 && !isStructType(arg.type)">
                                             <input type="text"
                                                 class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500"
                                                 :placeholder="isArrayType(arg.type) ? 'a,b,c' : ''"
@@ -236,6 +336,7 @@
                 flagInputs: {},
                 argInputs: {},
                 flagTouched: {},
+                objectErrors: {},
                 invokeView: '(暂无)',
                 resultView: '(暂无)',
                 running: false,
@@ -257,10 +358,36 @@
                     });
                 },
 
-                enumValues(type) {
-                    const m = (type || '').match(/^enum(?:-array)?\[(.*)\]$/);
-                    if (!m) return [];
-                    return m[1].split('|').map((x) => x.trim()).filter(Boolean);
+                normalizeEnumValue(value) {
+                    let v = String(value == null ? '' : value).trim();
+                    v = v.replace(/\\\|/g, '|');
+                    v = v.replace(/^[\\|,;\[\](){}"'`\s]+/, '').replace(/[\\|,;\[\](){}"'`\s]+$/, '');
+                    return v.trim();
+                },
+
+                enumValues(metaOrType) {
+                    const meta = (typeof metaOrType === 'object' && metaOrType !== null) ? metaOrType : null;
+                    const type = meta ? (meta.type || '') : String(metaOrType || '');
+
+                    let values = [];
+                    if (meta && Array.isArray(meta.enumValues) && meta.enumValues.length > 0) {
+                        values = meta.enumValues;
+                    } else {
+                        const m = type.match(/^enum(?:-array)?\[(.*)\]$/);
+                        if (!m) return [];
+                        const inner = m[1] || '';
+                        values = inner.includes('\\|') ? inner.split('\\|') : inner.split('|');
+                    }
+
+                    const seen = new Set();
+                    const out = [];
+                    values.forEach((raw) => {
+                        const v = this.normalizeEnumValue(raw);
+                        if (!v || seen.has(v)) return;
+                        seen.add(v);
+                        out.push(v);
+                    });
+                    return out;
                 },
 
                 isArrayType(type) {
@@ -272,12 +399,35 @@
                 },
 
                 isStructType(type) {
-                    return (type || '').startsWith('struct[');
+                    const t = (type || '');
+                    return t.startsWith('struct[') || t === 'object' || t.startsWith('object[');
                 },
 
                 initDefaultValue(type, raw) {
+                    if (this.isEnumArrayType(type)) {
+                        if (raw === undefined || raw === null || raw === '') return [];
+                        if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
+                        return String(raw).split(',').map((x) => x.trim()).filter(Boolean);
+                    }
+
                     if (raw === undefined || raw === null || raw === '') return '';
                     if (type === 'bool') return String(raw).toLowerCase() === 'true';
+
+                    if (this.isStructType(type)) {
+                        if (typeof raw === 'string') {
+                            try {
+                                return JSON.stringify(JSON.parse(raw), null, 2);
+                            } catch (_) {
+                                return String(raw);
+                            }
+                        }
+                        try {
+                            return JSON.stringify(raw, null, 2);
+                        } catch (_) {
+                            return String(raw);
+                        }
+                    }
+
                     return String(raw);
                 },
 
@@ -299,20 +449,34 @@
                     this.flagInputs = {};
                     this.argInputs = {};
                     this.flagTouched = {};
+                    this.objectErrors = {};
 
                     if (!this.selected) return;
 
                     (this.selected.flags || []).forEach((flag) => {
                         this.flagInputs[flag.name] = this.initDefaultValue(flag.type, flag.default);
+                        if (this.isEnumArrayType(flag.type) && !Array.isArray(this.flagInputs[flag.name])) {
+                            this.flagInputs[flag.name] = [];
+                        }
                         this.flagTouched[flag.name] = false;
                     });
 
                     (this.selected.args || []).forEach((arg) => {
                         this.argInputs[arg.name] = this.initDefaultValue(arg.type, arg.default);
+                        if (this.isEnumArrayType(arg.type) && !Array.isArray(this.argInputs[arg.name])) {
+                            this.argInputs[arg.name] = [];
+                        }
                     });
                 },
 
                 parseTypedValue(type, value) {
+                    if (this.isEnumArrayType(type)) {
+                        const arr = Array.isArray(value)
+                            ? value.map((x) => String(x).trim()).filter(Boolean)
+                            : String(value == null ? '' : value).split(',').map((x) => x.trim()).filter(Boolean);
+                        return arr.length > 0 ? arr : null;
+                    }
+
                     const v = value == null ? '' : String(value).trim();
                     if (v === '') return null;
 
@@ -336,6 +500,7 @@
 
                     const flags = {};
                     const args = {};
+                    const rawArgs = [];
 
                     (this.selected.flags || []).forEach((flag) => {
                         const current = this.flagInputs[flag.name];
@@ -357,6 +522,7 @@
                         const parsed = this.parseTypedValue(arg.type, this.argInputs[arg.name]);
                         if (parsed !== null) {
                             args[arg.name] = parsed;
+                            rawArgs.push(this.toRawArgString(parsed));
                         }
                     });
 
@@ -364,17 +530,185 @@
                         command: this.selected.id,
                         flags,
                         args,
+                        rawArgs,
                     };
                 },
 
+                formatPayloadTrace(payload) {
+                    if (!payload) return '';
+
+                    const lines = [];
+                    const argKeys = Object.keys(payload.args || {});
+                    if (argKeys.length > 0) {
+                        const pairs = argKeys.map((k) => `${k}=${this.toRawArgString(payload.args[k])}`);
+                        lines.push(`# args: ${pairs.join(', ')}`);
+                    }
+
+                    if (Array.isArray(payload.rawArgs) && payload.rawArgs.length > 0) {
+                        lines.push(`# rawArgs: [${payload.rawArgs.join(', ')}]`);
+                    }
+
+                    return lines.length > 0 ? ('\n' + lines.join('\n')) : '';
+                },
+
+                toRawArgString(value) {
+                    if (value === null || value === undefined) return '';
+                    if (Array.isArray(value)) {
+                        return value.map((x) => String(x)).join(',');
+                    }
+                    if (typeof value === 'object') {
+                        try {
+                            return JSON.stringify(value);
+                        } catch (_) {
+                            return String(value);
+                        }
+                    }
+                    return String(value);
+                },
+
+                shellQuote(token) {
+                    const s = String(token == null ? '' : token);
+                    if (s === '') return "''";
+                    if (/^[A-Za-z0-9_./:=-]+$/.test(s)) return s;
+                    return "'" + s.replace(/'/g, "'\\''") + "'";
+                },
+
+                formatCliMultiline(program, argv, fallbackInvocation) {
+                    if (!Array.isArray(argv) || argv.length === 0) {
+                        return '$ ' + (fallbackInvocation || '(cli) ...');
+                    }
+
+                    const bin = String(program || 'main').trim() || 'main';
+                    const pathLen = Array.isArray(this.selected?.path) ? this.selected.path.length : 1;
+                    const headCount = Math.max(1, Math.min(pathLen, argv.length));
+
+                    const head = [bin, ...argv.slice(0, headCount).map((t) => this.shellQuote(t))].join(' ');
+                    const lines = [];
+
+                    if (headCount < argv.length) {
+                        lines.push(head + ' \\');
+                    } else {
+                        lines.push(head);
+                    }
+
+                    for (let i = headCount; i < argv.length; i++) {
+                        const cur = argv[i];
+                        const isFlag = typeof cur === 'string' && cur.startsWith('--');
+
+                        if (isFlag && i + 1 < argv.length) {
+                            const next = argv[i + 1];
+                            const nextIsFlag = typeof next === 'string' && next.startsWith('--');
+                            if (!nextIsFlag) {
+                                const end = (i + 2 < argv.length) ? ' \\' : '';
+                                lines.push('  ' + this.shellQuote(cur) + ' ' + this.shellQuote(next) + end);
+                                i++;
+                                continue;
+                            }
+                        }
+
+                        const end = (i + 1 < argv.length) ? ' \\' : '';
+                        lines.push('  ' + this.shellQuote(cur) + end);
+                    }
+
+                    return '$ ' + lines.join('\n');
+                },
+
+                objectErrorKey(scope, name) {
+                    return scope + ':' + name;
+                },
+
+                setObjectError(scope, name, message) {
+                    this.objectErrors[this.objectErrorKey(scope, name)] = message;
+                },
+
+                clearObjectError(scope, name) {
+                    delete this.objectErrors[this.objectErrorKey(scope, name)];
+                },
+
+                hasObjectError(scope, name) {
+                    return !!this.objectErrors[this.objectErrorKey(scope, name)];
+                },
+
+                getObjectError(scope, name) {
+                    return this.objectErrors[this.objectErrorKey(scope, name)] || '';
+                },
+
+                objectPlaceholder(type) {
+                    if (this.isStructType(type)) {
+                        return '{\n  "key": "value"\n}';
+                    }
+                    return '';
+                },
+
+                getInputStore(scope) {
+                    return scope === 'flag' ? this.flagInputs : this.argInputs;
+                },
+
+                applyObjectTemplate(scope, name, type) {
+                    const store = this.getInputStore(scope);
+                    const current = String(store[name] || '').trim();
+                    if (current !== '') {
+                        return;
+                    }
+                    store[name] = this.objectPlaceholder(type);
+                    this.clearObjectError(scope, name);
+                },
+
+                formatObjectInput(scope, name) {
+                    const store = this.getInputStore(scope);
+                    const raw = String(store[name] || '').trim();
+                    if (raw === '') {
+                        this.clearObjectError(scope, name);
+                        return;
+                    }
+
+                    try {
+                        const parsed = JSON.parse(raw);
+                        store[name] = JSON.stringify(parsed, null, 2);
+                        this.clearObjectError(scope, name);
+                    } catch (e) {
+                        this.setObjectError(scope, name, 'JSON 格式错误：' + String(e.message || e));
+                    }
+                },
+
+                validateObjectInputs() {
+                    this.objectErrors = {};
+                    if (!this.selected) return true;
+
+                    const validateGroup = (scope, defs, store) => {
+                        (defs || []).forEach((item) => {
+                            if (!this.isStructType(item.type)) return;
+                            const raw = String(store[item.name] || '').trim();
+                            if (raw === '') return;
+                            try {
+                                JSON.parse(raw);
+                            } catch (e) {
+                                this.setObjectError(scope, item.name, 'JSON 格式错误：' + String(e.message || e));
+                            }
+                        });
+                    };
+
+                    validateGroup('flag', this.selected.flags, this.flagInputs);
+                    validateGroup('arg', this.selected.args, this.argInputs);
+
+                    return Object.keys(this.objectErrors).length === 0;
+                },
+
                 async runCommand() {
+                    if (!this.validateObjectInputs()) {
+                        this.resultView = '对象类型参数存在无效 JSON，请先修正。';
+                        return;
+                    }
+
                     const payload = this.buildPayload();
                     if (!payload) return;
+
+                    const trace = this.formatPayloadTrace(payload);
 
                     const curlLike =
                         "curl -sS -X POST " + location.origin + "/api/run \\\n  -H 'Content-Type: application/json' \\\n  -d '" + JSON.stringify(payload) + "'";
 
-                    this.invokeView = curlLike + '\n\n$ (cli) ...';
+                    this.invokeView = curlLike + '\n\n$ (cli) ...' + trace;
                     this.running = true;
                     this.resultView = '执行中...';
 
@@ -386,7 +720,8 @@
                         });
 
                         const data = await resp.json();
-                        this.invokeView = curlLike + '\n\n$ ' + (data.invocation || '');
+                        const cli = this.formatCliMultiline(data.program, data.argv, data.invocation);
+                        this.invokeView = curlLike + '\n\n' + cli + trace;
                         this.resultView = data.combined || '(empty)';
                     } catch (e) {
                         this.resultView = String(e);

@@ -168,7 +168,7 @@ func TestCompletionCommandGeneratesScriptsForSupportedShells(t *testing.T) {
 
 			wantPath := filepath.Join("testdata", tt.golden)
 			if os.Getenv("UPDATE_GOLDEN") == "1" {
-				if err := os.WriteFile(wantPath, []byte(stdout.String()), 0o644); err != nil {
+				if err := os.WriteFile(wantPath, stdout.Bytes(), 0o644); err != nil {
 					t.Fatalf("update golden %s: %v", wantPath, err)
 				}
 			}

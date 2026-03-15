@@ -12,15 +12,18 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/spf13/pflag"
+
 	"github.com/pubgo/redant"
 )
 
 type ArgMeta struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Type        string `json:"type"`
-	Required    bool   `json:"required"`
-	Default     string `json:"default,omitempty"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Type        string   `json:"type"`
+	EnumValues  []string `json:"enumValues,omitempty"`
+	Required    bool     `json:"required"`
+	Default     string   `json:"default,omitempty"`
 }
 
 type FlagMeta struct {
@@ -29,6 +32,7 @@ type FlagMeta struct {
 	Envs        []string `json:"envs,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Type        string   `json:"type"`
+	EnumValues  []string `json:"enumValues,omitempty"`
 	Required    bool     `json:"required"`
 	Default     string   `json:"default,omitempty"`
 }
@@ -56,13 +60,15 @@ type RunRequest struct {
 }
 
 type RunResponse struct {
-	OK         bool   `json:"ok"`
-	Command    string `json:"command"`
-	Invocation string `json:"invocation"`
-	Stdout     string `json:"stdout"`
-	Stderr     string `json:"stderr"`
-	Error      string `json:"error"`
-	Combined   string `json:"combined"`
+	OK         bool     `json:"ok"`
+	Command    string   `json:"command"`
+	Program    string   `json:"program,omitempty"`
+	Argv       []string `json:"argv,omitempty"`
+	Invocation string   `json:"invocation"`
+	Stdout     string   `json:"stdout"`
+	Stderr     string   `json:"stderr"`
+	Error      string   `json:"error"`
+	Combined   string   `json:"combined"`
 }
 
 type commandListResponse struct {
@@ -121,7 +127,7 @@ func (a *App) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	argv, invocation, err := buildInvocation(meta, req)
+	argv, program, invocation, err := buildInvocation(meta, req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -144,6 +150,8 @@ func (a *App) handleRun(w http.ResponseWriter, r *http.Request) {
 	resp := RunResponse{
 		OK:         runErr == nil,
 		Command:    meta.ID,
+		Program:    program,
+		Argv:       append([]string(nil), argv...),
 		Invocation: invocation,
 		Stdout:     stdout.String(),
 		Stderr:     stderr.String(),
@@ -157,7 +165,7 @@ func (a *App) handleRun(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func buildInvocation(meta CommandMeta, req RunRequest) ([]string, string, error) {
+func buildInvocation(meta CommandMeta, req RunRequest) ([]string, string, string, error) {
 	argv := append([]string(nil), meta.Path...)
 
 	for _, flag := range meta.Flags {
@@ -167,23 +175,27 @@ func buildInvocation(meta CommandMeta, req RunRequest) ([]string, string, error)
 		}
 		tokens, err := serializeFlag(flag, v)
 		if err != nil {
-			return nil, "", fmt.Errorf("flag %q: %w", flag.Name, err)
+			return nil, "", "", fmt.Errorf("flag %q: %w", flag.Name, err)
 		}
 		argv = append(argv, tokens...)
 	}
 
 	if len(meta.Args) > 0 {
-		for _, arg := range meta.Args {
-			v, ok := req.Args[arg.Name]
+		for i, arg := range meta.Args {
+			v, ok := lookupArgValue(req.Args, arg.Name)
+			if !ok && i < len(req.RawArgs) {
+				v = req.RawArgs[i]
+				ok = true
+			}
 			if !ok {
 				if arg.Required && arg.Default == "" {
-					return nil, "", fmt.Errorf("missing required arg %q", arg.Name)
+					return nil, "", "", fmt.Errorf("missing required arg %q", arg.Name)
 				}
 				continue
 			}
 			val, err := serializeValueByType(arg.Type, v)
 			if err != nil {
-				return nil, "", fmt.Errorf("arg %q: %w", arg.Name, err)
+				return nil, "", "", fmt.Errorf("arg %q: %w", arg.Name, err)
 			}
 			argv = append(argv, val)
 		}
@@ -197,7 +209,32 @@ func buildInvocation(meta CommandMeta, req RunRequest) ([]string, string, error)
 		invocation += " " + shellQuote(token)
 	}
 
-	return argv, invocation, nil
+	return argv, prog, invocation, nil
+}
+
+func lookupArgValue(args map[string]any, name string) (any, bool) {
+	if len(args) == 0 {
+		return nil, false
+	}
+
+	if v, ok := args[name]; ok {
+		return v, true
+	}
+
+	trimmed := strings.TrimSpace(name)
+	if trimmed != name {
+		if v, ok := args[trimmed]; ok {
+			return v, true
+		}
+	}
+
+	for k, v := range args {
+		if strings.TrimSpace(k) == trimmed {
+			return v, true
+		}
+	}
+
+	return nil, false
 }
 
 func serializeFlag(flag FlagMeta, raw any) ([]string, error) {
@@ -438,6 +475,7 @@ func toFlagMeta(opts redant.OptionSet) []FlagMeta {
 			Envs:        append([]string(nil), opt.Envs...),
 			Description: strings.TrimSpace(opt.Description),
 			Type:        opt.Type(),
+			EnumValues:  extractEnumValues(opt.Value, opt.Type()),
 			Required:    opt.Required,
 			Default:     opt.Default,
 		})
@@ -462,11 +500,85 @@ func toArgMeta(args redant.ArgSet) []ArgMeta {
 			Name:        name,
 			Description: strings.TrimSpace(arg.Description),
 			Type:        typ,
+			EnumValues:  extractEnumValues(arg.Value, typ),
 			Required:    arg.Required,
 			Default:     arg.Default,
 		})
 	}
 	return out
+}
+
+func extractEnumValues(value pflag.Value, typ string) []string {
+	vals := extractEnumValuesFromValue(value)
+	if len(vals) == 0 {
+		vals = parseEnumValuesFromType(typ)
+	}
+	return normalizeEnumValues(vals)
+}
+
+func extractEnumValuesFromValue(value pflag.Value) []string {
+	if value == nil {
+		return nil
+	}
+
+	switch v := value.(type) {
+	case *redant.Enum:
+		return append([]string(nil), v.Choices...)
+	case *redant.EnumArray:
+		return append([]string(nil), v.Choices...)
+	case interface{ Underlying() pflag.Value }:
+		return extractEnumValuesFromValue(v.Underlying())
+	default:
+		return nil
+	}
+}
+
+func parseEnumValuesFromType(typ string) []string {
+	if !(strings.HasPrefix(typ, "enum[") || strings.HasPrefix(typ, "enum-array[")) || !strings.HasSuffix(typ, "]") {
+		return nil
+	}
+
+	start := strings.IndexByte(typ, '[')
+	if start < 0 || start+1 >= len(typ)-1 {
+		return nil
+	}
+	inner := typ[start+1 : len(typ)-1]
+
+	var parts []string
+	if strings.Contains(inner, `\|`) {
+		parts = strings.Split(inner, `\|`)
+	} else {
+		parts = strings.Split(inner, "|")
+	}
+	return parts
+}
+
+func normalizeEnumValues(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		v := normalizeEnumValue(raw)
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+func normalizeEnumValue(value string) string {
+	v := strings.TrimSpace(value)
+	v = strings.ReplaceAll(v, `\|`, "|")
+	v = strings.Trim(v, " \\|,;[](){}\"'`")
+	return strings.TrimSpace(v)
 }
 
 func commandDescription(cmd *redant.Command) string {

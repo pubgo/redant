@@ -230,7 +230,7 @@ compdef %s %s
 // generateZshCommandCases emits command-path based case branches for zsh completion.
 func generateZshCommandCases(cmd *redant.Command, path []string, buf *bytes.Buffer) {
 	caseKey := strings.Join(path, " ")
-	buf.WriteString(fmt.Sprintf("        %q)\n", caseKey))
+	fmt.Fprintf(buf, "        %q)\n", caseKey)
 
 	buf.WriteString("            options=(\n")
 	for _, opt := range cmd.FullOptions() {
@@ -238,9 +238,9 @@ func generateZshCommandCases(cmd *redant.Command, path []string, buf *bytes.Buff
 			continue
 		}
 		desc := optionZshDescription(opt)
-		buf.WriteString(fmt.Sprintf("                '--%s:%s'\n", opt.Flag, desc))
+		fmt.Fprintf(buf, "                '--%s:%s'\n", opt.Flag, desc)
 		if opt.Shorthand != "" {
-			buf.WriteString(fmt.Sprintf("                '-%s:%s'\n", opt.Shorthand, desc))
+			fmt.Fprintf(buf, "                '-%s:%s'\n", opt.Shorthand, desc)
 		}
 	}
 	buf.WriteString("            )\n")
@@ -250,7 +250,7 @@ func generateZshCommandCases(cmd *redant.Command, path []string, buf *bytes.Buff
 		if child.Hidden {
 			continue
 		}
-		buf.WriteString(fmt.Sprintf("                '%s:%s'\n", child.Name(), escapeZshDescription(child.Short)))
+		fmt.Fprintf(buf, "                '%s:%s'\n", child.Name(), escapeZshDescription(child.Short))
 	}
 	buf.WriteString("            )\n")
 	buf.WriteString("            ;;\n")

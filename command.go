@@ -69,6 +69,30 @@ func ascendingSortFn[T cmp.Ordered](a, b T) int {
 	return 1
 }
 
+func appendMissingGlobalOptions(base, globals OptionSet) OptionSet {
+	existing := make(map[string]struct{}, len(base))
+	for _, opt := range base {
+		if opt.Flag == "" {
+			continue
+		}
+		existing[opt.Flag] = struct{}{}
+	}
+
+	for _, opt := range globals {
+		if opt.Flag == "" {
+			base = append(base, opt)
+			continue
+		}
+		if _, ok := existing[opt.Flag]; ok {
+			continue
+		}
+		base = append(base, opt)
+		existing[opt.Flag] = struct{}{}
+	}
+
+	return base
+}
+
 // init performs initialization and linting on the command and all its children.
 func (c *Command) init() error {
 	if c.Use == "" {
@@ -79,7 +103,7 @@ func (c *Command) init() error {
 	// Add global flags to the root command only
 	if c.parent == nil {
 		globalFlags := GlobalFlags()
-		c.Options = append(c.Options, globalFlags...)
+		c.Options = appendMissingGlobalOptions(c.Options, globalFlags)
 	}
 
 	for i := range c.Options {
