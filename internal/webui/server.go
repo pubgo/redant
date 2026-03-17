@@ -2,16 +2,25 @@ package webui
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+	"github.com/creack/pty"
 	"github.com/spf13/pflag"
 
 	"github.com/pubgo/redant"
@@ -53,14 +62,17 @@ type CommandMeta struct {
 }
 
 type RunRequest struct {
-	Command string         `json:"command"`
-	Flags   map[string]any `json:"flags,omitempty"`
-	Args    map[string]any `json:"args,omitempty"`
-	RawArgs []string       `json:"rawArgs,omitempty"`
+	Command        string         `json:"command"`
+	Flags          map[string]any `json:"flags,omitempty"`
+	Args           map[string]any `json:"args,omitempty"`
+	RawArgs        []string       `json:"rawArgs,omitempty"`
+	Stdin          string         `json:"stdin,omitempty"`
+	TimeoutSeconds int            `json:"timeoutSeconds,omitempty"`
 }
 
 type RunResponse struct {
 	OK         bool     `json:"ok"`
+	TimedOut   bool     `json:"timedOut,omitempty"`
 	Command    string   `json:"command"`
 	Program    string   `json:"program,omitempty"`
 	Argv       []string `json:"argv,omitempty"`
@@ -74,6 +86,28 @@ type RunResponse struct {
 type commandListResponse struct {
 	Commands []CommandMeta `json:"commands"`
 }
+
+type wsRunMessage struct {
+	Type       string      `json:"type"`
+	Request    *RunRequest `json:"request,omitempty"`
+	Data       string      `json:"data,omitempty"`
+	Rows       int         `json:"rows,omitempty"`
+	Cols       int         `json:"cols,omitempty"`
+	OK         bool        `json:"ok,omitempty"`
+	Error      string      `json:"error,omitempty"`
+	TimedOut   bool        `json:"timedOut,omitempty"`
+	Command    string      `json:"command,omitempty"`
+	Program    string      `json:"program,omitempty"`
+	WorkingDir string      `json:"workingDir,omitempty"`
+	Argv       []string    `json:"argv,omitempty"`
+	Invocation string      `json:"invocation,omitempty"`
+}
+
+const (
+	defaultRunTimeout = 30 * time.Second
+	maxRunTimeout     = 10 * time.Minute
+	wsStartTimeout    = 30 * time.Second
+)
 
 type App struct {
 	root     *redant.Command
@@ -96,6 +130,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/", a.handleIndex)
 	mux.HandleFunc("/api/commands", a.handleCommands)
 	mux.HandleFunc("/api/run", a.handleRun)
+	mux.HandleFunc("/api/run/ws", a.handleRunWS)
+	mux.HandleFunc("/api/terminal/ws", a.handleTerminalWS)
 	return mux
 }
 
@@ -135,6 +171,8 @@ func (a *App) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
+	runCtx, cancel := context.WithTimeout(r.Context(), resolveRunTimeout(req.TimeoutSeconds))
+	defer cancel()
 
 	a.mu.Lock()
 	runErr := func() error {
@@ -142,27 +180,510 @@ func (a *App) handleRun(w http.ResponseWriter, r *http.Request) {
 		inv := root.Invoke(argv...)
 		inv.Stdout = &stdout
 		inv.Stderr = &stderr
-		inv.Stdin = bytes.NewReader(nil)
-		return inv.WithContext(r.Context()).Run()
+		inv.Stdin = bytes.NewReader([]byte(req.Stdin))
+		return inv.WithContext(runCtx).Run()
 	}()
 	a.mu.Unlock()
 
+	timedOut := errors.Is(runErr, context.DeadlineExceeded)
+	displayErr := withNonTTYTimeoutHint(runErr, timedOut)
+
 	resp := RunResponse{
 		OK:         runErr == nil,
+		TimedOut:   timedOut,
 		Command:    meta.ID,
 		Program:    program,
 		Argv:       append([]string(nil), argv...),
 		Invocation: invocation,
 		Stdout:     stdout.String(),
 		Stderr:     stderr.String(),
-		Combined:   combineOutput(stdout.String(), stderr.String(), runErr),
+		Combined:   combineOutput(stdout.String(), stderr.String(), displayErr),
 	}
-	if runErr != nil {
-		resp.Error = runErr.Error()
+	if displayErr != nil {
+		resp.Error = displayErr.Error()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (a *App) handleRunWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = conn.Close(websocket.StatusNormalClosure, "done")
+	}()
+
+	var sendMu sync.Mutex
+	send := func(msg wsRunMessage) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+
+		writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return wsjson.Write(writeCtx, conn, msg)
+	}
+
+	startCtx, cancelStart := context.WithTimeout(r.Context(), wsStartTimeout)
+	defer cancelStart()
+
+	var start wsRunMessage
+	if err := wsjson.Read(startCtx, conn, &start); err != nil {
+		_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("read start message failed: %v", err)})
+		_ = conn.Close(websocket.StatusPolicyViolation, "invalid start message")
+		return
+	}
+
+	if start.Type != "start" || start.Request == nil {
+		_ = send(wsRunMessage{Type: "error", Error: "first message must be {type:start, request:{...}}"})
+		_ = conn.Close(websocket.StatusPolicyViolation, "missing start request")
+		return
+	}
+
+	req := *start.Request
+	meta, ok := a.byID[strings.TrimSpace(req.Command)]
+	if !ok {
+		_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("unknown command: %q", req.Command)})
+		_ = conn.Close(websocket.StatusPolicyViolation, "unknown command")
+		return
+	}
+
+	argv, program, invocation, err := buildInvocation(meta, req)
+	if err != nil {
+		_ = send(wsRunMessage{Type: "error", Error: err.Error()})
+		_ = conn.Close(websocket.StatusPolicyViolation, "invalid invocation")
+		return
+	}
+
+	runCtx := r.Context()
+	cancelRun := func() {}
+	if req.TimeoutSeconds > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(r.Context(), resolveRunTimeout(req.TimeoutSeconds))
+		cancelRun = cancel
+	} else {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithCancel(r.Context())
+		cancelRun = cancel
+	}
+	defer cancelRun()
+
+	ptmx, pts, err := pty.Open()
+	if err != nil {
+		_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("open pty failed: %v", err)})
+		_ = conn.Close(websocket.StatusInternalError, "open pty failed")
+		return
+	}
+	var closePTMXOnce sync.Once
+	closePTMX := func() {
+		closePTMXOnce.Do(func() {
+			_ = ptmx.Close()
+		})
+	}
+	var closePTSOnce sync.Once
+	closePTS := func() {
+		closePTSOnce.Do(func() {
+			_ = pts.Close()
+		})
+	}
+	closePTYFiles := func() {
+		closePTS()
+		closePTMX()
+	}
+	defer closePTYFiles()
+
+	if err := setPTYSize(ptmx, start.Cols, start.Rows); err != nil {
+		_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("set terminal size failed: %v", err)})
+	}
+
+	if err := send(wsRunMessage{
+		Type:       "started",
+		Command:    meta.ID,
+		Program:    program,
+		Argv:       append([]string(nil), argv...),
+		Invocation: invocation,
+	}); err != nil {
+		return
+	}
+
+	if req.Stdin != "" {
+		if _, err := ptmx.Write([]byte(req.Stdin)); err != nil {
+			_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("write initial stdin failed: %v", err)})
+			_ = conn.Close(websocket.StatusInternalError, "write stdin failed")
+			return
+		}
+	}
+
+	root := cloneCommandTree(a.root)
+	inv := root.Invoke(argv...)
+	inv.Stdin = pts
+	inv.Stdout = pts
+	inv.Stderr = pts
+
+	runErrCh := make(chan error, 1)
+	go func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		runErrCh <- inv.WithContext(runCtx).Run()
+	}()
+
+	readErrCh := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := ptmx.Read(buf)
+			if n > 0 {
+				if sendErr := send(wsRunMessage{Type: "output", Data: string(buf[:n])}); sendErr != nil {
+					readErrCh <- sendErr
+					return
+				}
+			}
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					readErrCh <- nil
+				} else {
+					readErrCh <- err
+				}
+				return
+			}
+		}
+	}()
+
+	inMsgCh := make(chan wsRunMessage, 8)
+	inErrCh := make(chan error, 1)
+	go func() {
+		for {
+			var msg wsRunMessage
+			if err := wsjson.Read(runCtx, conn, &msg); err != nil {
+				inErrCh <- err
+				return
+			}
+			inMsgCh <- msg
+		}
+	}()
+
+	var extraErr error
+	readPumpDone := false
+	for {
+		select {
+		case msg := <-inMsgCh:
+			switch msg.Type {
+			case "stdin":
+				if msg.Data == "" {
+					continue
+				}
+				if _, err := ptmx.Write([]byte(msg.Data)); err != nil {
+					extraErr = errors.Join(extraErr, err)
+					cancelRun()
+					closePTS()
+				}
+			case "resize":
+				if err := setPTYSize(ptmx, msg.Cols, msg.Rows); err != nil {
+					_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("resize terminal failed: %v", err)})
+				}
+			case "close":
+				cancelRun()
+				closePTS()
+			default:
+				_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("unknown message type: %s", msg.Type)})
+			}
+		case err := <-inErrCh:
+			status := websocket.CloseStatus(err)
+			if status != websocket.StatusNormalClosure && status != websocket.StatusGoingAway && status != websocket.StatusNoStatusRcvd && !errors.Is(err, context.Canceled) {
+				extraErr = errors.Join(extraErr, err)
+			}
+			cancelRun()
+			closePTS()
+		case err := <-readErrCh:
+			readPumpDone = true
+			if err != nil && websocket.CloseStatus(err) == -1 && !errors.Is(err, context.Canceled) {
+				extraErr = errors.Join(extraErr, err)
+			}
+		case err := <-runErrCh:
+			closePTS()
+			if !readPumpDone {
+				select {
+				case readErr := <-readErrCh:
+					readPumpDone = true
+					if readErr != nil && websocket.CloseStatus(readErr) == -1 && !errors.Is(readErr, context.Canceled) {
+						extraErr = errors.Join(extraErr, readErr)
+					}
+				case <-time.After(300 * time.Millisecond):
+					closePTMX()
+				}
+			}
+			closePTMX()
+			joinedErr := errors.Join(err, extraErr)
+			timedOut := errors.Is(err, context.DeadlineExceeded) || errors.Is(runCtx.Err(), context.DeadlineExceeded)
+			displayErr := withInteractiveWSTimeoutHint(joinedErr, timedOut)
+
+			exitMsg := wsRunMessage{Type: "exit", OK: displayErr == nil, TimedOut: timedOut}
+			if displayErr != nil {
+				exitMsg.Error = displayErr.Error()
+			}
+			_ = send(exitMsg)
+			if displayErr != nil {
+				_ = conn.Close(websocket.StatusInternalError, "command failed")
+			} else {
+				_ = conn.Close(websocket.StatusNormalClosure, "command completed")
+			}
+			return
+		}
+	}
+}
+
+func (a *App) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = conn.Close(websocket.StatusNormalClosure, "done")
+	}()
+
+	var sendMu sync.Mutex
+	send := func(msg wsRunMessage) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+
+		writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return wsjson.Write(writeCtx, conn, msg)
+	}
+
+	startCtx, cancelStart := context.WithTimeout(r.Context(), wsStartTimeout)
+	defer cancelStart()
+
+	var start wsRunMessage
+	if err := wsjson.Read(startCtx, conn, &start); err != nil {
+		_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("read start message failed: %v", err)})
+		_ = conn.Close(websocket.StatusPolicyViolation, "invalid start message")
+		return
+	}
+
+	if start.Type != "start" {
+		_ = send(wsRunMessage{Type: "error", Error: "first message must be {type:start}"})
+		_ = conn.Close(websocket.StatusPolicyViolation, "missing start request")
+		return
+	}
+
+	shellPath, shellArgs := detectInteractiveShell()
+
+	runCtx, cancelRun := context.WithCancel(r.Context())
+	defer cancelRun()
+
+	ptmx, pts, err := pty.Open()
+	if err != nil {
+		_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("open pty failed: %v", err)})
+		_ = conn.Close(websocket.StatusInternalError, "open pty failed")
+		return
+	}
+	var closePTYOnce sync.Once
+	closePTYFiles := func() {
+		closePTYOnce.Do(func() {
+			_ = ptmx.Close()
+			_ = pts.Close()
+		})
+	}
+	defer closePTYFiles()
+
+	if err := setPTYSize(ptmx, start.Cols, start.Rows); err != nil {
+		_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("set terminal size failed: %v", err)})
+	}
+
+	cmd := exec.CommandContext(runCtx, shellPath, shellArgs...)
+	cmd.Stdin = pts
+	cmd.Stdout = pts
+	cmd.Stderr = pts
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	workingDir := ""
+	if wd, wdErr := os.Getwd(); wdErr == nil {
+		cmd.Dir = wd
+		workingDir = wd
+	}
+
+	if err := cmd.Start(); err != nil {
+		_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("start shell failed: %v", err)})
+		_ = conn.Close(websocket.StatusInternalError, "start shell failed")
+		return
+	}
+
+	if err := send(wsRunMessage{Type: "started", Program: shellPath, WorkingDir: workingDir, Invocation: shellPath}); err != nil {
+		return
+	}
+
+	if start.Request != nil {
+		if err := a.execRequestInTerminal(ptmx, *start.Request, send); err != nil {
+			_ = send(wsRunMessage{Type: "error", Error: err.Error()})
+		}
+	}
+
+	shellErrCh := make(chan error, 1)
+	go func() {
+		shellErrCh <- cmd.Wait()
+	}()
+
+	readErrCh := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := ptmx.Read(buf)
+			if n > 0 {
+				if sendErr := send(wsRunMessage{Type: "output", Data: string(buf[:n])}); sendErr != nil {
+					readErrCh <- sendErr
+					return
+				}
+			}
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					readErrCh <- nil
+				} else {
+					readErrCh <- err
+				}
+				return
+			}
+		}
+	}()
+
+	inMsgCh := make(chan wsRunMessage, 8)
+	inErrCh := make(chan error, 1)
+	go func() {
+		for {
+			var msg wsRunMessage
+			if err := wsjson.Read(runCtx, conn, &msg); err != nil {
+				inErrCh <- err
+				return
+			}
+			inMsgCh <- msg
+		}
+	}()
+
+	var extraErr error
+	for {
+		select {
+		case msg := <-inMsgCh:
+			switch msg.Type {
+			case "stdin":
+				if msg.Data == "" {
+					continue
+				}
+				if _, err := ptmx.Write([]byte(msg.Data)); err != nil {
+					extraErr = errors.Join(extraErr, err)
+					cancelRun()
+					closePTYFiles()
+				}
+			case "resize":
+				if err := setPTYSize(ptmx, msg.Cols, msg.Rows); err != nil {
+					_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("resize terminal failed: %v", err)})
+				}
+			case "exec":
+				if msg.Request == nil {
+					_ = send(wsRunMessage{Type: "error", Error: "exec message requires request payload"})
+					continue
+				}
+				if err := a.execRequestInTerminal(ptmx, *msg.Request, send); err != nil {
+					_ = send(wsRunMessage{Type: "error", Error: err.Error()})
+				}
+			case "close":
+				cancelRun()
+				closePTYFiles()
+			default:
+				_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("unknown message type: %s", msg.Type)})
+			}
+		case err := <-inErrCh:
+			status := websocket.CloseStatus(err)
+			if status != websocket.StatusNormalClosure && status != websocket.StatusGoingAway && status != websocket.StatusNoStatusRcvd && !errors.Is(err, context.Canceled) {
+				extraErr = errors.Join(extraErr, err)
+			}
+			cancelRun()
+			closePTYFiles()
+		case err := <-readErrCh:
+			if err != nil && websocket.CloseStatus(err) == -1 && !errors.Is(err, context.Canceled) {
+				extraErr = errors.Join(extraErr, err)
+			}
+		case err := <-shellErrCh:
+			closePTYFiles()
+			joinedErr := errors.Join(err, extraErr)
+			exitMsg := wsRunMessage{Type: "exit", OK: joinedErr == nil}
+			if joinedErr != nil {
+				exitMsg.Error = joinedErr.Error()
+			}
+			_ = send(exitMsg)
+			if joinedErr != nil {
+				_ = conn.Close(websocket.StatusInternalError, "shell exited with error")
+			} else {
+				_ = conn.Close(websocket.StatusNormalClosure, "shell exited")
+			}
+			return
+		}
+	}
+}
+
+func (a *App) execRequestInTerminal(ptmx *os.File, req RunRequest, send func(wsRunMessage) error) error {
+	meta, ok := a.byID[strings.TrimSpace(req.Command)]
+	if !ok {
+		return fmt.Errorf("unknown command: %q", req.Command)
+	}
+
+	argv, program, invocation, err := buildInvocation(meta, req)
+	if err != nil {
+		return err
+	}
+
+	line, err := buildExecutableCommandLine(argv)
+	if err != nil {
+		return err
+	}
+
+	if err := send(wsRunMessage{
+		Type:       "invocation",
+		Command:    meta.ID,
+		Program:    program,
+		Argv:       append([]string(nil), argv...),
+		Invocation: invocation,
+	}); err != nil {
+		return err
+	}
+
+	if _, err := ptmx.Write([]byte(line + "\n")); err != nil {
+		return fmt.Errorf("write command to terminal failed: %w", err)
+	}
+
+	return nil
+}
+
+func buildExecutableCommandLine(argv []string) (string, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		if len(os.Args) == 0 || strings.TrimSpace(os.Args[0]) == "" {
+			return "", fmt.Errorf("resolve executable path failed: %w", err)
+		}
+		exePath = os.Args[0]
+	}
+
+	tokens := make([]string, 0, len(argv)+1)
+	tokens = append(tokens, shellQuote(exePath))
+	for _, arg := range argv {
+		tokens = append(tokens, shellQuote(arg))
+	}
+	return strings.Join(tokens, " "), nil
+}
+
+func detectInteractiveShell() (string, []string) {
+	if runtime.GOOS == "windows" {
+		if shell := strings.TrimSpace(os.Getenv("COMSPEC")); shell != "" {
+			return shell, nil
+		}
+		return "cmd.exe", nil
+	}
+
+	if shell := strings.TrimSpace(os.Getenv("SHELL")); shell != "" {
+		return shell, []string{"-i"}
+	}
+
+	return "/bin/sh", []string{"-i"}
 }
 
 func buildInvocation(meta CommandMeta, req RunRequest) ([]string, string, string, error) {
@@ -385,6 +906,59 @@ func combineOutput(stdout, stderr string, runErr error) string {
 		return "ok"
 	}
 	return out.String()
+}
+
+func resolveRunTimeout(seconds int) time.Duration {
+	if seconds <= 0 {
+		return defaultRunTimeout
+	}
+	d := time.Duration(seconds) * time.Second
+	if d > maxRunTimeout {
+		return maxRunTimeout
+	}
+	return d
+}
+
+func withNonTTYTimeoutHint(runErr error, timedOut bool) error {
+	if runErr == nil || !timedOut {
+		return runErr
+	}
+
+	return fmt.Errorf(
+		"%w\nhint: command timed out; webcmd 不提供 TTY 交互。对于 bash/zsh/fish/vim/top 等交互式 shell，请在终端直接执行，或通过 stdin 传入一次性输入",
+		runErr,
+	)
+}
+
+func withInteractiveWSTimeoutHint(runErr error, timedOut bool) error {
+	if runErr == nil || !timedOut {
+		return runErr
+	}
+
+	return fmt.Errorf(
+		"%w\nhint: interactive session timed out; 可增大 timeoutSeconds，或设为 0 表示不设超时",
+		runErr,
+	)
+}
+
+func setPTYSize(f *os.File, cols, rows int) error {
+	if f == nil {
+		return fmt.Errorf("pty file is nil")
+	}
+	if cols <= 0 {
+		cols = 80
+	}
+	if rows <= 0 {
+		rows = 24
+	}
+	if cols > 65535 {
+		cols = 65535
+	}
+	if rows > 65535 {
+		rows = 65535
+	}
+
+	return pty.Setsize(f, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 }
 
 func cloneCommandTree(cmd *redant.Command) *redant.Command {

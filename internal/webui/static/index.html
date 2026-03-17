@@ -7,40 +7,85 @@
     <title>redant web command</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
 </head>
 
 <body class="h-screen overflow-hidden bg-slate-950 text-slate-100" x-data="webApp()" x-init="init()">
     <div class="flex h-full">
-        <aside class="w-[360px] shrink-0 border-r border-slate-800 bg-slate-900/70 flex flex-col">
-            <div class="p-4 border-b border-slate-800">
-                <h1 class="text-sm font-semibold tracking-wide text-slate-200">Command 列表</h1>
-                <p class="text-xs text-slate-400 mt-1">可搜索命令名、别名、描述、Use</p>
-                <div class="mt-3">
-                    <input type="text" x-model.trim="query" placeholder="搜索 command..."
-                        class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+        <aside class="shrink-0 border-r border-slate-800 bg-slate-900/70 flex flex-col transition-all duration-200"
+            :class="sidebarCollapsed ? 'w-14' : 'w-[360px]'">
+            <div class="p-3 border-b border-slate-800">
+                <div class="flex items-center justify-between gap-2">
+                    <h1 class="text-sm font-semibold tracking-wide text-slate-200"
+                        x-text="sidebarCollapsed ? 'CMD' : 'Command 列表'"></h1>
+                    <button type="button"
+                        class="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                        @click="toggleSidebar" :title="sidebarCollapsed ? '展开左侧菜单' : '收起左侧菜单'"
+                        x-text="sidebarCollapsed ? '»' : '«'"></button>
+                </div>
+
+                <div x-show="!sidebarCollapsed" class="mt-2">
+                    <p class="text-xs text-slate-400">可搜索命令名、别名、描述、Use</p>
+                    <div class="mt-3">
+                        <input type="text" x-model.trim="query" placeholder="搜索 command..."
+                            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                    </div>
+                    <div class="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+                        <button type="button" class="rounded border border-slate-700 px-2 py-0.5 hover:bg-slate-800"
+                            @click="expandAllNodes">全部展开</button>
+                        <button type="button" class="rounded border border-slate-700 px-2 py-0.5 hover:bg-slate-800"
+                            @click="collapseAllNodes">全部折叠</button>
+                    </div>
                 </div>
             </div>
 
-            <div class="overflow-auto flex-1">
-                <template x-if="filteredCommands.length === 0">
+            <div class="overflow-auto flex-1" x-show="!sidebarCollapsed">
+                <template x-if="commandTreeRows.length === 0">
                     <div class="p-4 text-sm text-slate-400">没有匹配的命令</div>
                 </template>
 
-                <template x-for="cmd in filteredCommands" :key="cmd.id">
-                    <button class="w-full text-left px-4 py-3 border-b border-slate-800 hover:bg-slate-800/60"
-                        :class="selected && selected.id === cmd.id ? 'bg-blue-950/40 border-l-2 border-l-blue-500' : ''"
-                        @click="selectCommand(cmd.id)">
-                        <div class="flex items-start justify-between gap-2">
-                            <div>
-                                <div class="font-mono text-xs text-blue-300" x-text="cmd.id"></div>
-                                <div class="text-[11px] text-slate-400 mt-1"
-                                    x-text="cmd.short || cmd.description || '(无描述)'"></div>
+                <template x-for="row in commandTreeRows" :key="row.key">
+                    <div class="border-b border-slate-800"
+                        :class="row.isCommand && selected && selected.id === row.command.id ? 'bg-blue-950/40 border-l-2 border-l-blue-500' : (row.isCommand ? 'hover:bg-slate-800/60' : 'hover:bg-slate-800/30')">
+                        <div class="flex items-start justify-between gap-2 px-2 py-2"
+                            :style="'padding-left:' + (8 + row.depth * 16) + 'px'">
+                            <div class="flex items-start gap-2 min-w-0 flex-1">
+                                <button type="button" class="mt-0.5 w-4 text-[10px] text-slate-400 hover:text-slate-200"
+                                    @click.stop="toggleNode(row.key)" x-show="row.hasChildren"
+                                    x-text="row.expanded ? '▾' : '▸'"></button>
+                                <span class="mt-0.5 w-4 text-[10px] text-transparent" x-show="!row.hasChildren">·</span>
+
+                                <span class="mt-0.5 w-4 text-[11px]"
+                                    :class="row.isCommand ? 'text-blue-300' : 'text-amber-300'"
+                                    x-text="row.isCommand ? '⌘' : '📁'"></span>
+
+                                <button type="button" class="text-left min-w-0 flex-1" @click="onTreeRowClick(row)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <div class="font-mono text-xs truncate"
+                                            :class="row.isCommand ? 'text-blue-300' : 'text-slate-200'"
+                                            x-text="row.label"></div>
+                                        <span x-show="row.isCommand"
+                                            class="rounded border border-blue-800/60 bg-blue-900/30 px-1.5 py-0.5 text-[9px] tracking-wide text-blue-200">CMD</span>
+                                    </div>
+                                    <div class="text-[11px] text-slate-400 mt-1 truncate" x-text="row.secondary"></div>
+                                </button>
                             </div>
-                            <div class="text-[10px] text-slate-500"
-                                x-text="(cmd.flags?.length || 0) + 'F / ' + (cmd.args?.length || 0) + 'A'"></div>
+                            <div class="text-[10px] text-slate-500" x-show="row.isCommand"
+                                x-text="(row.command.flags?.length || 0) + 'F / ' + (row.command.args?.length || 0) + 'A'">
+                            </div>
                         </div>
-                    </button>
+                    </div>
                 </template>
+            </div>
+
+            <div class="flex-1" x-show="sidebarCollapsed">
+                <div class="h-full flex items-start justify-center pt-3">
+                    <button type="button"
+                        class="rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                        @click="toggleSidebar" title="展开左侧菜单">展开</button>
+                </div>
             </div>
         </aside>
 
@@ -299,15 +344,60 @@
                         </div>
                     </section>
 
-                    <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-                        <div class="flex items-center gap-3">
+                    <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
+                        <div class="flex items-center justify-between gap-3">
+                            <h3 class="text-sm font-semibold">一次性运行（HTTP）</h3>
                             <button
                                 class="rounded-lg bg-blue-600 hover:bg-blue-500 px-4 py-2 text-sm font-medium disabled:opacity-50"
-                                :disabled="running" @click="runCommand">
+                                :disabled="running || interactiveRunning" @click="runCommand">
                                 <span x-show="!running">运行</span>
                                 <span x-show="running">执行中...</span>
                             </button>
-                            <span class="text-xs text-slate-400">会展示 curl 风格请求与完整 CLI 调用过程</span>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                            <div class="space-y-1">
+                                <div class="text-xs text-slate-400">STDIN（仅一次性运行生效）</div>
+                                <textarea rows="4"
+                                    class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-mono outline-none focus:border-blue-500"
+                                    placeholder="可选：一次性输入内容" x-model="stdinInput"></textarea>
+                            </div>
+                            <div class="space-y-1">
+                                <div class="text-xs text-slate-400">超时（秒，仅一次性运行生效）</div>
+                                <input type="number" min="1" max="600"
+                                    class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                                    x-model.number="timeoutSeconds" />
+                                <div class="text-[11px] text-slate-500">默认 30 秒，最大 600 秒</div>
+                            </div>
+                        </div>
+
+                        <div class="text-xs text-slate-400">会展示 curl 风格请求与完整 CLI 调用过程</div>
+                    </section>
+
+                    <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
+                        <div class="flex items-center justify-between gap-3">
+                            <h3 class="text-sm font-semibold">可交互运行（WebSocket + PTY）</h3>
+                            <div class="flex items-center gap-2">
+                                <button
+                                    class="rounded-lg bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-sm font-medium disabled:opacity-50"
+                                    :disabled="running || interactiveRunning" @click="runInteractiveCommand">
+                                    交互运行
+                                </button>
+                                <button
+                                    class="rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-800 disabled:opacity-50"
+                                    :disabled="!interactiveRunning" @click="stopInteractiveCommand">
+                                    停止交互
+                                </button>
+                            </div>
+                        </div>
+                        <div class="text-xs text-slate-400">交互模式会复用终端会话；不使用上方 STDIN/超时参数。</div>
+                    </section>
+
+                    <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                        <h3 class="text-sm font-semibold">交互终端（WebSocket + PTY）</h3>
+                        <div class="mt-2 text-xs text-slate-400">点击“交互运行”后，可直接在终端中输入；支持 Ctrl+C。</div>
+                        <div class="mt-3 rounded-lg border border-slate-800 bg-black/30 p-2">
+                            <div x-ref="terminal" class="h-72 w-full"></div>
                         </div>
                     </section>
 
@@ -331,31 +421,203 @@
         function webApp() {
             return {
                 commands: [],
+                commandTree: [],
+                expandedNodes: {},
+                sidebarCollapsed: false,
                 query: '',
                 selected: null,
                 flagInputs: {},
                 argInputs: {},
                 flagTouched: {},
                 objectErrors: {},
+                stdinInput: '',
+                timeoutSeconds: 30,
                 invokeView: '(暂无)',
                 resultView: '(暂无)',
                 running: false,
+                interactiveRunning: false,
+                ws: null,
+                term: null,
+                fitAddon: null,
+                termDataDisposable: null,
+                resizeObserver: null,
+                windowResizeHandler: null,
+                resizeAnimationFrame: 0,
 
-                get filteredCommands() {
+                get commandTreeRows() {
                     const q = this.query.toLowerCase().trim();
-                    if (!q) return this.commands;
-                    return this.commands.filter((cmd) => {
-                        const text = [
-                            cmd.id,
-                            cmd.name,
-                            cmd.use,
-                            cmd.short,
-                            cmd.long,
-                            cmd.description,
-                            (cmd.aliases || []).join(' '),
-                        ].join(' ').toLowerCase();
-                        return text.includes(q);
+                    const rows = [];
+
+                    const visit = (node, depth) => {
+                        if (q && !this.treeNodeMatchesQuery(node, q)) {
+                            return;
+                        }
+
+                        const hasChildren = (node.children || []).length > 0;
+                        const expanded = q ? true : !!this.expandedNodes[node.key];
+                        const isCommand = !!node.command;
+                        const secondary = isCommand
+                            ? (node.command.short || node.command.description || node.command.id || '(无描述)')
+                            : ((node.children || []).length + ' 个子命令');
+
+                        rows.push({
+                            key: node.key,
+                            label: node.label,
+                            depth,
+                            hasChildren,
+                            expanded,
+                            isCommand,
+                            command: node.command,
+                            secondary,
+                        });
+
+                        if (hasChildren && expanded) {
+                            (node.children || []).forEach((child) => visit(child, depth + 1));
+                        }
+                    };
+
+                    (this.commandTree || []).forEach((node) => visit(node, 0));
+                    return rows;
+                },
+
+                commandSearchText(cmd) {
+                    return [
+                        cmd.id,
+                        cmd.name,
+                        cmd.use,
+                        cmd.short,
+                        cmd.long,
+                        cmd.description,
+                        (cmd.aliases || []).join(' '),
+                    ].join(' ').toLowerCase();
+                },
+
+                commandMatchesQuery(cmd, q) {
+                    if (!q) return true;
+                    return this.commandSearchText(cmd).includes(q);
+                },
+
+                treeNodeMatchesQuery(node, q) {
+                    if (!q) return true;
+
+                    if (node.command && this.commandMatchesQuery(node.command, q)) {
+                        return true;
+                    }
+
+                    return (node.children || []).some((child) => this.treeNodeMatchesQuery(child, q));
+                },
+
+                buildCommandTree(commands) {
+                    const root = { key: '__root__', label: '', children: [], childMap: Object.create(null), command: null };
+
+                    (commands || []).forEach((cmd) => {
+                        const tokens = Array.isArray(cmd.path) && cmd.path.length > 0
+                            ? cmd.path
+                            : String(cmd.id || '').split(' ').filter(Boolean);
+                        if (tokens.length === 0) return;
+
+                        let cur = root;
+                        for (let i = 0; i < tokens.length; i++) {
+                            const token = String(tokens[i] || '').trim();
+                            if (!token) continue;
+
+                            const key = tokens.slice(0, i + 1).join(' ');
+                            if (!cur.childMap[key]) {
+                                cur.childMap[key] = {
+                                    key,
+                                    label: token,
+                                    children: [],
+                                    childMap: Object.create(null),
+                                    command: null,
+                                };
+                                cur.children.push(cur.childMap[key]);
+                            }
+                            cur = cur.childMap[key];
+                        }
+
+                        cur.command = cmd;
                     });
+
+                    const sortTree = (nodes) => {
+                        nodes.sort((a, b) => a.label.localeCompare(b.label));
+                        nodes.forEach((node) => sortTree(node.children));
+                    };
+
+                    sortTree(root.children);
+
+                    const normalize = (nodes) => {
+                        return nodes.map((node) => ({
+                            key: node.key,
+                            label: node.label,
+                            command: node.command,
+                            children: normalize(node.children),
+                        }));
+                    };
+
+                    return normalize(root.children);
+                },
+
+                resetTreeExpansion() {
+                    const next = {};
+                    (this.commandTree || []).forEach((node) => {
+                        next[node.key] = true;
+                    });
+                    this.expandedNodes = next;
+                },
+
+                expandAllNodes() {
+                    const next = {};
+                    const walk = (node) => {
+                        next[node.key] = true;
+                        (node.children || []).forEach((child) => walk(child));
+                    };
+                    (this.commandTree || []).forEach((node) => walk(node));
+                    this.expandedNodes = next;
+                },
+
+                collapseAllNodes() {
+                    const next = {};
+                    const walk = (node) => {
+                        next[node.key] = false;
+                        (node.children || []).forEach((child) => walk(child));
+                    };
+                    (this.commandTree || []).forEach((node) => walk(node));
+                    this.expandedNodes = next;
+                },
+
+                toggleSidebar() {
+                    this.sidebarCollapsed = !this.sidebarCollapsed;
+                    if (!this.sidebarCollapsed && this.selected) {
+                        this.$nextTick(() => this.expandToCommand(this.selected));
+                    }
+                },
+
+                toggleNode(key) {
+                    if (!key) return;
+                    this.expandedNodes[key] = !this.expandedNodes[key];
+                },
+
+                onTreeRowClick(row) {
+                    if (!row) return;
+
+                    if (row.isCommand && row.command) {
+                        this.selectCommand(row.command.id);
+                        return;
+                    }
+
+                    if (row.hasChildren) {
+                        this.toggleNode(row.key);
+                    }
+                },
+
+                expandToCommand(cmd) {
+                    if (!cmd) return;
+                    const tokens = Array.isArray(cmd.path) ? cmd.path : [];
+                    for (let i = 0; i < tokens.length; i++) {
+                        const key = tokens.slice(0, i + 1).join(' ');
+                        if (!key) continue;
+                        this.expandedNodes[key] = true;
+                    }
                 },
 
                 normalizeEnumValue(value) {
@@ -436,6 +698,8 @@
                         const resp = await fetch('/api/commands');
                         const data = await resp.json();
                         this.commands = data.commands || [];
+                        this.commandTree = this.buildCommandTree(this.commands);
+                        this.resetTreeExpansion();
                         if (this.commands.length > 0) {
                             this.selectCommand(this.commands[0].id);
                         }
@@ -452,6 +716,7 @@
                     this.objectErrors = {};
 
                     if (!this.selected) return;
+                    this.expandToCommand(this.selected);
 
                     (this.selected.flags || []).forEach((flag) => {
                         this.flagInputs[flag.name] = this.initDefaultValue(flag.type, flag.default);
@@ -495,7 +760,7 @@
                     return v;
                 },
 
-                buildPayload() {
+                buildCommandPayload() {
                     if (!this.selected) return null;
 
                     const flags = {};
@@ -531,6 +796,17 @@
                         flags,
                         args,
                         rawArgs,
+                    };
+                },
+
+                buildRunPayload() {
+                    const base = this.buildCommandPayload();
+                    if (!base) return null;
+
+                    return {
+                        ...base,
+                        stdin: String(this.stdinInput || ''),
+                        timeoutSeconds: Number(this.timeoutSeconds) > 0 ? Number(this.timeoutSeconds) : 0,
                     };
                 },
 
@@ -694,13 +970,251 @@
                     return Object.keys(this.objectErrors).length === 0;
                 },
 
+                websocketURL(path) {
+                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    return proto + '//' + location.host + path;
+                },
+
+                ensureTerminal() {
+                    if (typeof Terminal === 'undefined') {
+                        throw new Error('xterm.js 未加载完成');
+                    }
+
+                    if (!this.term) {
+                        this.term = new Terminal({
+                            cursorBlink: true,
+                            convertEol: false,
+                            fontSize: 13,
+                            theme: {
+                                background: '#020617',
+                                foreground: '#e2e8f0',
+                            },
+                        });
+                    }
+
+                    if (!this.fitAddon && typeof FitAddon !== 'undefined' && FitAddon && typeof FitAddon.FitAddon === 'function') {
+                        this.fitAddon = new FitAddon.FitAddon();
+                        this.term.loadAddon(this.fitAddon);
+                    }
+
+                    if (this.$refs.terminal && !this.term.element) {
+                        this.term.open(this.$refs.terminal);
+                        this.fitTerminal(false);
+                    }
+
+                    this.bindTerminalResizeHandlers();
+
+                    if (!this.termDataDisposable) {
+                        this.termDataDisposable = this.term.onData((data) => {
+                            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                                this.ws.send(JSON.stringify({ type: 'stdin', data }));
+                            }
+                        });
+                    }
+                },
+
+                fitTerminal(shouldSyncResize) {
+                    if (!this.term || !this.$refs.terminal) return;
+
+                    if (this.fitAddon && typeof this.fitAddon.fit === 'function') {
+                        this.fitAddon.fit();
+                    }
+
+                    if (shouldSyncResize) {
+                        this.sendTerminalResize();
+                    }
+                },
+
+                sendTerminalResize() {
+                    if (!this.term || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+                    const rows = this.term.rows > 0 ? this.term.rows : 24;
+                    const cols = this.term.cols > 0 ? this.term.cols : 80;
+                    this.ws.send(JSON.stringify({ type: 'resize', rows, cols }));
+                },
+
+                scheduleTerminalResize() {
+                    if (this.resizeAnimationFrame) {
+                        cancelAnimationFrame(this.resizeAnimationFrame);
+                    }
+
+                    this.resizeAnimationFrame = requestAnimationFrame(() => {
+                        this.resizeAnimationFrame = 0;
+                        this.fitTerminal(true);
+                    });
+                },
+
+                bindTerminalResizeHandlers() {
+                    if (!this.windowResizeHandler) {
+                        this.windowResizeHandler = () => this.scheduleTerminalResize();
+                        window.addEventListener('resize', this.windowResizeHandler);
+                    }
+
+                    if (!this.resizeObserver && typeof ResizeObserver !== 'undefined' && this.$refs.terminal) {
+                        this.resizeObserver = new ResizeObserver(() => this.scheduleTerminalResize());
+                        this.resizeObserver.observe(this.$refs.terminal);
+                    }
+                },
+
+                unbindTerminalResizeHandlers() {
+                    if (this.resizeObserver) {
+                        this.resizeObserver.disconnect();
+                        this.resizeObserver = null;
+                    }
+
+                    if (this.windowResizeHandler) {
+                        window.removeEventListener('resize', this.windowResizeHandler);
+                        this.windowResizeHandler = null;
+                    }
+
+                    if (this.resizeAnimationFrame) {
+                        cancelAnimationFrame(this.resizeAnimationFrame);
+                        this.resizeAnimationFrame = 0;
+                    }
+                },
+
+                stopInteractiveCommand() {
+                    if (this.ws) {
+                        try {
+                            if (this.ws.readyState === WebSocket.OPEN) {
+                                this.ws.send(JSON.stringify({ type: 'close' }));
+                            }
+                            this.ws.close();
+                        } catch (_) {
+                            // ignore close errors
+                        }
+                    }
+                    this.ws = null;
+                    this.interactiveRunning = false;
+                    this.unbindTerminalResizeHandlers();
+                },
+
+                async runInteractiveCommand() {
+                    if (!this.validateObjectInputs()) {
+                        this.resultView = '对象类型参数存在无效 JSON，请先修正。';
+                        return;
+                    }
+
+                    const payload = this.buildCommandPayload();
+                    if (!payload) return;
+
+                    this.ensureTerminal();
+
+                    const trace = this.formatPayloadTrace(payload);
+                    const wsURL = this.websocketURL('/api/terminal/ws');
+
+                    const setInvokeDraft = (msgType) => {
+                        const header =
+                            "# websocket " + wsURL + "\\n" +
+                            "# send: " + JSON.stringify({ type: msgType, request: payload });
+                        this.invokeView = header + '\n\n$ (interactive cli) ...' + trace;
+                    };
+
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        setInvokeDraft('exec');
+                        this.ws.send(JSON.stringify({ type: 'exec', request: payload }));
+                        this.resultView = '命令已发送到交互终端...';
+                        this.term.focus();
+                        return;
+                    }
+
+                    this.stopInteractiveCommand();
+                    this.term.clear();
+                    this.term.write('[connecting...]\r\n');
+                    setInvokeDraft('start');
+                    this.resultView = '交互终端连接中...';
+
+                    const ws = new WebSocket(wsURL);
+                    this.ws = ws;
+                    this.interactiveRunning = true;
+
+                    ws.onopen = () => {
+                        this.fitTerminal(false);
+                        const rows = this.term && this.term.rows > 0 ? this.term.rows : 24;
+                        const cols = this.term && this.term.cols > 0 ? this.term.cols : 80;
+                        ws.send(JSON.stringify({
+                            type: 'start',
+                            request: payload,
+                            rows,
+                            cols,
+                        }));
+                        this.term.focus();
+                    };
+
+                    ws.onmessage = (event) => {
+                        let msg;
+                        try {
+                            msg = JSON.parse(event.data);
+                        } catch (_) {
+                            return;
+                        }
+
+                        if (msg.type === 'started') {
+                            this.resultView = '交互终端已连接';
+                            const shell = String(msg.program || '').trim();
+                            const cwd = String(msg.workingDir || '').trim();
+                            const extras = [];
+                            if (shell) extras.push('shell=' + shell);
+                            if (cwd) extras.push('cwd=' + cwd);
+                            const suffix = extras.length > 0 ? (' ' + extras.join(' ')) : '';
+                            this.term.write('[terminal connected' + suffix + ']\r\n');
+                            this.scheduleTerminalResize();
+                            return;
+                        }
+
+                        if (msg.type === 'invocation') {
+                            const cli = this.formatCliMultiline(msg.program, msg.argv, msg.invocation);
+                            const header =
+                                "# websocket " + wsURL + "\\n" +
+                                "# send: " + JSON.stringify({ type: 'exec', request: payload });
+                            this.invokeView = header + '\n\n' + cli + trace;
+                            this.resultView = '命令正在交互终端执行...';
+                            return;
+                        }
+
+                        if (msg.type === 'output') {
+                            this.term.write(String(msg.data || ''));
+                            return;
+                        }
+
+                        if (msg.type === 'error') {
+                            this.term.write('\r\n[server error] ' + String(msg.error || 'unknown') + '\r\n');
+                            return;
+                        }
+
+                        if (msg.type === 'exit') {
+                            this.interactiveRunning = false;
+                            const statusText = msg.ok ? '0' : '1';
+                            this.term.write('\r\n[exit ' + statusText + ']\r\n');
+                            if (msg.error) {
+                                this.term.write(String(msg.error) + '\r\n');
+                                this.resultView = String(msg.error);
+                            } else {
+                                this.resultView = '交互会话已结束';
+                            }
+                        }
+                    };
+
+                    ws.onerror = () => {
+                        this.resultView = 'WebSocket 连接异常';
+                    };
+
+                    ws.onclose = () => {
+                        if (this.ws === ws) {
+                            this.ws = null;
+                        }
+                        this.interactiveRunning = false;
+                        this.unbindTerminalResizeHandlers();
+                    };
+                },
+
                 async runCommand() {
                     if (!this.validateObjectInputs()) {
                         this.resultView = '对象类型参数存在无效 JSON，请先修正。';
                         return;
                     }
 
-                    const payload = this.buildPayload();
+                    const payload = this.buildRunPayload();
                     if (!payload) return;
 
                     const trace = this.formatPayloadTrace(payload);

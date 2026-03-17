@@ -24,6 +24,9 @@
 - MCP `serverInfo.name` 改为从根命令名动态推导（为空时回退 `redant-mcp`），使对外标识与 CLI 应用名一致。
 - MCP `tools/call` 在保留文本 `Content` 的同时，新增 `StructuredContent`（`ok/stdout/stderr/error/combined`）并声明 `OutputSchema`，便于上层程序化消费。
 - Web 运行接口返回扩展为 `program + argv + invocation`，前端据此渲染反斜杠续行的多行 CLI 调用过程，提升长命令可读性。
+- Web 控制台交互终端增强：连接后返回并展示 `shell/cwd` 上下文，前端终端随容器自动 fit，并在尺寸变化时同步 PTY `resize`，提升“本地 shell”一致性体验。
+- Web 控制台左侧 `Command` 列表改为树形可缩进导航，支持节点展开/折叠与搜索联动，减少多级命令场景下的选择混乱。
+- Web 控制台左侧菜单支持收起/展开（窄栏模式），便于在小屏或参数编辑时为主内容区释放更多空间。
 
 ## 文档
 

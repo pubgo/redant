@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,6 +11,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 
 	"github.com/pubgo/redant"
 	"github.com/pubgo/redant/cmds/completioncmd"
@@ -296,6 +301,221 @@ func TestRunEndpointWithPreInitializedRootNoDuplicateEnvPanic(t *testing.T) {
 		if !out.OK {
 			t.Fatalf("run %d failed, error=%s stderr=%s", i+1, out.Error, out.Stderr)
 		}
+	}
+}
+
+func TestRunEndpointPassesStdin(t *testing.T) {
+	root := &redant.Command{Use: "testapp"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "cat",
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			in, err := io.ReadAll(inv.Stdin)
+			if err != nil {
+				return err
+			}
+			_, _ = inv.Stdout.Write(in)
+			return nil
+		},
+	})
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/api/run", "application/json", bytes.NewBufferString(`{"command":"cat","stdin":"line1\nline2\n"}`))
+	if err != nil {
+		t.Fatalf("run command request: %v", err)
+	}
+	defer closeResponseBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		payload, _ := io.ReadAll(resp.Body)
+		t.Fatalf("unexpected status: %d body=%s", resp.StatusCode, string(payload))
+	}
+
+	var runResp RunResponse
+	if err := json.NewDecoder(resp.Body).Decode(&runResp); err != nil {
+		t.Fatalf("decode run response: %v", err)
+	}
+
+	if !runResp.OK {
+		t.Fatalf("expected ok, got error=%s", runResp.Error)
+	}
+
+	if runResp.Stdout != "line1\nline2\n" {
+		t.Fatalf("unexpected stdout: %q", runResp.Stdout)
+	}
+}
+
+func TestRunEndpointTimeoutIncludesInteractiveHint(t *testing.T) {
+	root := &redant.Command{Use: "testapp"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "wait",
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	})
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/api/run", "application/json", bytes.NewBufferString(`{"command":"wait","timeoutSeconds":1}`))
+	if err != nil {
+		t.Fatalf("run command request: %v", err)
+	}
+	defer closeResponseBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		payload, _ := io.ReadAll(resp.Body)
+		t.Fatalf("unexpected status: %d body=%s", resp.StatusCode, string(payload))
+	}
+
+	var runResp RunResponse
+	if err := json.NewDecoder(resp.Body).Decode(&runResp); err != nil {
+		t.Fatalf("decode run response: %v", err)
+	}
+
+	if runResp.OK {
+		t.Fatalf("expected timeout error, got ok=true")
+	}
+
+	if !runResp.TimedOut {
+		t.Fatalf("expected timedOut=true, got false")
+	}
+
+	if !strings.Contains(runResp.Error, "webcmd 不提供 TTY 交互") {
+		t.Fatalf("expected timeout hint in error, got %q", runResp.Error)
+	}
+}
+
+func TestRunWSEndpointInteractive(t *testing.T) {
+	root := &redant.Command{Use: "testapp"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "repl",
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			reader := bufio.NewReader(inv.Stdin)
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return err
+			}
+			_, _ = inv.Stdout.Write([]byte("echo:" + line))
+			return nil
+		},
+	})
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/run/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "done") }()
+
+	if err := wsjson.Write(ctx, conn, wsRunMessage{
+		Type: "start",
+		Request: &RunRequest{
+			Command: "repl",
+		},
+		Rows: 24,
+		Cols: 80,
+	}); err != nil {
+		t.Fatalf("write start message: %v", err)
+	}
+
+	var started wsRunMessage
+	if err := wsjson.Read(ctx, conn, &started); err != nil {
+		t.Fatalf("read started message: %v", err)
+	}
+	if started.Type != "started" {
+		t.Fatalf("expected started message, got %q", started.Type)
+	}
+
+	if err := wsjson.Write(ctx, conn, wsRunMessage{Type: "stdin", Data: "hello\n"}); err != nil {
+		t.Fatalf("write stdin message: %v", err)
+	}
+
+	var output strings.Builder
+	for {
+		var msg wsRunMessage
+		if err := wsjson.Read(ctx, conn, &msg); err != nil {
+			t.Fatalf("read ws message: %v", err)
+		}
+
+		switch msg.Type {
+		case "output":
+			output.WriteString(msg.Data)
+		case "exit":
+			if !msg.OK {
+				t.Fatalf("expected ok exit, got error=%s", msg.Error)
+			}
+			if !strings.Contains(output.String(), "hello") {
+				t.Fatalf("expected interactive output contains hello, got %q", output.String())
+			}
+			return
+		}
+	}
+}
+
+func TestTerminalWSEndpointStartAndClose(t *testing.T) {
+	root := &redant.Command{Use: "testapp"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "echo",
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			_, _ = inv.Stdout.Write([]byte("ok\n"))
+			return nil
+		},
+	})
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/terminal/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "done") }()
+
+	if err := wsjson.Write(ctx, conn, wsRunMessage{Type: "start", Rows: 24, Cols: 80}); err != nil {
+		t.Fatalf("write start message: %v", err)
+	}
+
+	started := false
+	var startedMsg wsRunMessage
+	deadline := time.After(3 * time.Second)
+	for !started {
+		select {
+		case <-deadline:
+			t.Fatal("did not receive started message in time")
+		default:
+			var msg wsRunMessage
+			if err := wsjson.Read(ctx, conn, &msg); err != nil {
+				t.Fatalf("read ws message: %v", err)
+			}
+			if msg.Type == "started" {
+				startedMsg = msg
+				started = true
+			}
+		}
+	}
+
+	if strings.TrimSpace(startedMsg.Program) == "" {
+		t.Fatalf("expected started message has program, got empty")
+	}
+	if strings.TrimSpace(startedMsg.WorkingDir) == "" {
+		t.Fatalf("expected started message has workingDir, got empty")
+	}
+
+	if err := wsjson.Write(ctx, conn, wsRunMessage{Type: "close"}); err != nil {
+		t.Fatalf("write close message: %v", err)
 	}
 }
 
