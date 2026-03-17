@@ -388,11 +388,26 @@
                         <div class="text-xs text-slate-400">交互模式会复用终端会话；不使用上方 STDIN/超时参数。</div>
                     </section>
 
-                    <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-                        <h3 class="text-sm font-semibold">交互终端（WebSocket + PTY）</h3>
-                        <div class="mt-2 text-xs text-slate-400">点击“交互运行”后，可直接在终端中输入；支持 Ctrl+C。</div>
-                        <div class="mt-3 rounded-lg border border-slate-800 bg-black/30 p-2">
-                            <div x-ref="terminal" class="h-72 w-full"></div>
+                    <div x-show="terminalFullscreen" x-transition.opacity.duration.150ms
+                        class="fixed inset-0 z-[70] bg-black/60 backdrop-blur-[1px]" @click="exitTerminalFullscreen">
+                    </div>
+
+                    <section x-ref="terminalPanel"
+                        class="rounded-xl border border-slate-800 bg-slate-900/50 p-4 transition-all duration-200"
+                        :class="terminalFullscreen ? 'fixed inset-4 z-[80] bg-slate-950 border-slate-700 shadow-2xl ring-1 ring-slate-700/80 flex flex-col' : ''"
+                        @keydown.escape.window="exitTerminalFullscreen">
+                        <div class="flex items-center justify-between gap-3">
+                            <h3 class="text-sm font-semibold">交互终端（WebSocket + PTY）</h3>
+                            <button type="button"
+                                class="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                                @click="toggleTerminalFullscreen" x-text="terminalFullscreen ? '退出全屏' : '全屏'">
+                            </button>
+                        </div>
+                        <div class="mt-2 text-xs text-slate-400">点击“交互运行”后，可直接在终端中输入；支持 q / Ctrl+C / Ctrl+D；按 ESC 可退出全屏。
+                        </div>
+                        <div class="mt-3 rounded-lg border border-slate-800 bg-black/40 p-2" @click="focusTerminal"
+                            :class="terminalFullscreen ? 'flex-1 min-h-0' : ''">
+                            <div x-ref="terminal" class="w-full" :class="terminalFullscreen ? 'h-full' : 'h-72'"></div>
                         </div>
                     </section>
 
@@ -435,6 +450,8 @@
                 term: null,
                 fitAddon: null,
                 termDataDisposable: null,
+                termKeyHandlerInstalled: false,
+                terminalFullscreen: false,
                 resizeObserver: null,
                 windowResizeHandler: null,
                 resizeAnimationFrame: 0,
@@ -970,6 +987,40 @@
                     return proto + '//' + location.host + path;
                 },
 
+                sendTerminalInput(data) {
+                    if (!data) return;
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        this.ws.send(JSON.stringify({ type: 'stdin', data }));
+                    }
+                },
+
+                focusTerminal() {
+                    if (this.term) {
+                        this.term.focus();
+                    }
+                },
+
+                applyTerminalFullscreenState(enabled) {
+                    this.terminalFullscreen = !!enabled;
+                    const overflowValue = this.terminalFullscreen ? 'hidden' : '';
+                    document.body.style.overflow = overflowValue;
+                    document.documentElement.style.overflow = overflowValue;
+
+                    this.$nextTick(() => {
+                        this.scheduleTerminalResize();
+                        this.focusTerminal();
+                    });
+                },
+
+                toggleTerminalFullscreen() {
+                    this.applyTerminalFullscreenState(!this.terminalFullscreen);
+                },
+
+                exitTerminalFullscreen() {
+                    if (!this.terminalFullscreen) return;
+                    this.applyTerminalFullscreenState(false);
+                },
+
                 ensureTerminal() {
                     if (typeof Terminal === 'undefined') {
                         throw new Error('xterm.js 未加载完成');
@@ -997,13 +1048,47 @@
                         this.fitTerminal(false);
                     }
 
+                    if (!this.termKeyHandlerInstalled) {
+                        this.term.attachCustomKeyEventHandler((event) => {
+                            if (!this.term) return true;
+
+                            const key = String(event.key || '').toLowerCase();
+                            const hasCtrlOnly = event.ctrlKey && !event.metaKey && !event.altKey;
+
+                            if (hasCtrlOnly) {
+                                if (key === 'c') {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    if (this.term.hasSelection()) {
+                                        this.term.clearSelection();
+                                    }
+                                    this.sendTerminalInput('\u0003');
+                                    return false;
+                                }
+                                if (key === 'd') {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    this.sendTerminalInput('\u0004');
+                                    return false;
+                                }
+                                if (key === 'z') {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    this.sendTerminalInput('\u001a');
+                                    return false;
+                                }
+                            }
+
+                            return true;
+                        });
+                        this.termKeyHandlerInstalled = true;
+                    }
+
                     this.bindTerminalResizeHandlers();
 
                     if (!this.termDataDisposable) {
                         this.termDataDisposable = this.term.onData((data) => {
-                            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                                this.ws.send(JSON.stringify({ type: 'stdin', data }));
-                            }
+                            this.sendTerminalInput(data);
                         });
                     }
                 },

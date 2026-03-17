@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -374,7 +375,7 @@ func (a *App) handleRunWS(w http.ResponseWriter, r *http.Request) {
 				if msg.Data == "" {
 					continue
 				}
-				if _, err := ptmx.Write([]byte(msg.Data)); err != nil {
+				if err := writePTYInput(ptmx, pts, 0, msg.Data); err != nil {
 					extraErr = errors.Join(extraErr, err)
 					cancelRun()
 					closePTS()
@@ -497,6 +498,7 @@ func (a *App) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	cmd.Stdin = pts
 	cmd.Stdout = pts
 	cmd.Stderr = pts
+	prepareInteractiveShellCmd(cmd)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 	workingDir := ""
 	if wd, wdErr := os.Getwd(); wdErr == nil {
@@ -569,7 +571,7 @@ func (a *App) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 				if msg.Data == "" {
 					continue
 				}
-				if _, err := ptmx.Write([]byte(msg.Data)); err != nil {
+				if err := writePTYInput(ptmx, pts, shellProcessPID(cmd), msg.Data); err != nil {
 					extraErr = errors.Join(extraErr, err)
 					cancelRun()
 					closePTYFiles()
@@ -959,6 +961,103 @@ func setPTYSize(f *os.File, cols, rows int) error {
 	}
 
 	return pty.Setsize(f, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+}
+
+func writePTYInput(ptmx, pts *os.File, processPID int, data string) error {
+	if ptmx == nil {
+		return fmt.Errorf("pty file is nil")
+	}
+	if data == "" {
+		return nil
+	}
+
+	controlName, isControl := controlInputName(data)
+	if isControl && ttyDebugEnabled() {
+		log.Printf("[webui tty] received control input=%s", controlName)
+	}
+
+	if handled, err := trySignalFromControlInput(pts, processPID, data); handled {
+		if err == nil {
+			if ttyDebugEnabled() {
+				log.Printf("[webui tty] signal path ok for control input=%s", controlName)
+			}
+			return nil
+		}
+		log.Printf("[webui tty] signal path failed for control input=%s: %v; fallback to raw write", controlName, err)
+		// fallback: 若信号路径不可用，继续走原始字节写入
+	}
+
+	_, err := ptmx.Write([]byte(data))
+	if err == nil && isControl && ttyDebugEnabled() {
+		log.Printf("[webui tty] raw write fallback ok for control input=%s", controlName)
+	}
+	return err
+}
+
+func controlInputName(data string) (string, bool) {
+	b := []byte(data)
+	if len(b) != 1 {
+		return "", false
+	}
+	switch b[0] {
+	case 0x03:
+		return "Ctrl+C", true
+	case 0x04:
+		return "Ctrl+D", true
+	case 0x1a:
+		return "Ctrl+Z", true
+	default:
+		return "", false
+	}
+}
+
+func ttyDebugEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("REDANT_WEB_TTY_DEBUG")))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func trySignalFromControlInput(pts *os.File, processPID int, data string) (bool, error) {
+	b := []byte(data)
+	if len(b) != 1 {
+		return false, nil
+	}
+
+	switch b[0] {
+	case 0x03: // Ctrl+C
+		return true, signalFromControlInput(pts, processPID, "INT")
+	case 0x1a: // Ctrl+Z
+		return true, signalFromControlInput(pts, processPID, "TSTP")
+	default:
+		return false, nil
+	}
+}
+
+func signalFromControlInput(pts *os.File, processPID int, signalName string) error {
+	err := signalPTYForegroundProcessGroup(pts, signalName)
+	if err == nil {
+		return nil
+	}
+
+	if processPID <= 0 {
+		return err
+	}
+
+	fallbackErr := signalProcessGroupByPID(processPID, signalName)
+	if fallbackErr == nil {
+		if ttyDebugEnabled() {
+			log.Printf("[webui tty] foreground pgrp signal failed (%v), fallback process group signal ok pid=%d signal=%s", err, processPID, signalName)
+		}
+		return nil
+	}
+
+	return errors.Join(err, fmt.Errorf("fallback process group signal failed: %w", fallbackErr))
+}
+
+func shellProcessPID(cmd *exec.Cmd) int {
+	if cmd == nil || cmd.Process == nil {
+		return 0
+	}
+	return cmd.Process.Pid
 }
 
 func cloneCommandTree(cmd *redant.Command) *redant.Command {
