@@ -21,9 +21,11 @@
                     <h1 class="text-sm font-semibold tracking-wide text-slate-200"
                         x-text="sidebarCollapsed ? 'CMD' : 'Command 列表'"></h1>
                     <button type="button"
-                        class="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
-                        @click="toggleSidebar" :title="sidebarCollapsed ? '展开左侧菜单' : '收起左侧菜单'"
-                        x-text="sidebarCollapsed ? '»' : '«'"></button>
+                        class="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-700 text-slate-300 hover:bg-slate-800"
+                        @click="toggleSidebar" :title="sidebarCollapsed ? '展开左侧菜单' : '收起左侧菜单'">
+                        <span class="inline-block text-sm leading-none transition-transform duration-200"
+                            :class="sidebarCollapsed ? 'rotate-180' : ''">❮</span>
+                    </button>
                 </div>
 
                 <div x-show="!sidebarCollapsed" class="mt-2">
@@ -80,13 +82,6 @@
                 </template>
             </div>
 
-            <div class="flex-1" x-show="sidebarCollapsed">
-                <div class="h-full flex items-start justify-center pt-3">
-                    <button type="button"
-                        class="rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
-                        @click="toggleSidebar" title="展开左侧菜单">展开</button>
-                </div>
-            </div>
         </aside>
 
         <main class="flex-1 overflow-auto p-5 space-y-4">
