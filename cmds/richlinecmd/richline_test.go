@@ -368,6 +368,9 @@ func TestTabOnEmptyInputShowsStarterSuggestions(t *testing.T) {
 	if _, ok := findCompletion(m.suggestions, "commit"); !ok {
 		t.Fatalf("expected command suggestion commit on first TAB")
 	}
+	if _, ok := findCompletion(m.suggestions, "--help"); ok {
+		t.Fatalf("expected no flag suggestion on first TAB starter list")
+	}
 	if got := m.input.Value(); got != "" {
 		t.Fatalf("expected first TAB not to apply completion, got input=%q", got)
 	}

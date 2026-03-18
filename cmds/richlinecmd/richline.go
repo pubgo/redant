@@ -269,7 +269,7 @@ func (m *richlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "tab":
 			if strings.TrimSpace(m.input.Value()) == "" && len(m.suggestions) == 0 {
-				m.suggestions = collectCompletionItems(m.root, "")
+				m.suggestions = collectStarterCompletionItems(m.root)
 				m.selected = 0
 				m.normalizeOutputOffset()
 				return m, nil
@@ -629,6 +629,17 @@ func collectSlashCompletionItems(input string) []completionItem {
 	}
 
 	return uniqueCompletionItems(out)
+}
+
+func collectStarterCompletionItems(root *redant.Command) []completionItem {
+	if root == nil {
+		return nil
+	}
+	items := uniqueCompletionItems(suggestChildrenItems(root, ""))
+	if len(items) > 0 {
+		return items
+	}
+	return collectCompletionItems(root, "")
 }
 
 func (m *richlineModel) applySuggestion() {
