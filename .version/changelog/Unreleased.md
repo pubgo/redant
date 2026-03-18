@@ -11,6 +11,8 @@
 - 新增 MCP 能力：提供 `cmds/mcpcmd` 与 `internal/mcpserver`，支持将命令树映射为 MCP Tools，并通过 `mcp serve --transport stdio` 对外服务。
 - 新增 Web 控制台能力：提供 `cmds/webcmd` 与 `internal/webui`，支持可视化选择命令、填写 flags/args、执行并查看调用过程与结果。
 - 新增 `cmds/readlinecmd`：基于 `github.com/chzyer/readline` 提供多轮交互 REPL，支持命令/子命令、flag、参数与枚举值补全；`example/fastcommit` 已接入该命令。
+- 新增 `cmds/richlinecmd`：基于 `github.com/charmbracelet/bubbletea`（对比 `tcell` 后选型）实现独立交互命令，提供竖向补全候选列表与描述信息展示，且不影响现有 `readlinecmd`。
+- 增强 `cmds/richlinecmd` 候选可读性：补全列表新增类型标签（`CMD/FLAG/ARG/ENUM`）与总数/区间信息，并按 `CMD → FLAG → ARG → ENUM` 分组排序；大结果集支持窗口滚动显示与 `PgUp/PgDn/Home/End` 快捷定位；同时为标签、描述、选中项与提示信息提供颜色分层展示。
 
 ## 修复
 
@@ -25,6 +27,12 @@
 - 修复 Web 控制台 `Ctrl+C` 信号兜底路径：当 `TIOCGPGRP` 返回 `inappropriate ioctl for device` 时，回退为向 shell 独立进程组发送信号，避免仅原始字节写入导致中断失效。
 - 修复 `cmds/readlinecmd` 的 TAB 自动补全文本拼接异常：补全回调改为按 `chzyer/readline` 协议返回“候选后缀”而非完整词，避免出现 `proproject` 等重复拼接。
 - 修复 `cmds/readlinecmd` 在多轮执行后退出时报 `close /dev/stdin: file already closed`：子命令执行改为传入不可关闭的只读 `stdin` 包装，避免循环内子调用提前关闭外层标准输入。
+- 修复 `cmds/richlinecmd` 在窄窗口/长候选描述场景下偶发的重绘残影（如补全标题重复显示）：对日志、候选与提示行按终端宽度截断，避免自动换行导致的行数估算偏差。
+- 优化 `cmds/richlinecmd` 输出管理：启用 Alt Screen 隔离交互界面，规范化命令输出中的 `\r` 回车覆盖序列，并将日志改为按终端宽度换行展示，减少“覆盖命令行/输出截断”现象。
+- 增强 `cmds/richlinecmd` 大输出场景体验：新增独立输出视窗（可滚动浏览历史输出），支持 `Ctrl+O` 切换输出滚动模式并使用 `↑/↓/PgUp/PgDn/Home/End` 导航，避免仅显示尾部导致历史内容不可见。
+- 调整 `cmds/richlinecmd` 输出呈现为“按命令分块”的历史视图：每次执行对应一个输出块，输入区始终固定在底部；在无候选列表时可直接通过 `PgUp/PgDn/Home/End` 浏览输出历史。
+- 增强 `cmds/richlinecmd` 交互入口：新增 slash 命令模式（如 `/output`、`/input`、`/help`），用于在 `Ctrl+O` 不可用场景下切换输出滚动与查看帮助。
+- 增强 `cmds/richlinecmd` slash 体验：输入 `/` 或前缀（如 `/o`）时提供自动补全候选，并支持 `Tab` 补全到完整 slash 命令。
 
 ## 变更
 
@@ -38,6 +46,7 @@
 - Web 控制台交互终端支持一键全屏放大与 ESC 退出，并在切换时自动同步终端尺寸，提升长输出与交互调试体验。
 - 优化 Web 控制台交互终端全屏样式：增加暗色遮罩、沉浸式面板布局与页面滚动锁定，提升全屏观感与操作一致性。
 - `cmds/readlinecmd` 在每次执行前输出完整命令行（含必要引号转义），便于调试与复现实例命令。
+- `cmds/richlinecmd` 候选显示行数改为按当前终端窗口高度动态计算（窗口足够高时可一次显示全部候选），并将 `PgUp/PgDn` 翻页步长同步为动态行数。
 
 ## 文档
 
