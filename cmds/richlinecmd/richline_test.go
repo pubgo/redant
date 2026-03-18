@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pubgo/redant"
 )
@@ -348,6 +349,33 @@ func TestRecomputeSuggestions_Slash(t *testing.T) {
 	}
 	if _, ok := findCompletion(m.suggestions, "/output"); !ok {
 		t.Fatalf("expected /output in recomputed suggestions")
+	}
+}
+
+func TestTabOnEmptyInputShowsStarterSuggestions(t *testing.T) {
+	root := buildTestRoot()
+	m := newRichlineModel(context.Background(), root, "richline> ", nil, "", false)
+
+	if len(m.suggestions) != 0 {
+		t.Fatalf("expected no suggestions on init empty input")
+	}
+
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = model.(*richlineModel)
+	if len(m.suggestions) == 0 {
+		t.Fatalf("expected starter suggestions on first TAB")
+	}
+	if _, ok := findCompletion(m.suggestions, "commit"); !ok {
+		t.Fatalf("expected command suggestion commit on first TAB")
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("expected first TAB not to apply completion, got input=%q", got)
+	}
+
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = model.(*richlineModel)
+	if got := m.input.Value(); got == "" {
+		t.Fatalf("expected second TAB to apply selected completion")
 	}
 }
 

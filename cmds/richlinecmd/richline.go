@@ -268,6 +268,12 @@ func (m *richlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch key {
 		case "tab":
+			if strings.TrimSpace(m.input.Value()) == "" && len(m.suggestions) == 0 {
+				m.suggestions = collectCompletionItems(m.root, "")
+				m.selected = 0
+				m.normalizeOutputOffset()
+				return m, nil
+			}
 			m.applySuggestion()
 			m.recomputeSuggestions()
 			m.normalizeOutputOffset()
@@ -406,7 +412,7 @@ func (m *richlineModel) View() string {
 			b.WriteByte('\n')
 		}
 		b.WriteString("  ")
-		hint := "提示：↑/↓ 选择，PgUp/PgDn 翻页；Esc 隐藏候选；可输入 /output 切到输出滚动"
+		hint := "提示：↑/↓ 选择，PgUp/PgDn 翻页；Tab 空输入可列出命令；Esc 隐藏候选"
 		b.WriteString(styleHint.Render(truncateDisplayWidth(hint, suggestionWidth)))
 		b.WriteByte('\n')
 	}
@@ -845,7 +851,7 @@ func runLineCmd(ctx context.Context, root *redant.Command, line string) tea.Cmd 
 func richlineHelpLines(root *redant.Command) []string {
 	return []string{
 		"available shortcuts:",
-		"  - TAB: apply selected completion",
+		"  - TAB: apply selected completion (空输入首次 TAB 显示起始候选)",
 		"  - ↑/↓: switch completion candidate (or history when no candidate)",
 		"  - PgUp/PgDn/Home/End: scroll output history (when no suggestion list)",
 		"  - Ctrl+O: toggle output scroll mode",
