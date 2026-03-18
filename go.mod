@@ -3,6 +3,7 @@ module github.com/pubgo/redant
 go 1.25.0
 
 require (
+	github.com/chzyer/readline v1.5.1
 	github.com/coder/websocket v1.8.14
 	github.com/creack/pty v1.1.24
 	github.com/mitchellh/go-wordwrap v1.0.1

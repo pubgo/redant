@@ -10,6 +10,7 @@
 - 新增隐藏全局标志 `--args`：支持以重复参数或 CSV 形式覆盖命令位置参数，用于在需要时通过 flag 直接注入/替代 `args`。
 - 新增 MCP 能力：提供 `cmds/mcpcmd` 与 `internal/mcpserver`，支持将命令树映射为 MCP Tools，并通过 `mcp serve --transport stdio` 对外服务。
 - 新增 Web 控制台能力：提供 `cmds/webcmd` 与 `internal/webui`，支持可视化选择命令、填写 flags/args、执行并查看调用过程与结果。
+- 新增 `cmds/readlinecmd`：基于 `github.com/chzyer/readline` 提供多轮交互 REPL，支持命令/子命令、flag、参数与枚举值补全；`example/fastcommit` 已接入该命令。
 
 ## 修复
 
@@ -22,6 +23,8 @@
 - 修复 Web 控制台 PTY 信号目标选择：控制字符信号路径改为基于 slave PTY (`pts`) 获取前台进程组，避免在 master PTY (`ptmx`) 场景下信号不生效。
 - 增加 Web 控制台终端控制键后端诊断日志（环境变量 `REDANT_WEB_TTY_DEBUG=1`）：可观察控制键接收、信号路径结果与回退写入路径，便于排查 `Ctrl+C` 等问题。
 - 修复 Web 控制台 `Ctrl+C` 信号兜底路径：当 `TIOCGPGRP` 返回 `inappropriate ioctl for device` 时，回退为向 shell 独立进程组发送信号，避免仅原始字节写入导致中断失效。
+- 修复 `cmds/readlinecmd` 的 TAB 自动补全文本拼接异常：补全回调改为按 `chzyer/readline` 协议返回“候选后缀”而非完整词，避免出现 `proproject` 等重复拼接。
+- 修复 `cmds/readlinecmd` 在多轮执行后退出时报 `close /dev/stdin: file already closed`：子命令执行改为传入不可关闭的只读 `stdin` 包装，避免循环内子调用提前关闭外层标准输入。
 
 ## 变更
 
@@ -34,6 +37,7 @@
 - Web 控制台左侧菜单支持收起/展开（窄栏模式），便于在小屏或参数编辑时为主内容区释放更多空间。
 - Web 控制台交互终端支持一键全屏放大与 ESC 退出，并在切换时自动同步终端尺寸，提升长输出与交互调试体验。
 - 优化 Web 控制台交互终端全屏样式：增加暗色遮罩、沉浸式面板布局与页面滚动锁定，提升全屏观感与操作一致性。
+- `cmds/readlinecmd` 在每次执行前输出完整命令行（含必要引号转义），便于调试与复现实例命令。
 
 ## 文档
 

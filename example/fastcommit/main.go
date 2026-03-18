@@ -11,6 +11,7 @@ import (
 	"github.com/pubgo/redant"
 	"github.com/pubgo/redant/cmds/completioncmd"
 	"github.com/pubgo/redant/cmds/mcpcmd"
+	"github.com/pubgo/redant/cmds/readlinecmd"
 	"github.com/pubgo/redant/cmds/webcmd"
 )
 
@@ -356,6 +357,7 @@ func main() {
 		projectCmd,
 		profileCmd,
 		completioncmd.New(),
+		readlinecmd.New(),
 		mcpcmd.New(),
 		webcmd.New(),
 	)
