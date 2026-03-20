@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pubgo/redant"
+	"github.com/pubgo/redant/cmds/agentlinecmd"
 	"github.com/pubgo/redant/cmds/completioncmd"
 	"github.com/pubgo/redant/cmds/mcpcmd"
 	"github.com/pubgo/redant/cmds/readlinecmd"
@@ -360,6 +361,7 @@ func main() {
 		completioncmd.New(),
 		readlinecmd.New(),
 		richlinecmd.New(),
+		agentlinecmd.New(),
 		mcpcmd.New(),
 		webcmd.New(),
 	)

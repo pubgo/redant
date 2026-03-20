@@ -12,6 +12,7 @@
 - 新增 Web 控制台能力：提供 `cmds/webcmd` 与 `internal/webui`，支持可视化选择命令、填写 flags/args、执行并查看调用过程与结果。
 - 新增 `cmds/readlinecmd`：基于 `github.com/chzyer/readline` 提供多轮交互 REPL，支持命令/子命令、flag、参数与枚举值补全；`example/fastcommit` 已接入该命令。
 - 新增 `cmds/richlinecmd`：基于 `github.com/charmbracelet/bubbletea`（对比 `tcell` 后选型）实现独立交互命令，提供竖向补全候选列表与描述信息展示，且不影响现有 `readlinecmd`。
+- 新增 `cmds/agentlinecmd`（阶段一 MVP）：提供 Agent CLI 风格会话块视图（`system/user/assistant/tool/command/result`）、状态栏与输出滚动；支持 `/ask`、`/plan`、`/run` 等 slash 命令，并接入 `example/fastcommit` 便于体验。
 - 增强 `cmds/richlinecmd` 候选可读性：补全列表新增类型标签（`CMD/FLAG/ARG/ENUM`）与总数/区间信息，并按 `CMD → FLAG → ARG → ENUM` 分组排序；大结果集支持窗口滚动显示与 `PgUp/PgDn/Home/End` 快捷定位；同时为标签、描述、选中项与提示信息提供颜色分层展示。
 
 ## 修复
@@ -49,6 +50,9 @@
 - `cmds/readlinecmd` 在每次执行前输出完整命令行（含必要引号转义），便于调试与复现实例命令。
 - `cmds/richlinecmd` 候选显示行数改为按当前终端窗口高度动态计算（窗口足够高时可一次显示全部候选），并将 `PgUp/PgDn` 翻页步长同步为动态行数。
 - `cmds/richlinecmd` 依赖升级到 Bubble Tea/Bubbles v2：模块路径切换为 `charm.land/bubbletea/v2` 与 `charm.land/bubbles/v2`，并同步适配 `tea.View`、输入组件样式与窗口设置 API。
+- 增强 `cmds/agentlinecmd` 运行体验：新增 `/cancel`（含 `Ctrl+C` 运行中中断语义）、`tool.parse` 轨迹块与 `result` 状态/耗时信息（`status`、`duration`），使会话执行反馈更接近 agent CLI。
+- 增强 `cmds/agentlinecmd` 对话编排：`/ask` 输出升级为多步骤会话块（`assistant.think` + `tool.placeholder` + 最终回复），并新增 `/fold` / `/unfold` 以折叠或展开 assistant/tool 详情，提升长会话可读性。
+- 增强 `cmds/agentlinecmd` 交互布局为“输出区 + 输入区”双区域视图：启用鼠标滚轮分区滚动（输出区浏览会话输出、输入区浏览输入历史），支持点击输入历史回填到输入框并高亮当前选中项，保留键盘导航与 slash 候选协同体验。
 
 ## 文档
 

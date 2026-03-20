@@ -1,0 +1,445 @@
+package agentlinecmd
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/pubgo/redant"
+)
+
+func TestCollectSlashCompletionItems(t *testing.T) {
+	items := collectSlashCompletionItems("/")
+	if len(items) == 0 {
+		t.Fatalf("expected slash suggestions for '/'")
+	}
+	if _, ok := findCompletion(items, "/ask"); !ok {
+		t.Fatalf("expected /ask in slash suggestions")
+	}
+	if _, ok := findCompletion(items, "/run"); !ok {
+		t.Fatalf("expected /run in slash suggestions")
+	}
+}
+
+func TestHandleSlashInput_ModeSwitch(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+
+	handled, cmd := m.handleSlashInput("/output")
+	if !handled || cmd != nil {
+		t.Fatalf("expected /output handled without cmd, handled=%v cmd=%v", handled, cmd)
+	}
+	if !m.outputFocus {
+		t.Fatalf("expected outputFocus=true after /output")
+	}
+
+	handled, cmd = m.handleSlashInput("/input")
+	if !handled || cmd != nil {
+		t.Fatalf("expected /input handled without cmd, handled=%v cmd=%v", handled, cmd)
+	}
+	if m.outputFocus {
+		t.Fatalf("expected outputFocus=false after /input")
+	}
+}
+
+func TestView_MouseWheelDispatchByRegion(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m.width = 100
+	m.height = 24
+	m.history = []string{"/ask one", "/ask two", "/run commit --message hi", "/plan test"}
+	m.historyPos = len(m.history)
+	m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "output", Lines: []string{"line-1", "line-2", "line-3", "line-4", "line-5"}})
+
+	v := m.View()
+	if v.OnMouse == nil {
+		t.Fatalf("expected mouse handler configured")
+	}
+
+	lines := strings.Split(v.Content, "\n")
+	outputY := findLineContaining(lines, "输出区域")
+	inputY := findLineContaining(lines, "输入区域")
+	if outputY < 0 || inputY < 0 {
+		t.Fatalf("expected output/input region markers in view")
+	}
+
+	cmd := v.OnMouse(tea.MouseWheelMsg{X: 0, Y: outputY, Button: tea.MouseWheelUp})
+	if cmd == nil {
+		t.Fatalf("expected output region wheel event produce cmd")
+	}
+	msg := cmd()
+	scroll, ok := msg.(mouseScrollMsg)
+	if !ok {
+		t.Fatalf("expected mouseScrollMsg, got %T", msg)
+	}
+	if scroll.Region != mouseRegionOutput || scroll.Delta != 1 {
+		t.Fatalf("expected output region delta=1, got region=%s delta=%d", scroll.Region, scroll.Delta)
+	}
+
+	cmd = v.OnMouse(tea.MouseWheelMsg{X: 0, Y: inputY, Button: tea.MouseWheelDown})
+	if cmd == nil {
+		t.Fatalf("expected input region wheel event produce cmd")
+	}
+	msg = cmd()
+	scroll, ok = msg.(mouseScrollMsg)
+	if !ok {
+		t.Fatalf("expected mouseScrollMsg, got %T", msg)
+	}
+	if scroll.Region != mouseRegionInput || scroll.Delta != -1 {
+		t.Fatalf("expected input region delta=-1, got region=%s delta=%d", scroll.Region, scroll.Delta)
+	}
+}
+
+func TestUpdate_MouseScrollMsgScrollsInputAndOutput(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m.width = 100
+	m.height = 14
+	m.history = []string{"h1", "h2", "h3", "h4", "h5", "h6", "h7", "h8", "h9", "h10"}
+	m.historyPos = len(m.history)
+	m.blocks = []sessionBlock{{Kind: blockKindSystem, Title: "system", Lines: []string{"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen"}}}
+
+	model, _ := m.Update(mouseScrollMsg{Region: mouseRegionInput, Delta: 1})
+	m = model.(*agentlineModel)
+	if m.inputOffset <= 0 {
+		t.Fatalf("expected inputOffset > 0 after input wheel up, got %d", m.inputOffset)
+	}
+	if m.outputFocus {
+		t.Fatalf("expected outputFocus=false when scrolling input region")
+	}
+
+	model, _ = m.Update(mouseScrollMsg{Region: mouseRegionOutput, Delta: 1})
+	m = model.(*agentlineModel)
+	if m.outputOffset <= 0 {
+		t.Fatalf("expected outputOffset > 0 after output wheel up, got %d", m.outputOffset)
+	}
+	if !m.outputFocus {
+		t.Fatalf("expected outputFocus=true when scrolling output region")
+	}
+}
+
+func TestView_MouseClickSelectsInputHistory(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m.width = 100
+	m.height = 24
+	m.history = []string{"/ask one", "/ask two", "/run commit --message hi", "/plan test"}
+	m.historyPos = len(m.history)
+
+	v := m.View()
+	if v.OnMouse == nil {
+		t.Fatalf("expected mouse handler configured")
+	}
+
+	lines := strings.Split(v.Content, "\n")
+	clickY := findLineContaining(lines, "002 /ask two")
+	if clickY < 0 {
+		t.Fatalf("expected second history line rendered in view")
+	}
+
+	cmd := v.OnMouse(tea.MouseClickMsg{X: 0, Y: clickY, Button: tea.MouseLeft})
+	if cmd == nil {
+		t.Fatalf("expected click on history line to produce cmd")
+	}
+	msg := cmd()
+	selectMsg, ok := msg.(mouseSelectHistoryMsg)
+	if !ok {
+		t.Fatalf("expected mouseSelectHistoryMsg, got %T", msg)
+	}
+	if selectMsg.HistoryIndex != 1 {
+		t.Fatalf("expected history index=1, got %d", selectMsg.HistoryIndex)
+	}
+}
+
+func TestUpdate_MouseSelectHistoryMsgFillsInput(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m.history = []string{"h1", "h2", "h3"}
+	m.historyPos = len(m.history)
+	m.outputFocus = true
+
+	model, _ := m.Update(mouseSelectHistoryMsg{HistoryIndex: 1})
+	m = model.(*agentlineModel)
+	if got := m.input.Value(); got != "h2" {
+		t.Fatalf("expected input filled with h2, got %q", got)
+	}
+	if m.historyPos != 1 {
+		t.Fatalf("expected historyPos=1, got %d", m.historyPos)
+	}
+	if m.selectedHistory != 1 {
+		t.Fatalf("expected selectedHistory=1, got %d", m.selectedHistory)
+	}
+	if m.outputFocus {
+		t.Fatalf("expected outputFocus=false after selecting input history")
+	}
+}
+
+func TestHistoryUpDownTracksSelectedHistory(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m.history = []string{"h1", "h2", "h3"}
+	m.historyPos = len(m.history)
+
+	m.historyUp()
+	if m.selectedHistory != 2 {
+		t.Fatalf("expected selectedHistory=2 after first up, got %d", m.selectedHistory)
+	}
+
+	m.historyUp()
+	if m.selectedHistory != 1 {
+		t.Fatalf("expected selectedHistory=1 after second up, got %d", m.selectedHistory)
+	}
+
+	m.historyDown()
+	if m.selectedHistory != 2 {
+		t.Fatalf("expected selectedHistory=2 after down, got %d", m.selectedHistory)
+	}
+
+	m.historyDown()
+	if m.selectedHistory != -1 {
+		t.Fatalf("expected selectedHistory=-1 when leaving history mode, got %d", m.selectedHistory)
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("expected empty input after leaving history mode, got %q", got)
+	}
+}
+
+func TestRunAskCmd(t *testing.T) {
+	msg := runAskCmd("如何快速定位问题")()
+	res, ok := msg.(runResultMsg)
+	if !ok {
+		t.Fatalf("expected runResultMsg, got %T", msg)
+	}
+	if len(res.blocks) != 4 {
+		t.Fatalf("expected 4 blocks, got %d", len(res.blocks))
+	}
+	if res.blocks[0].Kind != blockKindUser {
+		t.Fatalf("expected first block user, got %s", res.blocks[0].Kind)
+	}
+	if res.blocks[1].Kind != blockKindAssistant || !strings.Contains(res.blocks[1].Title, "think") {
+		t.Fatalf("expected second block assistant.think, got kind=%s title=%s", res.blocks[1].Kind, res.blocks[1].Title)
+	}
+	if res.blocks[2].Kind != blockKindTool {
+		t.Fatalf("expected third block tool placeholder, got %s", res.blocks[2].Kind)
+	}
+	if res.blocks[3].Kind != blockKindAssistant {
+		t.Fatalf("expected fourth block assistant, got %s", res.blocks[3].Kind)
+	}
+	if !strings.Contains(strings.Join(res.blocks[3].Lines, "\n"), "duration:") {
+		t.Fatalf("expected assistant block include duration line")
+	}
+}
+
+func TestRunPlanCmd(t *testing.T) {
+	msg := runPlanCmd("实现 agentline MVP")()
+	res, ok := msg.(runResultMsg)
+	if !ok {
+		t.Fatalf("expected runResultMsg, got %T", msg)
+	}
+	if len(res.blocks) != 2 {
+		t.Fatalf("expected 2 blocks, got %d", len(res.blocks))
+	}
+	if !strings.Contains(strings.Join(res.blocks[1].Lines, "\n"), "1)") {
+		t.Fatalf("expected numbered plan output, got: %v", res.blocks[1].Lines)
+	}
+}
+
+func TestRunSlashRunCmd(t *testing.T) {
+	root := buildTestRoot()
+	msg := runSlashRunCmd(context.Background(), root, "commit --message hello")()
+	res, ok := msg.(runResultMsg)
+	if !ok {
+		t.Fatalf("expected runResultMsg, got %T", msg)
+	}
+	if len(res.blocks) < 3 {
+		t.Fatalf("expected at least 3 blocks, got %d", len(res.blocks))
+	}
+	if res.blocks[0].Kind != blockKindTool {
+		t.Fatalf("expected first block kind=tool, got %s", res.blocks[0].Kind)
+	}
+	if res.blocks[1].Kind != blockKindTool {
+		t.Fatalf("expected second block kind=tool(parse), got %s", res.blocks[1].Kind)
+	}
+	if res.blocks[2].Kind != blockKindCommand {
+		t.Fatalf("expected third block kind=command, got %s", res.blocks[2].Kind)
+	}
+
+	result, ok := findBlockByKind(res.blocks, blockKindResult)
+	if !ok {
+		t.Fatalf("expected result block in run result")
+	}
+
+	joined := strings.Join(result.Lines, "\n")
+	if !strings.Contains(joined, "status: ok") {
+		t.Fatalf("expected status line in result block, got: %s", joined)
+	}
+	if !strings.Contains(joined, "duration:") {
+		t.Fatalf("expected duration line in result block, got: %s", joined)
+	}
+	if !strings.Contains(joined, "commit ok") {
+		t.Fatalf("expected command output in result block, got: %s", joined)
+	}
+}
+
+func TestRunSlashRunCmd_Canceled(t *testing.T) {
+	root := buildTestRoot()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	msg := runSlashRunCmd(ctx, root, "wait")()
+	res, ok := msg.(runResultMsg)
+	if !ok {
+		t.Fatalf("expected runResultMsg, got %T", msg)
+	}
+
+	result, ok := findBlockByKind(res.blocks, blockKindResult)
+	if !ok {
+		t.Fatalf("expected result block")
+	}
+	joined := strings.Join(result.Lines, "\n")
+	if !strings.Contains(joined, "status: canceled") {
+		t.Fatalf("expected canceled status, got: %s", joined)
+	}
+}
+
+func TestHandleSlashInput_CancelRunning(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+
+	called := false
+	m.running = true
+	m.currentCancel = func() { called = true }
+
+	handled, cmd := m.handleSlashInput("/cancel")
+	if !handled || cmd != nil {
+		t.Fatalf("expected /cancel handled without cmd, handled=%v cmd=%v", handled, cmd)
+	}
+	if !called {
+		t.Fatalf("expected cancel function called")
+	}
+}
+
+func TestHandleSlashInput_FoldUnfold(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+
+	handled, cmd := m.handleSlashInput("/fold")
+	if !handled || cmd != nil {
+		t.Fatalf("expected /fold handled without cmd")
+	}
+	if !m.foldDetails {
+		t.Fatalf("expected foldDetails=true after /fold")
+	}
+
+	handled, cmd = m.handleSlashInput("/unfold")
+	if !handled || cmd != nil {
+		t.Fatalf("expected /unfold handled without cmd")
+	}
+	if m.foldDetails {
+		t.Fatalf("expected foldDetails=false after /unfold")
+	}
+}
+
+func TestRenderOutputLines_FoldDetails(t *testing.T) {
+	m := &agentlineModel{
+		foldDetails: true,
+		blocks: []sessionBlock{
+			{Kind: blockKindAssistant, Title: "assistant", Lines: []string{"line1", "line2", "line3"}},
+		},
+	}
+
+	lines := m.renderOutputLines(80)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "folded") {
+		t.Fatalf("expected folded hint in output, got: %s", joined)
+	}
+}
+
+func TestTabOnEmptyInputShowsStarterSlashSuggestions(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+
+	if len(m.suggestions) != 0 {
+		t.Fatalf("expected no suggestions on init empty input")
+	}
+
+	model, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	m = model.(*agentlineModel)
+	if len(m.suggestions) == 0 {
+		t.Fatalf("expected starter suggestions on first TAB")
+	}
+	if _, ok := findCompletion(m.suggestions, "/ask"); !ok {
+		t.Fatalf("expected /ask suggestion")
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("expected first TAB not applying suggestion, got input=%q", got)
+	}
+}
+
+func TestIsCommandLikeInput(t *testing.T) {
+	root := buildTestRoot()
+	if !isCommandLikeInput(root, "commit --message hi") {
+		t.Fatalf("expected commit line recognized as command input")
+	}
+	if isCommandLikeInput(root, "请帮我总结一下今天改动") {
+		t.Fatalf("expected natural language not recognized as command input")
+	}
+}
+
+func buildTestRoot() *redant.Command {
+	var msg string
+	commit := &redant.Command{
+		Use:   "commit",
+		Short: "提交代码",
+		Options: redant.OptionSet{
+			{Flag: "message", Shorthand: "m", Description: "提交信息", Value: redant.StringOf(&msg)},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			_, err := inv.Stdout.Write([]byte("commit ok\n"))
+			return err
+		},
+	}
+
+	wait := &redant.Command{
+		Use:   "wait",
+		Short: "等待上下文取消",
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+
+	return &redant.Command{
+		Use:      "app",
+		Children: []*redant.Command{commit, wait},
+		Handler:  func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	}
+}
+
+func findBlockByKind(blocks []sessionBlock, kind blockKind) (sessionBlock, bool) {
+	for _, b := range blocks {
+		if b.Kind == kind {
+			return b, true
+		}
+	}
+	return sessionBlock{}, false
+}
+
+func findCompletion(items []completionItem, insert string) (completionItem, bool) {
+	for _, item := range items {
+		if item.Insert == insert {
+			return item, true
+		}
+	}
+	return completionItem{}, false
+}
+
+func findLineContaining(lines []string, needle string) int {
+	for i, line := range lines {
+		if strings.Contains(line, needle) {
+			return i
+		}
+	}
+	return -1
+}
