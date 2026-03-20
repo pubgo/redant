@@ -34,6 +34,37 @@ func TestCommandBasic(t *testing.T) {
 	}
 }
 
+func TestCommandMeta(t *testing.T) {
+	cmd := &Command{
+		Use: "test",
+		Metadata: map[string]string{
+			"Mode":          " agent ",
+			"agent.command": " true ",
+		},
+	}
+
+	if got := cmd.Meta("mode"); got != "agent" {
+		t.Fatalf("Meta(mode) = %q, want %q", got, "agent")
+	}
+
+	if got := cmd.Meta(" AGENT.COMMAND "); got != "true" {
+		t.Fatalf("Meta(AGENT.COMMAND) = %q, want %q", got, "true")
+	}
+
+	if got := cmd.Meta("missing"); got != "" {
+		t.Fatalf("Meta(missing) = %q, want empty", got)
+	}
+
+	if got := cmd.Meta("   "); got != "" {
+		t.Fatalf("Meta(blank) = %q, want empty", got)
+	}
+
+	var nilCmd *Command
+	if got := nilCmd.Meta("mode"); got != "" {
+		t.Fatalf("nil command Meta(mode) = %q, want empty", got)
+	}
+}
+
 func TestCommandWithFlags(t *testing.T) {
 	tests := []struct {
 		name         string

@@ -43,6 +43,10 @@ type Command struct {
 	// If set, the value is used as the deprecation message.
 	Deprecated string `json:"deprecated,omitempty"`
 
+	// Metadata stores extensible command annotations for higher-level behaviors
+	// (for example: mode=agent, agent.command=true).
+	Metadata map[string]string `json:"metadata,omitempty"`
+
 	// RawArgs determines whether the command should receive unparsed arguments.
 	// No flags are parsed when set, and the command is responsible for parsing
 	// its own flags.
@@ -145,6 +149,30 @@ func (c *Command) init() error {
 // Name returns the first word in the Use string.
 func (c *Command) Name() string {
 	return strings.Split(c.Use, " ")[0]
+}
+
+// Meta returns the metadata value for key. Key lookup is case-insensitive.
+func (c *Command) Meta(key string) string {
+	if c == nil || len(c.Metadata) == 0 {
+		return ""
+	}
+
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+
+	if v, ok := c.Metadata[key]; ok {
+		return strings.TrimSpace(v)
+	}
+
+	for k, v := range c.Metadata {
+		if strings.EqualFold(strings.TrimSpace(k), key) {
+			return strings.TrimSpace(v)
+		}
+	}
+
+	return ""
 }
 
 // FullName returns the full invocation name of the command,
@@ -520,6 +548,7 @@ func (inv *Invocation) setParentCommand(parent *Command, children []*Command) {
 func (inv *Invocation) run(state *runState) error {
 	parent := inv.Command
 	inv.setParentCommand(inv.Command, inv.Command.Children)
+	rawAllArgs := append([]string(nil), state.allArgs...)
 
 	if inv.Command.Deprecated != "" {
 		if _, err := fmt.Fprintf(inv.Stderr, "%s %q is deprecated!. %s\n",
@@ -544,6 +573,22 @@ func (inv *Invocation) run(state *runState) error {
 	}
 	if consumed > 0 && consumed <= len(state.allArgs) {
 		state.allArgs = state.allArgs[consumed:]
+	}
+
+	if out, ok := applyCommandDispatchHooks(CommandDispatchInput{
+		Parent:        parent,
+		Command:       inv.Command,
+		RawAllArgs:    rawAllArgs,
+		RemainingArgs: append([]string(nil), state.allArgs...),
+		Consumed:      consumed,
+	}); ok {
+		if out.Command != nil {
+			inv.Command = out.Command
+		}
+		state.allArgs = append([]string(nil), out.Args...)
+		inv.Flags = nil
+		state.commandDepth = 0
+		state.flagParseErr = nil
 	}
 
 	// Check for global flags before proceeding

@@ -7,10 +7,12 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/pubgo/redant"
+	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
 
 func TestCollectSlashCompletionItems(t *testing.T) {
-	items := collectSlashCompletionItems("/")
+	root := buildTestRoot()
+	items := collectSlashCompletionItems(root, "/", false)
 	if len(items) == 0 {
 		t.Fatalf("expected slash suggestions for '/'")
 	}
@@ -20,11 +22,27 @@ func TestCollectSlashCompletionItems(t *testing.T) {
 	if _, ok := findCompletion(items, "/run"); !ok {
 		t.Fatalf("expected /run in slash suggestions")
 	}
+	if _, ok := findCompletion(items, "/commit"); !ok {
+		t.Fatalf("expected /commit in slash suggestions")
+	}
+}
+
+func TestCollectSlashCompletionItems_AgentOnly(t *testing.T) {
+	root := buildTestRoot()
+	root.Children[0].Metadata = map[string]string{agentlinemodule.CommandMetaAgentCommand: "true"} // commit
+
+	items := collectSlashCompletionItems(root, "/", true)
+	if _, ok := findCompletion(items, "/commit"); !ok {
+		t.Fatalf("expected /commit in agent-only slash suggestions")
+	}
+	if _, ok := findCompletion(items, "/wait"); ok {
+		t.Fatalf("expected /wait excluded in agent-only slash suggestions")
+	}
 }
 
 func TestHandleSlashInput_ModeSwitch(t *testing.T) {
 	root := buildTestRoot()
-	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 
 	handled, cmd := m.handleSlashInput("/output")
 	if !handled || cmd != nil {
@@ -45,7 +63,7 @@ func TestHandleSlashInput_ModeSwitch(t *testing.T) {
 
 func TestView_MouseWheelDispatchByRegion(t *testing.T) {
 	root := buildTestRoot()
-	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 	m.width = 100
 	m.height = 24
 	m.history = []string{"/ask one", "/ask two", "/run commit --message hi", "/plan test"}
@@ -93,7 +111,7 @@ func TestView_MouseWheelDispatchByRegion(t *testing.T) {
 
 func TestUpdate_MouseScrollMsgScrollsInputAndOutput(t *testing.T) {
 	root := buildTestRoot()
-	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 	m.width = 100
 	m.height = 14
 	m.history = []string{"h1", "h2", "h3", "h4", "h5", "h6", "h7", "h8", "h9", "h10"}
@@ -121,7 +139,7 @@ func TestUpdate_MouseScrollMsgScrollsInputAndOutput(t *testing.T) {
 
 func TestView_MouseClickSelectsInputHistory(t *testing.T) {
 	root := buildTestRoot()
-	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 	m.width = 100
 	m.height = 24
 	m.history = []string{"/ask one", "/ask two", "/run commit --message hi", "/plan test"}
@@ -154,7 +172,7 @@ func TestView_MouseClickSelectsInputHistory(t *testing.T) {
 
 func TestUpdate_MouseSelectHistoryMsgFillsInput(t *testing.T) {
 	root := buildTestRoot()
-	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 	m.history = []string{"h1", "h2", "h3"}
 	m.historyPos = len(m.history)
 	m.outputFocus = true
@@ -177,7 +195,7 @@ func TestUpdate_MouseSelectHistoryMsgFillsInput(t *testing.T) {
 
 func TestHistoryUpDownTracksSelectedHistory(t *testing.T) {
 	root := buildTestRoot()
-	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 	m.history = []string{"h1", "h2", "h3"}
 	m.historyPos = len(m.history)
 
@@ -305,7 +323,7 @@ func TestRunSlashRunCmd_Canceled(t *testing.T) {
 
 func TestHandleSlashInput_CancelRunning(t *testing.T) {
 	root := buildTestRoot()
-	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 
 	called := false
 	m.running = true
@@ -322,7 +340,7 @@ func TestHandleSlashInput_CancelRunning(t *testing.T) {
 
 func TestHandleSlashInput_FoldUnfold(t *testing.T) {
 	root := buildTestRoot()
-	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 
 	handled, cmd := m.handleSlashInput("/fold")
 	if !handled || cmd != nil {
@@ -338,6 +356,22 @@ func TestHandleSlashInput_FoldUnfold(t *testing.T) {
 	}
 	if m.foldDetails {
 		t.Fatalf("expected foldDetails=false after /unfold")
+	}
+}
+
+func TestHandleSlashInput_CommandAsSlash(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+
+	handled, cmd := m.handleSlashInput("/commit --message hi")
+	if !handled {
+		t.Fatalf("expected slash command handled")
+	}
+	if cmd == nil {
+		t.Fatalf("expected slash command to return run cmd")
+	}
+	if !m.running {
+		t.Fatalf("expected running=true after slash command run")
 	}
 }
 
@@ -358,7 +392,7 @@ func TestRenderOutputLines_FoldDetails(t *testing.T) {
 
 func TestTabOnEmptyInputShowsStarterSlashSuggestions(t *testing.T) {
 	root := buildTestRoot()
-	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false)
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 
 	if len(m.suggestions) != 0 {
 		t.Fatalf("expected no suggestions on init empty input")
@@ -379,11 +413,36 @@ func TestTabOnEmptyInputShowsStarterSlashSuggestions(t *testing.T) {
 
 func TestIsCommandLikeInput(t *testing.T) {
 	root := buildTestRoot()
-	if !isCommandLikeInput(root, "commit --message hi") {
+	if !isCommandLikeInput(root, "commit --message hi", false) {
 		t.Fatalf("expected commit line recognized as command input")
 	}
-	if isCommandLikeInput(root, "请帮我总结一下今天改动") {
+	if isCommandLikeInput(root, "请帮我总结一下今天改动", false) {
 		t.Fatalf("expected natural language not recognized as command input")
+	}
+}
+
+func TestIsCommandLikeInput_AgentOnlyMode(t *testing.T) {
+	root := buildTestRoot()
+	root.Children[0].Metadata = map[string]string{agentlinemodule.CommandMetaAgentCommand: "true"} // commit
+
+	if !isCommandLikeInput(root, "commit --message hi", true) {
+		t.Fatalf("expected commit recognized in agent-only mode")
+	}
+	if isCommandLikeInput(root, "wait", true) {
+		t.Fatalf("expected non-agent command rejected in agent-only mode")
+	}
+}
+
+func TestNewAgentlineModel_InitWithInitialArgv(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, []string{"commit", "--message", "hello world"})
+
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatalf("expected non-nil init cmd for initial argv")
+	}
+	if !m.running {
+		t.Fatalf("expected running=true after init bootstrap")
 	}
 }
 

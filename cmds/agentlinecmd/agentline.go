@@ -19,6 +19,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/pubgo/redant"
+	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
 
 const (
@@ -117,10 +118,13 @@ var (
 )
 
 func New() *redant.Command {
+	ensureRouteHookRegistered()
+
 	var (
-		prompt    string
-		history   string
-		noHistory bool
+		prompt     string
+		history    string
+		noHistory  bool
+		initialArg []string
 	)
 
 	return &redant.Command{
@@ -131,6 +135,7 @@ func New() *redant.Command {
 			{Flag: "prompt", Description: "交互提示符", Value: redant.StringOf(&prompt), Default: "agent> "},
 			{Flag: "history-file", Description: "历史记录文件路径（为空自动使用 ~/.redant_agentline_history）", Value: redant.StringOf(&history)},
 			{Flag: "no-history", Description: "禁用历史记录持久化", Value: redant.BoolOf(&noHistory)},
+			{Flag: "initial-arg", Description: "内部参数：自动进入 agent 模式时的原始 argv", Value: redant.StringArrayOf(&initialArg), Hidden: true},
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			root := inv.Command
@@ -150,7 +155,7 @@ func New() *redant.Command {
 				historyLines = loadHistory(historyFile)
 			}
 
-			model := newAgentlineModel(ctx, root, prompt, historyLines, historyFile, !noHistory)
+			model := newAgentlineModel(ctx, root, prompt, historyLines, historyFile, !noHistory, initialArg)
 			p := tea.NewProgram(model, tea.WithInput(inv.Stdin), tea.WithOutput(inv.Stdout))
 
 			done := make(chan struct{})
@@ -194,6 +199,8 @@ type agentlineModel struct {
 	selectedHistory int
 	foldDetails     bool
 	currentCancel   context.CancelFunc
+	initialArgv     []string
+	agentOnlyMode   bool
 }
 
 type runResultMsg struct {
@@ -201,7 +208,7 @@ type runResultMsg struct {
 	quit   bool
 }
 
-func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string, history []string, historyFile string, persist bool) *agentlineModel {
+func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string, history []string, historyFile string, persist bool, initialArgv []string) *agentlineModel {
 	ti := textinput.New()
 	ti.Prompt = prompt
 	styles := textinput.DefaultStyles(true)
@@ -219,6 +226,8 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 		ti.Prompt = prompt
 	}
 
+	agentOnlyMode := hasAnyAgentCommand(root)
+
 	m := &agentlineModel{
 		ctx:             ctx,
 		root:            root,
@@ -229,6 +238,8 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 		historyFile:     historyFile,
 		persistHistory:  persist,
 		selectedHistory: -1,
+		initialArgv:     append([]string(nil), initialArgv...),
+		agentOnlyMode:   agentOnlyMode,
 		blocks: []sessionBlock{{
 			Kind:  blockKindSystem,
 			Title: "system",
@@ -239,11 +250,21 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 			},
 		}},
 	}
+	if agentOnlyMode {
+		m.blocks[0].Lines = append(m.blocks[0].Lines, "已检测到 agent command 元数据，仅自动识别这些命令为可执行命令输入。")
+	}
 	m.recomputeSuggestions()
 	return m
 }
 
-func (m *agentlineModel) Init() tea.Cmd { return nil }
+func (m *agentlineModel) Init() tea.Cmd {
+	if len(m.initialArgv) == 0 {
+		return nil
+	}
+
+	request := formatCommandLine(m.root.Name(), m.initialArgv)
+	return m.startCommandRun(request)
+}
 
 func (m *agentlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -349,6 +370,8 @@ func (m *agentlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab":
 			if strings.TrimSpace(m.input.Value()) == "" && len(m.suggestions) == 0 {
 				m.suggestions = collectStarterSlashItems()
+				m.suggestions = append(m.suggestions, collectCommandSlashItems(m.root, m.agentOnlyMode, "")...)
+				m.suggestions = uniqueCompletionItems(m.suggestions)
 				m.selected = 0
 				return m, nil
 			}
@@ -440,7 +463,7 @@ func (m *agentlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 
-			if isCommandLikeInput(m.root, line) {
+			if isCommandLikeInput(m.root, line, m.agentOnlyMode) {
 				return m, m.startCommandRun(line)
 			}
 			m.running = true
@@ -624,7 +647,7 @@ func (m *agentlineModel) handleSlashInput(line string) (bool, tea.Cmd) {
 
 	switch cmd {
 	case "help", "?":
-		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/help", Lines: slashHelpLines()})
+		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/help", Lines: slashHelpLines(m.root, m.agentOnlyMode)})
 
 	case "a", "ask":
 		if argText == "" {
@@ -714,8 +737,13 @@ func (m *agentlineModel) handleSlashInput(line string) (bool, tea.Cmd) {
 		return true, tea.Quit
 
 	default:
+		if isCommandLikeInput(m.root, cmdText, m.agentOnlyMode) {
+			return true, m.startCommandRun(cmdText)
+		}
+
 		m.appendBlock(sessionBlock{Kind: blockKindError, Title: raw, Lines: []string{
 			fmt.Sprintf("未知 slash 命令: %s", cmd),
+			"可尝试 /run <command...>，或直接使用 /<command ...> 形式。",
 			"输入 /help 查看可用命令。",
 		}})
 	}
@@ -901,37 +929,85 @@ func buildPlanLines(goal string) []string {
 	}
 }
 
-func isCommandLikeInput(root *redant.Command, line string) bool {
+func isCommandLikeInput(root *redant.Command, line string, agentOnly bool) bool {
+	cmd, ok := resolveCommandLikeInput(root, line)
+	if !ok {
+		return false
+	}
+
+	if !agentOnly {
+		return true
+	}
+
+	return agentlinemodule.IsAgentCommand(cmd.Metadata)
+}
+
+func hasAnyAgentCommand(root *redant.Command) bool {
+	if root == nil {
+		return false
+	}
+
+	for _, child := range root.Children {
+		if agentlinemodule.IsAgentCommand(child.Metadata) {
+			return true
+		}
+		if hasAnyAgentCommand(child) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func resolveCommandLikeInput(root *redant.Command, line string) (*redant.Command, bool) {
 	args, err := splitCommandLine(line)
 	if err != nil || len(args) == 0 || root == nil {
-		return false
+		return nil, false
 	}
 
 	if args[0] == root.Name() {
 		args = args[1:]
 		if len(args) == 0 {
-			return false
+			return nil, false
 		}
 	}
 
-	first := args[0]
-	if strings.HasPrefix(first, "-") || strings.HasPrefix(first, "/") {
-		return false
-	}
+	current := root
+	consumed := 0
+	for _, token := range args {
+		if strings.HasPrefix(token, "-") || strings.HasPrefix(token, "/") || strings.Contains(token, "=") {
+			break
+		}
 
-	if strings.Contains(first, ":") {
-		parts := strings.Split(first, ":")
-		cur := root
-		for _, p := range parts {
-			cur = childByNameOrAlias(cur, p)
-			if cur == nil {
-				return false
+		if strings.Contains(token, ":") {
+			parts := strings.Split(token, ":")
+			for _, part := range parts {
+				next := childByNameOrAlias(current, part)
+				if next == nil {
+					if consumed == 0 {
+						return nil, false
+					}
+					return current, true
+				}
+				current = next
+				consumed++
 			}
+			continue
 		}
-		return true
+
+		next := childByNameOrAlias(current, token)
+		if next == nil {
+			break
+		}
+		current = next
+		consumed++
 	}
 
-	return childByNameOrAlias(root, first) != nil
+	if consumed == 0 {
+		return nil, false
+	}
+
+	return current, true
 }
 
 func childByNameOrAlias(parent *redant.Command, token string) *redant.Command {
@@ -964,7 +1040,7 @@ func (m *agentlineModel) recomputeSuggestions() {
 	}
 
 	if strings.HasPrefix(trimmed, "/") {
-		m.suggestions = collectSlashCompletionItems(line)
+		m.suggestions = collectSlashCompletionItems(m.root, line, m.agentOnlyMode)
 	} else {
 		m.suggestions = nil
 	}
@@ -991,7 +1067,7 @@ func collectStarterSlashItems() []completionItem {
 	})
 }
 
-func collectSlashCompletionItems(input string) []completionItem {
+func collectSlashCompletionItems(root *redant.Command, input string, agentOnly bool) []completionItem {
 	trimmedRight := strings.TrimRightFunc(input, unicode.IsSpace)
 	if trimmedRight == "" {
 		return nil
@@ -1011,7 +1087,7 @@ func collectSlashCompletionItems(input string) []completionItem {
 	}
 
 	prefix := strings.TrimPrefix(first, "/")
-	out := make([]completionItem, 0, len(slashCommands)*2)
+	out := make([]completionItem, 0, len(slashCommands)*2+8)
 	addCandidate := func(name, desc string) {
 		candidate := "/" + strings.TrimSpace(name)
 		if candidate == "/" {
@@ -1029,7 +1105,55 @@ func collectSlashCompletionItems(input string) []completionItem {
 		}
 	}
 
+	out = append(out, collectCommandSlashItems(root, agentOnly, prefix)...)
+
 	return uniqueCompletionItems(out)
+}
+
+func collectCommandSlashItems(root *redant.Command, agentOnly bool, prefix string) []completionItem {
+	if root == nil {
+		return nil
+	}
+
+	prefix = strings.TrimSpace(prefix)
+	var out []completionItem
+
+	var walk func(parent *redant.Command, path []string)
+	walk = func(parent *redant.Command, path []string) {
+		if parent == nil {
+			return
+		}
+
+		for _, child := range parent.Children {
+			if child == nil || child.Hidden {
+				continue
+			}
+			if child.Name() == agentlinemodule.CommandName {
+				continue
+			}
+
+			cmdPath := append(path, child.Name())
+
+			if !agentOnly || agentlinemodule.IsAgentCommand(child.Metadata) {
+				pathText := strings.Join(cmdPath, " ")
+				if prefix == "" || strings.HasPrefix(pathText, prefix) {
+					desc := strings.TrimSpace(child.Short)
+					if desc == "" {
+						desc = "执行命令"
+					}
+					out = append(out, completionItem{
+						Insert:      "/" + pathText + " ",
+						Description: desc,
+					})
+				}
+			}
+
+			walk(child, cmdPath)
+		}
+	}
+
+	walk(root, nil)
+	return out
 }
 
 func (m *agentlineModel) applySuggestion() {
@@ -1627,9 +1751,10 @@ func normalizeOutputLines(s string) []string {
 	return out
 }
 
-func slashHelpLines() []string {
-	return []string{
+func slashHelpLines(root *redant.Command, agentOnly bool) []string {
+	lines := []string{
 		"slash commands:",
+		"  /<command ...>: 直接执行命令（例如 /commit --message hi）",
 		"  /ask <question>: 追加 user/assistant 对话块",
 		"  /plan <goal>: 生成分步骤计划块",
 		"  /run <command...>: 执行命令并输出 tool/command/result",
@@ -1642,6 +1767,24 @@ func slashHelpLines() []string {
 		"  /clear: 清空历史块",
 		"  /quit: 退出 agentline",
 	}
+
+	commands := collectCommandSlashItems(root, agentOnly, "")
+	if len(commands) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, "可直接执行的命令：")
+		limit := len(commands)
+		if limit > 8 {
+			limit = 8
+		}
+		for i := 0; i < limit; i++ {
+			lines = append(lines, "  "+strings.TrimSpace(commands[i].Insert))
+		}
+		if len(commands) > limit {
+			lines = append(lines, fmt.Sprintf("  ...(共 %d 个，可输入 / 查看候选)", len(commands)))
+		}
+	}
+
+	return lines
 }
 
 func (m *agentlineModel) startCommandRun(commandLine string) tea.Cmd {
