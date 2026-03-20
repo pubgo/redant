@@ -48,6 +48,7 @@
 - 优化 Web 控制台交互终端全屏样式：增加暗色遮罩、沉浸式面板布局与页面滚动锁定，提升全屏观感与操作一致性。
 - `cmds/readlinecmd` 在每次执行前输出完整命令行（含必要引号转义），便于调试与复现实例命令。
 - `cmds/richlinecmd` 候选显示行数改为按当前终端窗口高度动态计算（窗口足够高时可一次显示全部候选），并将 `PgUp/PgDn` 翻页步长同步为动态行数。
+- `cmds/richlinecmd` 依赖升级到 Bubble Tea/Bubbles v2：模块路径切换为 `charm.land/bubbletea/v2` 与 `charm.land/bubbles/v2`，并同步适配 `tea.View`、输入组件样式与窗口设置 API。
 
 ## 文档
 

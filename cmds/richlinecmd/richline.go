@@ -13,9 +13,9 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/spf13/pflag"
 
 	"github.com/pubgo/redant"
@@ -120,7 +120,7 @@ func New() *redant.Command {
 			}
 
 			model := newRichlineModel(ctx, root, prompt, historyLines, historyFile, !noHistory)
-			p := tea.NewProgram(model, tea.WithInput(inv.Stdin), tea.WithOutput(inv.Stdout), tea.WithAltScreen())
+			p := tea.NewProgram(model, tea.WithInput(inv.Stdin), tea.WithOutput(inv.Stdout))
 
 			done := make(chan struct{})
 			go func() {
@@ -172,8 +172,12 @@ type runLineResultMsg struct {
 func newRichlineModel(ctx context.Context, root *redant.Command, prompt string, history []string, historyFile string, persist bool) *richlineModel {
 	ti := textinput.New()
 	ti.Prompt = prompt
-	ti.PromptStyle = stylePrompt
-	ti.TextStyle = styleInputText
+	styles := textinput.DefaultStyles(true)
+	styles.Focused.Prompt = stylePrompt
+	styles.Focused.Text = styleInputText
+	styles.Blurred.Prompt = stylePrompt
+	styles.Blurred.Text = styleInputText
+	ti.SetStyles(styles)
 	ti.Focus()
 	ti.CharLimit = 0
 	ti.SetValue("")
@@ -221,7 +225,7 @@ func (m *richlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if m.width > len([]rune(m.prompt))+4 {
-			m.input.Width = m.width - len([]rune(m.prompt)) - 4
+			m.input.SetWidth(m.width - len([]rune(m.prompt)) - 4)
 		}
 		m.normalizeOutputOffset()
 		return m, nil
@@ -361,7 +365,7 @@ func (m *richlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *richlineModel) View() string {
+func (m *richlineModel) View() tea.View {
 	var b strings.Builder
 	contentWidth := m.contentWidth()
 	renderedLines := m.renderOutputLines(contentWidth)
@@ -427,7 +431,9 @@ func (m *richlineModel) View() string {
 	b.WriteString(m.input.View())
 	b.WriteByte('\n')
 	b.WriteString(styleHint.Render(truncateDisplayWidth("输出历史：PgUp/PgDn 翻页，Home/End 顶/底；Ctrl+O 或 /output 进入精细滚动；/help 查看 slash 命令", contentWidth)))
-	return b.String()
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	return v
 }
 
 func (m *richlineModel) handleSlashCommand(line string) (bool, tea.Cmd) {

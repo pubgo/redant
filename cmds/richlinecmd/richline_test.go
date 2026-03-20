@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/pubgo/redant"
 )
 
@@ -360,7 +360,7 @@ func TestTabOnEmptyInputShowsStarterSuggestions(t *testing.T) {
 		t.Fatalf("expected no suggestions on init empty input")
 	}
 
-	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	m = model.(*richlineModel)
 	if len(m.suggestions) == 0 {
 		t.Fatalf("expected starter suggestions on first TAB")
@@ -375,7 +375,7 @@ func TestTabOnEmptyInputShowsStarterSuggestions(t *testing.T) {
 		t.Fatalf("expected first TAB not to apply completion, got input=%q", got)
 	}
 
-	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	m = model.(*richlineModel)
 	if got := m.input.Value(); got == "" {
 		t.Fatalf("expected second TAB to apply selected completion")
