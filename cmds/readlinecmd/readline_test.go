@@ -2,10 +2,13 @@ package readlinecmd
 
 import (
 	"context"
+	"errors"
 	"io"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/chzyer/readline"
 
 	"github.com/pubgo/redant"
 )
@@ -158,6 +161,101 @@ func TestFormatCommandLine(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandleReadlineReadError(t *testing.T) {
+	t.Run("ctrl+c empty line exits by default", func(t *testing.T) {
+		done, err, pending := handleReadlineReadError(context.Background(), readline.ErrInterrupt, "", false, false)
+		if !done {
+			t.Fatal("expected done=true for empty interrupt")
+		}
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if pending {
+			t.Fatal("expected pending=false")
+		}
+	})
+
+	t.Run("ctrl+c with input continues", func(t *testing.T) {
+		done, err, pending := handleReadlineReadError(context.Background(), readline.ErrInterrupt, "commit", false, false)
+		if done {
+			t.Fatal("expected done=false for interrupt with input")
+		}
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if pending {
+			t.Fatal("expected pending=false")
+		}
+	})
+
+	t.Run("double ctrl+c mode requires two interrupts", func(t *testing.T) {
+		done, err, pending := handleReadlineReadError(context.Background(), readline.ErrInterrupt, "", true, false)
+		if done {
+			t.Fatal("expected done=false on first interrupt in double mode")
+		}
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if !pending {
+			t.Fatal("expected pending=true after first interrupt")
+		}
+
+		done, err, pending = handleReadlineReadError(context.Background(), readline.ErrInterrupt, "", true, pending)
+		if !done {
+			t.Fatal("expected done=true on second interrupt in double mode")
+		}
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if pending {
+			t.Fatal("expected pending=false after exit")
+		}
+	})
+
+	t.Run("eof exits", func(t *testing.T) {
+		done, err, pending := handleReadlineReadError(context.Background(), io.EOF, "", false, false)
+		if !done {
+			t.Fatal("expected done=true for EOF")
+		}
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if pending {
+			t.Fatal("expected pending=false")
+		}
+	})
+
+	t.Run("context canceled exits", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		done, err, pending := handleReadlineReadError(ctx, errors.New("read failed"), "", false, false)
+		if !done {
+			t.Fatal("expected done=true for canceled context")
+		}
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if pending {
+			t.Fatal("expected pending=false")
+		}
+	})
+
+	t.Run("other errors return error", func(t *testing.T) {
+		targetErr := errors.New("boom")
+		done, err, pending := handleReadlineReadError(context.Background(), targetErr, "", false, false)
+		if !done {
+			t.Fatal("expected done=true for regular errors")
+		}
+		if !errors.Is(err, targetErr) {
+			t.Fatalf("expected target error, got %v", err)
+		}
+		if pending {
+			t.Fatal("expected pending=false")
+		}
+	})
 }
 
 func buildTestRoot() *redant.Command {
