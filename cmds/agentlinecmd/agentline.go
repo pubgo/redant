@@ -88,6 +88,7 @@ var slashCommands = []slashCommand{
 	{Name: "down", Description: "历史按行向下滚动"},
 	{Name: "pgup", Description: "历史按页向上滚动"},
 	{Name: "pgdown", Description: "历史按页向下滚动"},
+	{Name: "history", Aliases: []string{"his"}, Description: "查看输入历史（默认最近 20 条，可 /history 50）"},
 	{Name: "cancel", Aliases: []string{"stop"}, Description: "中断当前运行中的任务"},
 	{Name: "fold", Description: "折叠 assistant/tool 详情块"},
 	{Name: "unfold", Description: "展开 assistant/tool 详情块"},
@@ -343,7 +344,7 @@ func (m *agentlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if m.outputFocus {
+		if m.outputFocus && len(m.suggestions) == 0 {
 			switch key {
 			case "up":
 				m.scrollOutputLines(1)
@@ -488,12 +489,6 @@ func (m *agentlineModel) View() tea.View {
 	outputOffset := clampOutputOffset(m.outputOffset, len(renderedOutput), outputRows)
 	outputStart, outputEnd := visibleOutputRange(len(renderedOutput), outputRows, outputOffset)
 
-	renderedInput, renderedInputIndices := m.renderInputHistoryLinesWithIndices(contentWidth)
-	inputRows := m.inputRows()
-	inputOffset := clampInputOffset(m.inputOffset, len(renderedInput), inputRows)
-	inputStart, inputEnd := visibleInputRange(len(renderedInput), inputRows, inputOffset)
-	visibleHistoryIndices := append([]int(nil), renderedInputIndices[inputStart:inputEnd]...)
-
 	status := styleStatusIdle.Render("IDLE")
 	if m.running {
 		status = styleStatusBusy.Render("RUNNING")
@@ -554,25 +549,11 @@ func (m *agentlineModel) View() tea.View {
 	}
 	outputRegionEnd := len(lines) - 1
 
-	inputTitle := fmt.Sprintf("输入区域（历史 %d-%d/%d）", displayStart(inputStart, inputEnd), inputEnd, len(renderedInput))
+	inputTitle := "输入区域（历史请使用 /history 查看）"
 	inputRegionStart := len(lines)
 	lines = append(lines, styleHeader.Render(truncateDisplayWidth(inputTitle, contentWidth)))
-	inputHistoryStart := len(lines)
-	if len(renderedInput) == 0 {
-		lines = append(lines, styleHint.Render("  暂无输入历史"))
-	} else {
-		for i := inputStart; i < inputEnd; i++ {
-			line := "  " + truncateDisplayWidth(renderedInput[i], contentWidth-2)
-			if i < len(renderedInputIndices) && renderedInputIndices[i] == m.selectedHistory {
-				lines = append(lines, styleHistorySelected.Render(line))
-				continue
-			}
-			lines = append(lines, styleHint.Render(line))
-		}
-	}
-	inputHistoryEnd := len(lines) - 1
 	lines = append(lines, m.input.View())
-	lines = append(lines, styleHint.Render(truncateDisplayWidth("命令：/ask /plan /run /cancel /fold /unfold；滚轮分区滚动；点击输入历史可回填；/help 查看帮助", contentWidth)))
+	lines = append(lines, styleHint.Render(truncateDisplayWidth("命令：/ask /plan /run /history /cancel /fold /unfold；滚轮分区滚动；/help 查看帮助", contentWidth)))
 	inputRegionEnd := len(lines) - 1
 
 	v := tea.NewView(strings.Join(lines, "\n"))
@@ -608,21 +589,7 @@ func (m *agentlineModel) View() tea.View {
 			}
 
 		case tea.MouseClickMsg:
-			mouse := event.Mouse()
-			if mouse.Button != tea.MouseLeft {
-				return nil
-			}
-			if mouse.Y < inputHistoryStart || mouse.Y > inputHistoryEnd {
-				return nil
-			}
-			lineOffset := mouse.Y - inputHistoryStart
-			if lineOffset < 0 || lineOffset >= len(visibleHistoryIndices) {
-				return nil
-			}
-			historyIndex := visibleHistoryIndices[lineOffset]
-			return func() tea.Msg {
-				return mouseSelectHistoryMsg{HistoryIndex: historyIndex}
-			}
+			return nil
 		}
 
 		return nil
@@ -724,6 +691,23 @@ func (m *agentlineModel) handleSlashInput(line string) (bool, tea.Cmd) {
 		m.scrollOutputPage(1)
 	case "pgdown":
 		m.scrollOutputPage(-1)
+
+	case "history", "his":
+		limit := 20
+		if argText != "" {
+			n, err := strconv.Atoi(argText)
+			if err != nil || n <= 0 {
+				m.appendBlock(sessionBlock{Kind: blockKindError, Title: "/history", Lines: []string{"用法：/history [正整数]，例如 /history 50"}})
+				m.normalizeOutputOffset()
+				return true, nil
+			}
+			limit = n
+		}
+
+		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/history", Lines: m.historyPreviewLines(limit)})
+		m.outputOffset = 0
+		m.normalizeOutputOffset()
+		return true, nil
 
 	case "clear", "cls":
 		m.blocks = []sessionBlock{{
@@ -1588,7 +1572,7 @@ func (m *agentlineModel) outputRows() int {
 }
 
 func (m *agentlineModel) baseOccupiedRows(withSuggestionFrame bool) int {
-	rows := 5 + m.inputRows()
+	rows := 5
 	if m.running {
 		rows++
 	}
@@ -1835,6 +1819,7 @@ func slashHelpLines(root *redant.Command, agentOnly bool) []string {
 		"  /ask <question>: 追加 user/assistant 对话块",
 		"  /plan <goal>: 生成分步骤计划块",
 		"  /run <command...>: 执行命令并输出 tool/command/result",
+		"  /history [N]: 查看最近输入历史（默认 20 条）",
 		"  /cancel: 中断当前运行中的任务",
 		"  /fold: 折叠 assistant/tool 详情块",
 		"  /unfold: 展开 assistant/tool 详情块",
@@ -1861,6 +1846,28 @@ func slashHelpLines(root *redant.Command, agentOnly bool) []string {
 		}
 	}
 
+	return lines
+}
+
+func (m *agentlineModel) historyPreviewLines(limit int) []string {
+	if len(m.history) == 0 {
+		return []string{"暂无输入历史。"}
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	start := len(m.history) - limit
+	if start < 0 {
+		start = 0
+	}
+
+	lines := make([]string, 0, len(m.history)-start+1)
+	lines = append(lines, fmt.Sprintf("total: %d, showing: %d-%d", len(m.history), start+1, len(m.history)))
+	for i := start; i < len(m.history); i++ {
+		lines = append(lines, fmt.Sprintf("%03d %s", i+1, strings.TrimSpace(m.history[i])))
+	}
 	return lines
 }
 

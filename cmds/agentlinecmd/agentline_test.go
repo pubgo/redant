@@ -170,7 +170,7 @@ func TestUpdate_MouseScrollMsgScrollsInputAndOutput(t *testing.T) {
 	}
 }
 
-func TestView_MouseClickSelectsInputHistory(t *testing.T) {
+func TestView_MouseClickInputRegionNoHistorySelection(t *testing.T) {
 	root := buildTestRoot()
 	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 	m.width = 100
@@ -184,22 +184,14 @@ func TestView_MouseClickSelectsInputHistory(t *testing.T) {
 	}
 
 	lines := strings.Split(v.Content, "\n")
-	clickY := findLineContaining(lines, "002 /ask two")
+	clickY := findLineContaining(lines, "输入区域")
 	if clickY < 0 {
-		t.Fatalf("expected second history line rendered in view")
+		t.Fatalf("expected input region rendered in view")
 	}
 
 	cmd := v.OnMouse(tea.MouseClickMsg{X: 0, Y: clickY, Button: tea.MouseLeft})
-	if cmd == nil {
-		t.Fatalf("expected click on history line to produce cmd")
-	}
-	msg := cmd()
-	selectMsg, ok := msg.(mouseSelectHistoryMsg)
-	if !ok {
-		t.Fatalf("expected mouseSelectHistoryMsg, got %T", msg)
-	}
-	if selectMsg.HistoryIndex != 1 {
-		t.Fatalf("expected history index=1, got %d", selectMsg.HistoryIndex)
+	if cmd != nil {
+		t.Fatalf("expected click in input region not to select history by default")
 	}
 }
 
@@ -425,6 +417,74 @@ func TestHandleSlashInput_CommandAliasNotUsedAsSlash(t *testing.T) {
 	}
 }
 
+func TestHandleSlashInput_HistoryDefault(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+	m.history = []string{"/ask one", "/run commit --message hi", "/plan release"}
+	m.outputOffset = 7
+
+	handled, cmd := m.handleSlashInput("/history")
+	if !handled || cmd != nil {
+		t.Fatalf("expected /history handled without cmd, handled=%v cmd=%v", handled, cmd)
+	}
+
+	last := m.blocks[len(m.blocks)-1]
+	if last.Title != "/history" {
+		t.Fatalf("expected last block title /history, got %q", last.Title)
+	}
+	joined := strings.Join(last.Lines, "\n")
+	if !strings.Contains(joined, "total: 3") {
+		t.Fatalf("expected total line in /history output, got: %s", joined)
+	}
+	if !strings.Contains(joined, "003 /plan release") {
+		t.Fatalf("expected numbered history line, got: %s", joined)
+	}
+	if m.outputOffset != 0 {
+		t.Fatalf("expected outputOffset reset to 0 after /history, got %d", m.outputOffset)
+	}
+}
+
+func TestHandleSlashInput_HistoryWithLimit(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+	m.history = []string{"h1", "h2", "h3", "h4", "h5"}
+
+	handled, cmd := m.handleSlashInput("/history 2")
+	if !handled || cmd != nil {
+		t.Fatalf("expected /history 2 handled without cmd, handled=%v cmd=%v", handled, cmd)
+	}
+
+	last := m.blocks[len(m.blocks)-1]
+	if len(last.Lines) != 3 {
+		t.Fatalf("expected 3 lines(total+2 entries), got %d", len(last.Lines))
+	}
+	joined := strings.Join(last.Lines, "\n")
+	if strings.Contains(joined, "003 h3") {
+		t.Fatalf("did not expect older history entry in limited output, got: %s", joined)
+	}
+	if !strings.Contains(joined, "004 h4") || !strings.Contains(joined, "005 h5") {
+		t.Fatalf("expected latest 2 entries, got: %s", joined)
+	}
+}
+
+func TestHandleSlashInput_HistoryInvalidArg(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+
+	handled, cmd := m.handleSlashInput("/history abc")
+	if !handled || cmd != nil {
+		t.Fatalf("expected invalid /history handled without cmd, handled=%v cmd=%v", handled, cmd)
+	}
+
+	last := m.blocks[len(m.blocks)-1]
+	if last.Kind != blockKindError {
+		t.Fatalf("expected error block for invalid /history arg, got %s", last.Kind)
+	}
+	if !strings.Contains(strings.Join(last.Lines, "\n"), "用法：/history") {
+		t.Fatalf("expected usage hint for invalid /history")
+	}
+}
+
 func TestRenderOutputLines_FoldDetails(t *testing.T) {
 	m := &agentlineModel{
 		foldDetails: true,
@@ -458,6 +518,33 @@ func TestTabOnEmptyInputShowsStarterSlashSuggestions(t *testing.T) {
 	}
 	if got := m.input.Value(); got != "" {
 		t.Fatalf("expected first TAB not applying suggestion, got input=%q", got)
+	}
+}
+
+func TestSuggestionNavigationTakesPriorityOverOutputFocus(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+	m.outputFocus = true
+	m.input.SetValue("/")
+	m.recomputeSuggestions()
+
+	if len(m.suggestions) < 2 {
+		t.Fatalf("expected at least 2 slash suggestions, got=%d", len(m.suggestions))
+	}
+
+	model, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	m = model.(*agentlineModel)
+	if m.selected != 1 {
+		t.Fatalf("expected selected=1 after down, got=%d", m.selected)
+	}
+	if m.outputOffset != 0 {
+		t.Fatalf("expected outputOffset unchanged when navigating suggestions, got=%d", m.outputOffset)
+	}
+
+	model, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	m = model.(*agentlineModel)
+	if m.selected != 0 {
+		t.Fatalf("expected selected=0 after up, got=%d", m.selected)
 	}
 }
 
