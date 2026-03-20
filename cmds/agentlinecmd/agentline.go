@@ -553,12 +553,14 @@ func (m *agentlineModel) View() tea.View {
 	inputRegionStart := len(lines)
 	lines = append(lines, styleHeader.Render(truncateDisplayWidth(inputTitle, contentWidth)))
 	lines = append(lines, m.input.View())
-	lines = append(lines, styleHint.Render(truncateDisplayWidth("命令：/ask /plan /run /history /cancel /fold /unfold；滚轮分区滚动；/help 查看帮助", contentWidth)))
+	lines = append(lines, styleHint.Render(truncateDisplayWidth("命令：/ask /plan /run /history /cancel /fold /unfold；Ctrl+O 或 /output 开启滚轮滚动；/help 查看帮助", contentWidth)))
 	inputRegionEnd := len(lines) - 1
 
 	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	if m.outputFocus {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	v.OnMouse = func(msg tea.MouseMsg) tea.Cmd {
 		switch event := msg.(type) {
 		case tea.MouseWheelMsg:

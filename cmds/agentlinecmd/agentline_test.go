@@ -142,6 +142,24 @@ func TestView_MouseWheelDispatchByRegion(t *testing.T) {
 	}
 }
 
+func TestView_MouseModeEnabledOnlyInOutputFocus(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+	m.width = 100
+	m.height = 24
+
+	v := m.View()
+	if v.MouseMode == tea.MouseModeCellMotion {
+		t.Fatalf("expected mouse mode disabled when outputFocus=false")
+	}
+
+	m.outputFocus = true
+	v = m.View()
+	if v.MouseMode != tea.MouseModeCellMotion {
+		t.Fatalf("expected mouse mode enabled when outputFocus=true")
+	}
+}
+
 func TestUpdate_MouseScrollMsgScrollsInputAndOutput(t *testing.T) {
 	root := buildTestRoot()
 	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
