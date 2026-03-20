@@ -162,6 +162,7 @@ type richlineModel struct {
 	height         int
 	outputOffset   int
 	outputFocus    bool
+	starterPinned  bool
 }
 
 type runLineResultMsg struct {
@@ -244,6 +245,7 @@ func (m *richlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.suggestions = nil
 			m.selected = 0
+			m.starterPinned = false
 			return m, nil
 		}
 
@@ -275,9 +277,11 @@ func (m *richlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if strings.TrimSpace(m.input.Value()) == "" && len(m.suggestions) == 0 {
 				m.suggestions = collectStarterCompletionItems(m.root)
 				m.selected = 0
+				m.starterPinned = true
 				m.normalizeOutputOffset()
 				return m, nil
 			}
+			m.starterPinned = false
 			m.applySuggestion()
 			m.recomputeSuggestions()
 			m.normalizeOutputOffset()
@@ -344,6 +348,7 @@ func (m *richlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if line == "" {
 				return m, nil
 			}
+			m.starterPinned = false
 			m.appendHistory(line)
 			m.input.SetValue("")
 			m.historyPos = len(m.history)
@@ -562,10 +567,21 @@ func (m *richlineModel) baseOccupiedRows(withSuggestionFrame bool) int {
 func (m *richlineModel) recomputeSuggestions() {
 	line := m.input.Value()
 	if strings.TrimSpace(line) == "" {
+		if m.starterPinned && len(m.suggestions) > 0 {
+			if m.selected >= len(m.suggestions) {
+				m.selected = len(m.suggestions) - 1
+			}
+			if m.selected < 0 {
+				m.selected = 0
+			}
+			return
+		}
 		m.suggestions = nil
 		m.selected = 0
+		m.starterPinned = false
 		return
 	}
+	m.starterPinned = false
 
 	if strings.HasPrefix(strings.TrimLeftFunc(line, unicode.IsSpace), "/") {
 		m.suggestions = collectSlashCompletionItems(line)

@@ -382,6 +382,23 @@ func TestTabOnEmptyInputShowsStarterSuggestions(t *testing.T) {
 	}
 }
 
+func TestStarterSuggestionsPinnedOnEmptyInput(t *testing.T) {
+	root := buildTestRoot()
+	m := newRichlineModel(context.Background(), root, "richline> ", nil, "", false)
+
+	model, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	m = model.(*richlineModel)
+	if len(m.suggestions) == 0 {
+		t.Fatalf("expected starter suggestions after first TAB")
+	}
+
+	model, _ = m.Update(struct{}{})
+	m = model.(*richlineModel)
+	if len(m.suggestions) == 0 {
+		t.Fatalf("expected starter suggestions kept after non-key message")
+	}
+}
+
 func buildTestRoot() *redant.Command {
 	var (
 		format string
