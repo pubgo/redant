@@ -1109,11 +1109,40 @@ func collectSlashCompletionItems(root *redant.Command, input string, agentOnly b
 	}
 
 	if len(fields) > 1 || len(trimmedRight) < len(input) {
+		probeTokens := append([]string{strings.TrimPrefix(first, "/")}, fields[1:]...)
+		probeLine := strings.TrimSpace(strings.Join(probeTokens, " "))
+		cmd, ok := resolveCommandLikeInput(root, probeLine, false)
+
+		// 命令还未解析成功时，继续给出命令名补全。
+		if !ok {
+			return collectSlashNameSuggestions(root, agentOnly, strings.TrimPrefix(first, "/"))
+		}
+
+		// 场景：/commit <TAB>
+		if len(fields) == 1 && len(trimmedRight) < len(input) {
+			return collectCommandFlagItems(cmd, "")
+		}
+
+		// 场景：/commit --m<TAB>
+		last := fields[len(fields)-1]
+		if strings.HasPrefix(last, "-") {
+			return collectCommandFlagItems(cmd, last)
+		}
+
+		// 场景：/commit --message hi <TAB>
+		if len(trimmedRight) < len(input) {
+			return collectCommandFlagItems(cmd, "")
+		}
+
 		return nil
 	}
 
-	prefix := strings.TrimPrefix(first, "/")
-	out := make([]completionItem, 0, len(slashCommands)*2+8)
+	return collectSlashNameSuggestions(root, agentOnly, strings.TrimPrefix(first, "/"))
+}
+
+func collectSlashNameSuggestions(root *redant.Command, agentOnly bool, prefix string) []completionItem {
+	prefix = strings.TrimSpace(prefix)
+	out := make([]completionItem, 0, len(slashCommands)+8)
 	addCandidate := func(name, desc string) {
 		candidate := "/" + strings.TrimSpace(name)
 		if candidate == "/" {
@@ -1129,6 +1158,31 @@ func collectSlashCompletionItems(root *redant.Command, input string, agentOnly b
 	}
 
 	out = append(out, collectCommandSlashItems(root, agentOnly, prefix)...)
+
+	return uniqueCompletionItems(out)
+}
+
+func collectCommandFlagItems(cmd *redant.Command, prefix string) []completionItem {
+	if cmd == nil {
+		return nil
+	}
+
+	prefix = strings.TrimSpace(prefix)
+	var out []completionItem
+	for _, opt := range cmd.FullOptions() {
+		if opt.Hidden || strings.TrimSpace(opt.Flag) == "" {
+			continue
+		}
+		flagName := "--" + strings.TrimSpace(opt.Flag)
+		if prefix != "" && !strings.HasPrefix(flagName, prefix) {
+			continue
+		}
+		desc := strings.TrimSpace(opt.Description)
+		if desc == "" {
+			desc = "命令参数"
+		}
+		out = append(out, completionItem{Insert: flagName + " ", Description: desc})
+	}
 
 	return uniqueCompletionItems(out)
 }

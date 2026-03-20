@@ -59,6 +59,20 @@ func TestCollectSlashCompletionItems_ExcludeCommandAliases(t *testing.T) {
 	}
 }
 
+func TestCollectSlashCompletionItems_CommandFlags(t *testing.T) {
+	root := buildTestRoot()
+
+	items := collectSlashCompletionItems(root, "/commit ", false)
+	if _, ok := findCompletion(items, "--message"); !ok {
+		t.Fatalf("expected --message in slash flag suggestions")
+	}
+
+	items = collectSlashCompletionItems(root, "/commit --m", false)
+	if _, ok := findCompletion(items, "--message"); !ok {
+		t.Fatalf("expected --message in slash flag prefix suggestions")
+	}
+}
+
 func TestHandleSlashInput_ModeSwitch(t *testing.T) {
 	root := buildTestRoot()
 	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
