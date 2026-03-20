@@ -737,7 +737,7 @@ func (m *agentlineModel) handleSlashInput(line string) (bool, tea.Cmd) {
 		return true, tea.Quit
 
 	default:
-		if isCommandLikeInput(m.root, cmdText, m.agentOnlyMode) {
+		if isCommandLikeInputWithAlias(m.root, cmdText, m.agentOnlyMode, false) {
 			return true, m.startCommandRun(cmdText)
 		}
 
@@ -930,7 +930,11 @@ func buildPlanLines(goal string) []string {
 }
 
 func isCommandLikeInput(root *redant.Command, line string, agentOnly bool) bool {
-	cmd, ok := resolveCommandLikeInput(root, line)
+	return isCommandLikeInputWithAlias(root, line, agentOnly, true)
+}
+
+func isCommandLikeInputWithAlias(root *redant.Command, line string, agentOnly bool, allowAlias bool) bool {
+	cmd, ok := resolveCommandLikeInput(root, line, allowAlias)
 	if !ok {
 		return false
 	}
@@ -959,7 +963,7 @@ func hasAnyAgentCommand(root *redant.Command) bool {
 	return false
 }
 
-func resolveCommandLikeInput(root *redant.Command, line string) (*redant.Command, bool) {
+func resolveCommandLikeInput(root *redant.Command, line string, allowAlias bool) (*redant.Command, bool) {
 	args, err := splitCommandLine(line)
 	if err != nil || len(args) == 0 || root == nil {
 		return nil, false
@@ -982,7 +986,7 @@ func resolveCommandLikeInput(root *redant.Command, line string) (*redant.Command
 		if strings.Contains(token, ":") {
 			parts := strings.Split(token, ":")
 			for _, part := range parts {
-				next := childByNameOrAlias(current, part)
+				next := childByToken(current, part, allowAlias)
 				if next == nil {
 					if consumed == 0 {
 						return nil, false
@@ -995,7 +999,7 @@ func resolveCommandLikeInput(root *redant.Command, line string) (*redant.Command
 			continue
 		}
 
-		next := childByNameOrAlias(current, token)
+		next := childByToken(current, token, allowAlias)
 		if next == nil {
 			break
 		}
@@ -1008,6 +1012,28 @@ func resolveCommandLikeInput(root *redant.Command, line string) (*redant.Command
 	}
 
 	return current, true
+}
+
+func childByToken(parent *redant.Command, token string, allowAlias bool) *redant.Command {
+	if allowAlias {
+		return childByNameOrAlias(parent, token)
+	}
+	return childByName(parent, token)
+}
+
+func childByName(parent *redant.Command, token string) *redant.Command {
+	if parent == nil {
+		return nil
+	}
+	for _, child := range parent.Children {
+		if child.Hidden {
+			continue
+		}
+		if child.Name() == token {
+			return child
+		}
+	}
+	return nil
 }
 
 func childByNameOrAlias(parent *redant.Command, token string) *redant.Command {
@@ -1100,9 +1126,6 @@ func collectSlashCompletionItems(root *redant.Command, input string, agentOnly b
 
 	for _, sc := range slashCommands {
 		addCandidate(sc.Name, sc.Description)
-		for _, alias := range sc.Aliases {
-			addCandidate(alias, fmt.Sprintf("%s（%s 的别名）", sc.Description, sc.Name))
-		}
 	}
 
 	out = append(out, collectCommandSlashItems(root, agentOnly, prefix)...)

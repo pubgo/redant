@@ -25,6 +25,12 @@ func TestCollectSlashCompletionItems(t *testing.T) {
 	if _, ok := findCompletion(items, "/commit"); !ok {
 		t.Fatalf("expected /commit in slash suggestions")
 	}
+	if _, ok := findCompletion(items, "/a"); ok {
+		t.Fatalf("expected /a alias hidden from slash suggestions")
+	}
+	if _, ok := findCompletion(items, "/q"); ok {
+		t.Fatalf("expected /q alias hidden from slash suggestions")
+	}
 }
 
 func TestCollectSlashCompletionItems_AgentOnly(t *testing.T) {
@@ -37,6 +43,19 @@ func TestCollectSlashCompletionItems_AgentOnly(t *testing.T) {
 	}
 	if _, ok := findCompletion(items, "/wait"); ok {
 		t.Fatalf("expected /wait excluded in agent-only slash suggestions")
+	}
+}
+
+func TestCollectSlashCompletionItems_ExcludeCommandAliases(t *testing.T) {
+	root := buildTestRoot()
+	root.Children[0].Aliases = []string{"ci"} // commit alias
+
+	items := collectSlashCompletionItems(root, "/", false)
+	if _, ok := findCompletion(items, "/commit"); !ok {
+		t.Fatalf("expected /commit in slash suggestions")
+	}
+	if _, ok := findCompletion(items, "/ci"); ok {
+		t.Fatalf("expected /ci alias not shown in slash suggestions")
 	}
 }
 
@@ -372,6 +391,23 @@ func TestHandleSlashInput_CommandAsSlash(t *testing.T) {
 	}
 	if !m.running {
 		t.Fatalf("expected running=true after slash command run")
+	}
+}
+
+func TestHandleSlashInput_CommandAliasNotUsedAsSlash(t *testing.T) {
+	root := buildTestRoot()
+	root.Children[0].Aliases = []string{"ci"} // commit alias
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+
+	handled, cmd := m.handleSlashInput("/ci --message hi")
+	if !handled {
+		t.Fatalf("expected slash input handled as slash flow")
+	}
+	if cmd != nil {
+		t.Fatalf("expected alias not treated as runnable slash command")
+	}
+	if m.running {
+		t.Fatalf("expected running=false when alias is not accepted in slash")
 	}
 }
 
