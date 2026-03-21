@@ -121,16 +121,17 @@ stateDiagram-v2
 
 ## 5. 模块职责
 
-| 模块           | 主要文件                             | 说明                                   |
-| -------------- | ------------------------------------ | -------------------------------------- |
-| 命令系统       | `command.go`                         | 命令树、命令查找、执行流程             |
-| 选项系统       | `option.go`                          | 标志定义、FlagSet 构建                 |
-| 参数系统       | `args.go`                            | 多格式参数解析（查询串/表单/JSON）     |
-| 值类型系统     | `flags.go`                           | 自定义 `pflag.Value` 类型集合          |
-| 帮助系统       | `help.go` / `help.tpl`               | 帮助渲染、命令与标志展示               |
-| 中间件与处理器 | `handler.go`                         | 执行链组装与业务回调                   |
-| MCP 集成       | `internal/mcpserver` + `cmds/mcpcmd` | 命令树到 MCP Tools 的映射与 stdio 服务 |
-| Web 控制台     | `cmds/webcmd` + `internal/webui`     | 可视化命令调试、调用过程展示与执行回放 |
+| 模块           | 主要文件                             | 说明                                            |
+| -------------- | ------------------------------------ | ----------------------------------------------- |
+| 命令系统       | `command.go`                         | 命令树、命令查找、执行流程                      |
+| 选项系统       | `option.go`                          | 标志定义、FlagSet 构建                          |
+| 参数系统       | `args.go`                            | 多格式参数解析（查询串/表单/JSON）              |
+| 值类型系统     | `flags.go`                           | 自定义 `pflag.Value` 类型集合                   |
+| 帮助系统       | `help.go` / `help.tpl`               | 帮助渲染、命令与标志展示                        |
+| 中间件与处理器 | `handler.go`                         | 执行链组装与业务回调                            |
+| MCP 集成       | `internal/mcpserver` + `cmds/mcpcmd` | 命令树到 MCP Tools 的映射与 stdio 服务          |
+| Web 控制台     | `cmds/webcmd` + `internal/webui`     | 可视化命令调试、调用过程展示与执行回放          |
+| WebTTY         | `cmds/webttycmd`                     | 最简本地 Web 终端、文件上传/下载与 PTY 信号转发 |
 
 ### 5.1 Web 调用过程重建（可观测性）
 
@@ -144,6 +145,32 @@ stateDiagram-v2
 
 - 后端保留稳定的一行调用表示；
 - 前端获得可读性更高、便于人工核对的长命令展示。
+
+### 5.2 WebTTY 交互终端（最简独立实现）
+
+`webtty` 与 `web` 控制台分离，定位是“最小可用本地终端”，不复用 `internal/webui`。
+
+```mermaid
+flowchart LR
+    UI[浏览器 xterm.js] -->|WebSocket| WS[/ws]
+    WS --> PTY[PTY 桥接]
+    PTY --> SH[本地 shell]
+
+    UI -->|multipart| UP[/upload]
+    UI -->|GET| LS[/api/files]
+    UI -->|GET| DL[/download]
+
+    UP --> FS[(工作目录)]
+    LS --> FS
+    DL --> FS
+```
+
+关键点：
+
+- 终端控制键（`Ctrl+C/Ctrl+Z`）优先走前台进程组信号转发，失败再回退原始字节写入。
+- 上传/下载路径限制在工作目录内，禁止 `..` 越界与绝对路径。
+- 前端按“单能力渐进增强”策略演进（拖拽、批量、并发、调度策略、总进度、取消、重试等）。
+- 会话层支持前端自动重连（指数退避）与手动重连按钮；当前为“连接恢复”，后续可扩展为“同会话恢复”。
 
 ## 6. Busybox 风格 argv0 分发
 
@@ -203,4 +230,5 @@ sequenceDiagram
 - 上游：[`README`](../README.md) 提供入口与使用视图。
 - 同级：[`EVALUATION.md`](EVALUATION.md) 提供质量视图。
 - 同级：[`MCP.md`](MCP.md) 提供 MCP 子命令、Schema 与调用协议说明。
+- 同级：[`WEBTTY.md`](WEBTTY.md) 提供 WebTTY 能力说明与分阶段迭代路线。
 - 下游：[`../example/args-test/README.md`](../example/args-test/README.md) 提供参数解析落地示例。

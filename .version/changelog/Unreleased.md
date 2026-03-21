@@ -35,6 +35,8 @@
 - 增强 `cmds/richlinecmd` 交互入口：新增 slash 命令模式（如 `/output`、`/input`、`/help`），用于在 `Ctrl+O` 不可用场景下切换输出滚动与查看帮助。
 - 增强 `cmds/richlinecmd` slash 体验：输入 `/` 或前缀（如 `/o`）时提供自动补全候选，并支持 `Tab` 补全到完整 slash 命令。
 - 优化 `cmds/richlinecmd` 空输入补全体验：首次按 `Tab` 优先展示起始命令候选（无命令时回退默认候选），再次按 `Tab` 才应用当前选中项，降低“无提示不知道输入什么”的使用门槛。
+- 新增 `cmds/webttycmd`：提供最简本地 Web 终端（`WebSocket + PTY`）能力，并支持拖拽/批量上传、目录浏览与单文件下载。
+- 修复 `cmds/webttycmd` 交互终端在 `htop` 等全屏程序下 `Ctrl+C` 不中断的问题：控制字符输入改为优先向前台进程组发送信号，失败时回退原始字节写入。
 
 ## 变更
 
@@ -55,6 +57,8 @@
 - 增强 `cmds/agentlinecmd` 交互布局为“输出区 + 输入区”双区域视图：启用鼠标滚轮分区滚动（输出区浏览会话输出、输入区浏览输入历史），支持点击输入历史回填到输入框并高亮当前选中项，保留键盘导航与 slash 候选协同体验。
 - 增强 agent 模式接入语义：`Command` 新增 `Metadata` 注解并支持 `mode=agent` / `agent.command=true` / `agent.entry=true`；其中 `agent.entry=true`（或 `mode=agent`）用于自动重定向进入 `agentline`，`agent.command=true` 用于将命令标记为交互模式可识别命令；`agentline` 新增 `/<command ...>` 直接执行路径（如 `/commit --message hi`），并在 `/` 候选与 `/help` 中动态展示命令型 slash 入口，实现“普通 CLI 命令 + 交互 slash 命令”双模式。
 - 调整 `cmds/agentlinecmd` slash 候选展示：仅显示 slash 主命令，不再展示其别名（如 `/a`、`/q`），降低候选噪音并避免列表膨胀。
+- 增强 `cmds/webttycmd` 上传体验：支持可配置并发上传、总进度统计，以及单文件取消/全部取消，提升大批量文件场景的可控性。
+- 增强 `cmds/webttycmd` 会话与下载能力：支持前端自动重连（指数退避）/手动重连，新增目录打包下载接口（`/download-zip`），并提供上传调度策略（FIFO/小文件优先/大文件优先）。
 
 ## 文档
 
@@ -63,4 +67,5 @@
 - 补充 `README.md`、`docs/USAGE_AT_A_GLANCE.md`、`docs/DESIGN.md` 与 `docs/INDEX.md`：新增 Web 控制台说明、调用过程展示约定与参数顺序语义。
 - 新增 `docs/MCP.md`：补全 MCP 子命令、工具映射规则、`tools/call` 输入输出协议、类型映射与常见问题排查。
 - 重排 `README.md` 为总览型入口（精简章节与篇幅），将 Busybox/MCP/Web 等细节流程下沉到 `docs/*` 专项文档。
+- 新增 `docs/WEBTTY.md`，补充 WebTTY 的能力边界、接口约定与“按能力逐项推进”的开发路线；同步更新 `README.md`、`docs/INDEX.md` 与 `docs/DESIGN.md` 入口与架构说明。
 

@@ -26,6 +26,7 @@ flowchart TD
 9. [`../README.md#mcp-集成`](../README.md#mcp-集成)：MCP 工具暴露与命令挂载入口。
 10. [`../README.md#web-调试界面web-子命令`](../README.md#web-%E8%B0%83%E8%AF%95%E7%95%8C%E9%9D%A2web-%E5%AD%90%E5%91%BD%E4%BB%A4)：Web 控制台使用与调用过程展示说明。
 11. [`MCP.md`](MCP.md)：MCP 子命令、工具映射规则、输入输出协议与排查建议。
+12. [`WEBTTY.md`](WEBTTY.md)：最简 WebTTY 能力、接口约定与分阶段开发路线。
 
 ## 维护约定
 

@@ -1,6 +1,7 @@
 package webttycmd
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -136,6 +137,7 @@ func newHandler() http.Handler {
 	mux.HandleFunc("/upload", handleUpload)
 	mux.HandleFunc("/api/files", handleListFiles)
 	mux.HandleFunc("/download", handleDownload)
+	mux.HandleFunc("/download-zip", handleDownloadZip)
 	return mux
 }
 
@@ -348,6 +350,98 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, fullPath)
 }
 
+func handleDownloadZip(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("resolve working dir failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	dirPath, relDir, err := resolveDownloadDir(wd, r.URL.Query().Get("dir"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	info, err := os.Stat(dirPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("stat dir failed: %v", err), http.StatusBadRequest)
+		return
+	}
+	if !info.IsDir() {
+		http.Error(w, "dir is not a directory", http.StatusBadRequest)
+		return
+	}
+
+	zipName := strings.ReplaceAll(relDir, "/", "_")
+	if zipName == "." || zipName == "" {
+		zipName = "workspace"
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", zipName+".zip"))
+
+	zw := zip.NewWriter(w)
+	defer func() { _ = zw.Close() }()
+
+	err = filepath.WalkDir(dirPath, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		rel, err := filepath.Rel(dirPath, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+
+		name := filepath.ToSlash(rel)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			h := &zip.FileHeader{Name: name + "/", Method: zip.Store}
+			h.SetMode(info.Mode())
+			_, err = zw.CreateHeader(h)
+			return err
+		}
+
+		h, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		h.Name = name
+		h.Method = zip.Deflate
+
+		writer, err := zw.CreateHeader(h)
+		if err != nil {
+			return err
+		}
+
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = f.Close() }()
+
+		_, err = io.Copy(writer, f)
+		return err
+	})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("zip directory failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
 func resolveDownloadPath(wd, rawPath string) (string, string, error) {
 	p := strings.TrimSpace(rawPath)
 	if p == "" {
@@ -364,6 +458,23 @@ func resolveDownloadPath(wd, rawPath string) (string, string, error) {
 
 	full := filepath.Join(wd, clean)
 	return full, filepath.ToSlash(clean), nil
+}
+
+func resolveDownloadDir(wd, rawDir string) (string, string, error) {
+	dirPath, err := resolveUploadDir(wd, rawDir)
+	if err != nil {
+		return "", "", err
+	}
+
+	relDir := "."
+	if rel, relErr := filepath.Rel(wd, dirPath); relErr == nil {
+		rel = filepath.ToSlash(rel)
+		if rel != "." {
+			relDir = rel
+		}
+	}
+
+	return dirPath, relDir, nil
 }
 
 func sanitizeUploadFileName(name string) string {
@@ -637,6 +748,7 @@ const indexHTML = `<!doctype html>
 		.btn { border: 1px solid #334155; background: #0f172a; color: #e2e8f0; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 		.btn:hover { background: #1e293b; }
 		.input { border: 1px solid #334155; background: #020617; color: #e2e8f0; border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+		.input-sm { width: 56px; }
 		#uploadStatus { color: #94a3b8; font-size: 12px; white-space: nowrap; }
 		#termWrap { position: relative; }
 		#term { width: 100%; height: 100%; }
@@ -650,6 +762,8 @@ const indexHTML = `<!doctype html>
 		.item { border: 1px solid #1e293b; border-radius: 6px; padding: 6px; font-size: 12px; }
 		.progress { width: 100%; height: 6px; border-radius: 999px; background: #1e293b; overflow: hidden; margin-top: 4px; }
 		.bar { height: 100%; width: 0%; background: #3b82f6; }
+		#totalProgress { margin-bottom: 8px; }
+		#totalMeta { margin-top: 4px; }
 		.muted { color: #94a3b8; font-size: 11px; }
 		.ok { color: #34d399; }
 		.err { color: #f87171; }
@@ -665,8 +779,19 @@ const indexHTML = `<!doctype html>
 			<span class="spacer"></span>
 			<label class="muted" for="uploadDir">dir</label>
 			<input id="uploadDir" class="input" placeholder="例如: tmp/artifacts" />
+			<label class="muted" for="uploadConcurrency">并发</label>
+			<input id="uploadConcurrency" class="input input-sm" type="number" min="1" max="8" value="3" />
+			<label class="muted" for="uploadSchedule">调度</label>
+			<select id="uploadSchedule" class="input">
+				<option value="fifo">FIFO</option>
+				<option value="small-first">小文件优先</option>
+				<option value="large-first">大文件优先</option>
+			</select>
 			<input id="uploadInput" type="file" multiple hidden />
 			<button id="uploadBtn" class="btn" type="button" title="快捷键: Ctrl/Cmd + Shift + U">上传文件</button>
+			<button id="cancelAllBtn" class="btn" type="button">取消全部</button>
+			<button id="reconnectWsBtn" class="btn" type="button">重连会话</button>
+			<span id="wsStatus" class="muted">ws: connecting</span>
 			<span id="uploadStatus"></span>
 		</div>
 
@@ -678,12 +803,15 @@ const indexHTML = `<!doctype html>
 		<div id="panel">
 			<section class="card">
 				<h4>上传队列（支持失败重试）</h4>
+				<div id="totalProgress" class="progress"><div id="totalBar" class="bar"></div></div>
+				<div id="totalMeta" class="muted">总进度：0 / 0</div>
 				<div id="uploadQueue" class="list"></div>
 			</section>
 			<section class="card">
 				<div class="row">
 					<h4 style="margin:0;">文件列表 / 下载</h4>
 					<span class="spacer"></span>
+					<button id="downloadDirZipBtn" class="btn" type="button">下载目录(zip)</button>
 					<button id="refreshFilesBtn" class="btn" type="button">刷新</button>
 				</div>
 				<table>
@@ -704,21 +832,31 @@ const indexHTML = `<!doctype html>
 		fit.fit();
 
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-		const ws = new WebSocket(proto + '//' + location.host + '/ws?cols=' + term.cols + '&rows=' + term.rows);
-		ws.onmessage = (e) => term.write(e.data);
-		ws.onclose = () => term.write('\r\n[disconnected]\r\n');
-		ws.onerror = () => term.write('\r\n[ws error]\r\n');
+		let ws = null;
+		let wsManualClose = false;
+		let wsReconnectTimer = null;
+		let wsReconnectAttempts = 0;
 
 		const uploadInput = document.getElementById('uploadInput');
 		const uploadBtn = document.getElementById('uploadBtn');
 		const uploadDir = document.getElementById('uploadDir');
+		const uploadConcurrency = document.getElementById('uploadConcurrency');
+		const uploadSchedule = document.getElementById('uploadSchedule');
 		const uploadStatus = document.getElementById('uploadStatus');
+		const cancelAllBtn = document.getElementById('cancelAllBtn');
+		const reconnectWsBtn = document.getElementById('reconnectWsBtn');
+		const wsStatus = document.getElementById('wsStatus');
 		const uploadQueue = document.getElementById('uploadQueue');
 		const fileRows = document.getElementById('fileRows');
 		const refreshFilesBtn = document.getElementById('refreshFilesBtn');
+		const downloadDirZipBtn = document.getElementById('downloadDirZipBtn');
 		const dropMask = document.getElementById('dropMask');
+		const totalBar = document.getElementById('totalBar');
+		const totalMeta = document.getElementById('totalMeta');
 
 		const failedMap = new Map();
+		const activeUploads = new Map();
+		let currentBatch = null;
 		let seq = 0;
 
 		function esc(s) {
@@ -727,6 +865,91 @@ const indexHTML = `<!doctype html>
 
 		function setStatus(msg) {
 			uploadStatus.textContent = msg || '';
+		}
+
+		function getConcurrency() {
+			const v = Number(uploadConcurrency.value || 3);
+			if (!Number.isFinite(v)) return 3;
+			return Math.max(1, Math.min(8, Math.floor(v)));
+		}
+
+		function getSchedule() {
+			const s = String(uploadSchedule.value || 'fifo').trim();
+			if (s === 'small-first' || s === 'large-first') return s;
+			return 'fifo';
+		}
+
+		function setWSStatus(text, cls) {
+			wsStatus.textContent = 'ws: ' + text;
+			wsStatus.className = cls || 'muted';
+		}
+
+		function sendWS(data) {
+			if (!ws || ws.readyState !== WebSocket.OPEN) return;
+			ws.send(data);
+		}
+
+		function clearReconnectTimer() {
+			if (wsReconnectTimer) {
+				clearTimeout(wsReconnectTimer);
+				wsReconnectTimer = null;
+			}
+		}
+
+		function scheduleReconnect() {
+			if (wsManualClose) return;
+			if (wsReconnectTimer) return;
+			if (wsReconnectAttempts >= 8) {
+				setWSStatus('disconnected (max retries)', 'err');
+				return;
+			}
+
+			const delay = Math.min(1000 * Math.pow(2, wsReconnectAttempts), 8000);
+			wsReconnectAttempts += 1;
+			setWSStatus('reconnecting in ' + delay + 'ms', 'muted');
+			wsReconnectTimer = setTimeout(() => {
+				wsReconnectTimer = null;
+				connectTerminalWS(true);
+			}, delay);
+		}
+
+		function connectTerminalWS(isRetry) {
+			clearReconnectTimer();
+			const url = proto + '//' + location.host + '/ws?cols=' + term.cols + '&rows=' + term.rows;
+			try {
+				ws = new WebSocket(url);
+			} catch (err) {
+				setWSStatus('connect error', 'err');
+				scheduleReconnect();
+				return;
+			}
+
+			setWSStatus(isRetry ? 'reconnecting...' : 'connecting...', 'muted');
+
+			ws.onopen = () => {
+				wsReconnectAttempts = 0;
+				setWSStatus('connected', 'ok');
+				if (isRetry) {
+					term.write('\r\n[session reconnected]\r\n');
+				}
+				sendWS(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+			};
+
+			ws.onmessage = (e) => term.write(e.data);
+
+			ws.onclose = () => {
+				if (wsManualClose) {
+					setWSStatus('closed', 'muted');
+					return;
+				}
+				setWSStatus('disconnected', 'err');
+				term.write('\r\n[disconnected]\r\n');
+				scheduleReconnect();
+			};
+
+			ws.onerror = () => {
+				setWSStatus('error', 'err');
+			};
 		}
 
 		function formatBytes(n) {
@@ -760,6 +983,12 @@ const indexHTML = `<!doctype html>
 			el.style.width = p + '%';
 		}
 
+		function setTotalProgress(done, total, success, failed, canceled, running) {
+			const p = total > 0 ? Math.floor((done / total) * 100) : 0;
+			totalBar.style.width = p + '%';
+			totalMeta.textContent = '总进度：' + done + ' / ' + total + '（成功 ' + success + '，失败 ' + failed + '，取消 ' + canceled + '，进行中 ' + running + '）';
+		}
+
 		function setRetryAction(id, onRetry) {
 			const box = document.getElementById('up-actions-' + id);
 			if (!box) return;
@@ -772,14 +1001,29 @@ const indexHTML = `<!doctype html>
 			box.appendChild(btn);
 		}
 
+		function setCancelAction(id, onCancel) {
+			const box = document.getElementById('up-actions-' + id);
+			if (!box) return;
+			box.innerHTML = '';
+			const btn = document.createElement('button');
+			btn.type = 'button';
+			btn.className = 'btn';
+			btn.textContent = '取消';
+			btn.addEventListener('click', onCancel);
+			box.appendChild(btn);
+		}
+
 		function clearActions(id) {
 			const box = document.getElementById('up-actions-' + id);
 			if (box) box.innerHTML = '';
 		}
 
-		function uploadSingle(file, dir, id) {
+		function uploadSingle(file, dir, id, onProgress, onXhrReady) {
 			return new Promise((resolve, reject) => {
 				const xhr = new XMLHttpRequest();
+				if (typeof onXhrReady === 'function') {
+					onXhrReady(xhr);
+				}
 				const q = dir ? ('?dir=' + encodeURIComponent(dir)) : '';
 				xhr.open('POST', '/upload' + q);
 
@@ -787,9 +1031,13 @@ const indexHTML = `<!doctype html>
 					if (!evt.lengthComputable) return;
 					setItemProgress(id, evt.loaded / evt.total);
 					setItemStatus(id, '上传中... ' + Math.floor((evt.loaded / evt.total) * 100) + '%', 'muted');
+					if (typeof onProgress === 'function') {
+						onProgress(evt.loaded, evt.total);
+					}
 				};
 
 				xhr.onerror = () => reject(new Error('network error'));
+				xhr.onabort = () => reject(new Error('canceled'));
 				xhr.onload = () => {
 					if (xhr.status < 200 || xhr.status >= 300) {
 						reject(new Error(xhr.responseText || ('http ' + xhr.status)));
@@ -821,57 +1069,210 @@ const indexHTML = `<!doctype html>
 		async function uploadFiles(files, dir) {
 			const list = Array.from(files || []);
 			if (list.length === 0) return;
-			setStatus('准备上传 ' + list.length + ' 个文件...');
+			if (currentBatch && currentBatch.active) {
+				setStatus('已有上传任务在执行，请先完成或取消全部');
+				return;
+			}
+			const concurrency = getConcurrency();
+			setStatus('准备上传 ' + list.length + ' 个文件（并发 ' + concurrency + '）...');
 
 			let success = 0;
 			let failed = 0;
+			let canceled = 0;
+			let done = 0;
+			let running = 0;
+			setTotalProgress(done, list.length, success, failed, canceled, running);
 
+			const tasks = [];
 			for (const file of list) {
 				const id = ++seq;
 				uploadQueue.insertAdjacentHTML('afterbegin', queueItemHTML(id, file.name));
 				setItemProgress(id, 0.02);
 				clearActions(id);
+				tasks.push({ file, id, canceled: false, started: false, finished: false });
+			}
+
+			const schedule = getSchedule();
+			if (schedule === 'small-first') {
+				tasks.sort((a, b) => Number(a.file.size || 0) - Number(b.file.size || 0));
+			} else if (schedule === 'large-first') {
+				tasks.sort((a, b) => Number(b.file.size || 0) - Number(a.file.size || 0));
+			}
+
+			currentBatch = {
+				active: true,
+				tasks,
+				cancelAll() {
+					for (const t of tasks) {
+						t.canceled = true;
+						if (!t.started && !t.finished) {
+							t.finished = true;
+							done += 1;
+							canceled += 1;
+							setItemStatus(t.id, '已取消（未开始）', 'muted');
+							setItemProgress(t.id, 1);
+							clearActions(t.id);
+						}
+					}
+					for (const [, xhr] of activeUploads.entries()) {
+						try { xhr.abort(); } catch (_) { }
+					}
+					setTotalProgress(done, list.length, success, failed, canceled, running);
+					setStatus('已请求取消全部上传任务');
+				},
+			};
+
+			let cursor = 0;
+			const runTask = async (task) => {
+				if (task.canceled || task.finished) {
+					return;
+				}
+
+				task.started = true;
+				running += 1;
+				setTotalProgress(done, list.length, success, failed, canceled, running);
+
+				setCancelAction(task.id, () => {
+					if (task.finished) return;
+					task.canceled = true;
+					const xhr = activeUploads.get(task.id);
+					if (xhr) {
+						try { xhr.abort(); } catch (_) { }
+					} else {
+						task.finished = true;
+						done += 1;
+						canceled += 1;
+						setItemStatus(task.id, '已取消（排队中）', 'muted');
+						setItemProgress(task.id, 1);
+						clearActions(task.id);
+						setTotalProgress(done, list.length, success, failed, canceled, running);
+					}
+				});
 
 				try {
-					const item = await uploadSingle(file, dir, id);
-					setItemProgress(id, 1);
-					setItemStatus(id, '上传成功: ' + item.savedPath + ' (' + formatBytes(item.size) + ')', 'ok');
+					const item = await uploadSingle(task.file, dir, task.id, null, (xhr) => {
+						activeUploads.set(task.id, xhr);
+					});
+					if (task.canceled) {
+						task.finished = true;
+						canceled += 1;
+						setItemStatus(task.id, '已取消', 'muted');
+						setItemProgress(task.id, 1);
+						clearActions(task.id);
+						return;
+					}
+
+					task.finished = true;
+					setItemProgress(task.id, 1);
+					setItemStatus(task.id, '上传成功: ' + item.savedPath + ' (' + formatBytes(item.size) + ')', 'ok');
+					clearActions(task.id);
 					term.write('\r\n[upload ok] ' + item.savedPath + ' (' + item.size + ' bytes)\r\n');
-					failedMap.delete(id);
+					failedMap.delete(task.id);
 					success += 1;
 				} catch (err) {
 					const reason = String(err && err.message ? err.message : err);
-					setItemProgress(id, 1);
-					setItemStatus(id, '上传失败: ' + reason, 'err');
-					term.write('\r\n[upload failed] ' + file.name + ': ' + reason + '\r\n');
-					failedMap.set(id, { file, dir });
+					if (reason === 'canceled' || task.canceled) {
+						task.finished = true;
+						setItemProgress(task.id, 1);
+						setItemStatus(task.id, '已取消', 'muted');
+						clearActions(task.id);
+						canceled += 1;
+						setTotalProgress(done, list.length, success, failed, canceled, running);
+						return;
+					}
+
+					task.finished = true;
+					setItemProgress(task.id, 1);
+					setItemStatus(task.id, '上传失败: ' + reason, 'err');
+					term.write('\r\n[upload failed] ' + task.file.name + ': ' + reason + '\r\n');
+					failedMap.set(task.id, { file: task.file, dir });
+					failed += 1;
+					setTotalProgress(done, list.length, success, failed, canceled, running);
 
 					const retryHandler = async () => {
-						const retry = failedMap.get(id);
+						const retry = failedMap.get(task.id);
 						if (!retry) return;
-						setItemProgress(id, 0.02);
-						setItemStatus(id, '重试中...', 'muted');
-						clearActions(id);
+						if (task.canceled) return;
+						running += 1;
+						setTotalProgress(done, list.length, success, failed, canceled, running);
+						setItemProgress(task.id, 0.02);
+						setItemStatus(task.id, '重试中...', 'muted');
+						clearActions(task.id);
+						setCancelAction(task.id, () => {
+							task.canceled = true;
+							const xhr = activeUploads.get(task.id);
+							if (xhr) {
+								try { xhr.abort(); } catch (_) { }
+							}
+						});
 						try {
-							const item = await uploadSingle(retry.file, retry.dir, id);
-							setItemProgress(id, 1);
-							setItemStatus(id, '重试成功: ' + item.savedPath + ' (' + formatBytes(item.size) + ')', 'ok');
+							const item = await uploadSingle(retry.file, retry.dir, task.id, null, (xhr) => {
+								activeUploads.set(task.id, xhr);
+							});
+							if (task.canceled) {
+								setItemProgress(task.id, 1);
+								setItemStatus(task.id, '已取消', 'muted');
+								clearActions(task.id);
+								canceled += 1;
+								running = Math.max(0, running - 1);
+								setTotalProgress(done, list.length, success, failed, canceled, running);
+								return;
+							}
+							setItemProgress(task.id, 1);
+							setItemStatus(task.id, '重试成功: ' + item.savedPath + ' (' + formatBytes(item.size) + ')', 'ok');
+							clearActions(task.id);
 							term.write('\r\n[upload retry ok] ' + item.savedPath + '\r\n');
-							failedMap.delete(id);
+							failedMap.delete(task.id);
+							success += 1;
+							failed = Math.max(0, failed - 1);
+							running = Math.max(0, running - 1);
+							setTotalProgress(done, list.length, success, failed, canceled, running);
 							await refreshFiles();
 						} catch (retryErr) {
 							const retryReason = String(retryErr && retryErr.message ? retryErr.message : retryErr);
-							setItemProgress(id, 1);
-							setItemStatus(id, '重试失败: ' + retryReason, 'err');
-							setRetryAction(id, retryHandler);
+							if (retryReason === 'canceled' || task.canceled) {
+								setItemProgress(task.id, 1);
+								setItemStatus(task.id, '已取消', 'muted');
+								clearActions(task.id);
+								canceled += 1;
+								running = Math.max(0, running - 1);
+								setTotalProgress(done, list.length, success, failed, canceled, running);
+								return;
+							}
+							setItemProgress(task.id, 1);
+							setItemStatus(task.id, '重试失败: ' + retryReason, 'err');
+							running = Math.max(0, running - 1);
+							setTotalProgress(done, list.length, success, failed, canceled, running);
+							setRetryAction(task.id, retryHandler);
 						}
 					};
-					setRetryAction(id, retryHandler);
-					failed += 1;
+					setRetryAction(task.id, retryHandler);
+				} finally {
+					activeUploads.delete(task.id);
+					done += 1;
+					running = Math.max(0, running - 1);
+					setTotalProgress(done, list.length, success, failed, canceled, running);
 				}
+			};
+
+			const worker = async () => {
+				while (true) {
+					const idx = cursor;
+					cursor += 1;
+					if (idx >= tasks.length) {
+						return;
+					}
+					await runTask(tasks[idx]);
+				}
+			};
+
+			const workerCount = Math.min(concurrency, tasks.length);
+			await Promise.all(Array.from({ length: workerCount }, () => worker()));
+			if (currentBatch) {
+				currentBatch.active = false;
 			}
 
-			setStatus('完成: 成功 ' + success + ' / 失败 ' + failed);
+			setStatus('完成: 成功 ' + success + ' / 失败 ' + failed + ' / 取消 ' + canceled);
 			await refreshFiles();
 		}
 
@@ -934,6 +1335,14 @@ const indexHTML = `<!doctype html>
 			uploadInput.value = '';
 		});
 
+		cancelAllBtn.addEventListener('click', () => {
+			if (currentBatch && currentBatch.active) {
+				currentBatch.cancelAll();
+				return;
+			}
+			setStatus('当前没有可取消的上传任务');
+		});
+
 		const dragTargets = [document.body, document.getElementById('termWrap')];
 		for (const el of dragTargets) {
 			['dragenter', 'dragover'].forEach((ev) => {
@@ -964,23 +1373,42 @@ const indexHTML = `<!doctype html>
 
 		refreshFilesBtn.addEventListener('click', refreshFiles);
 
+		downloadDirZipBtn.addEventListener('click', () => {
+			const dir = String(uploadDir.value || '').trim();
+			const q = dir ? ('?dir=' + encodeURIComponent(dir)) : '';
+			window.location.href = '/download-zip' + q;
+		});
+
 		term.onData((data) => {
-			if (ws.readyState === WebSocket.OPEN) ws.send(data);
+			sendWS(data);
 		});
 
 		term.onResize((size) => {
-			if (ws.readyState === WebSocket.OPEN) {
-				ws.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
-			}
+			sendWS(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
 		});
 
 		window.addEventListener('resize', () => {
 			fit.fit();
-			if (ws.readyState === WebSocket.OPEN) {
-				ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+			sendWS(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+		});
+
+		reconnectWsBtn.addEventListener('click', () => {
+			wsManualClose = false;
+			if (ws && ws.readyState === WebSocket.OPEN) {
+				try { ws.close(); } catch (_) { }
+			}
+			connectTerminalWS(true);
+		});
+
+		window.addEventListener('beforeunload', () => {
+			wsManualClose = true;
+			clearReconnectTimer();
+			if (ws && ws.readyState === WebSocket.OPEN) {
+				try { ws.close(); } catch (_) { }
 			}
 		});
 
+		connectTerminalWS(false);
 		refreshFiles();
 	</script>
 </body>

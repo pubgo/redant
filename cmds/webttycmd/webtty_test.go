@@ -1,6 +1,7 @@
 package webttycmd
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -284,6 +285,64 @@ func TestListAndDownloadEndpoints(t *testing.T) {
 	}
 	if string(content) != "download-me" {
 		t.Fatalf("unexpected download content: %q", string(content))
+	}
+}
+
+func TestDownloadZipEndpoint(t *testing.T) {
+	h := newHandler()
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
+	tmp := t.TempDir()
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir tmp: %v", err)
+	}
+	defer func() { _ = os.Chdir(originalWD) }()
+
+	if err := os.MkdirAll(filepath.Join(tmp, "pack", "sub"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "pack", "a.txt"), []byte("A"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "pack", "sub", "b.txt"), []byte("BB"), 0o644); err != nil {
+		t.Fatalf("write b.txt: %v", err)
+	}
+
+	resp, err := http.Get(ts.URL + "/download-zip?dir=pack")
+	if err != nil {
+		t.Fatalf("download zip request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read zip body: %v", err)
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+
+	seen := map[string]bool{}
+	for _, f := range zr.File {
+		seen[f.Name] = true
+	}
+
+	if !seen["a.txt"] {
+		t.Fatalf("zip missing a.txt, got %+v", seen)
+	}
+	if !seen["sub/b.txt"] {
+		t.Fatalf("zip missing sub/b.txt, got %+v", seen)
 	}
 }
 
