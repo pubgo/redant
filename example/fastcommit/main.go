@@ -15,6 +15,7 @@ import (
 	"github.com/pubgo/redant/cmds/readlinecmd"
 	"github.com/pubgo/redant/cmds/richlinecmd"
 	"github.com/pubgo/redant/cmds/webcmd"
+	"github.com/pubgo/redant/cmds/webttycmd"
 	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
 
@@ -374,6 +375,7 @@ func main() {
 		agentlinecmd.New(),
 		mcpcmd.New(),
 		webcmd.New(),
+		webttycmd.New(),
 	)
 
 	err := rootCmd.Invoke().WithOS().Run()
