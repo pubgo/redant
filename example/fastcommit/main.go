@@ -15,6 +15,7 @@ import (
 	"github.com/pubgo/redant/cmds/readlinecmd"
 	"github.com/pubgo/redant/cmds/richlinecmd"
 	"github.com/pubgo/redant/cmds/webcmd"
+	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
 
 // mkdir -p ~/.zsh/completions
@@ -78,6 +79,9 @@ func main() {
 		Use:   "commit",
 		Short: "Commit changes.",
 		Long:  "Commit changes with advanced options and typed values.",
+		Metadata: map[string]string{
+			agentlinemodule.CommandMetaAgentCommand: "true",
+		},
 		Options: redant.OptionSet{
 			{
 				Flag:        "message",
@@ -217,6 +221,9 @@ func main() {
 		Use:   "release ship",
 		Short: "Ship a release with rollout controls.",
 		Long:  "Ship release with enum, enum-array, duration, struct, regexp and integer options.",
+		Metadata: map[string]string{
+			agentlinemodule.CommandMetaAgentCommand: "true",
+		},
 		Options: redant.OptionSet{
 			{Flag: "channel", Description: "Release channel.", Value: redant.EnumOf(&releaseChannel, "alpha", "beta", "stable"), Default: "beta"},
 			{Flag: "regions", Description: "Target regions.", Value: redant.EnumArrayOf(&releaseRegions, "cn", "us", "eu", "ap")},
@@ -341,6 +348,9 @@ func main() {
 		Use:   "profile",
 		Short: "Profile parser playground.",
 		Long:  "Playground command for args formats (query/form/json/positional).",
+		Metadata: map[string]string{
+			agentlinemodule.CommandMetaAgentCommand: "true",
+		},
 		Args: redant.ArgSet{
 			{Name: "name", Required: true, Description: "Profile name.", Value: redant.StringOf(&profileName)},
 			{Name: "content", Required: false, Description: "Profile content.", Value: redant.StringOf(&profileContent)},

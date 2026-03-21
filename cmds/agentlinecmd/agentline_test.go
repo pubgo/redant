@@ -16,11 +16,11 @@ func TestCollectSlashCompletionItems(t *testing.T) {
 	if len(items) == 0 {
 		t.Fatalf("expected slash suggestions for '/'")
 	}
-	if _, ok := findCompletion(items, "/ask"); !ok {
-		t.Fatalf("expected /ask in slash suggestions")
-	}
 	if _, ok := findCompletion(items, "/run"); !ok {
 		t.Fatalf("expected /run in slash suggestions")
+	}
+	if _, ok := findCompletion(items, "/history"); !ok {
+		t.Fatalf("expected /history in slash suggestions")
 	}
 	if _, ok := findCompletion(items, "/commit"); !ok {
 		t.Fatalf("expected /commit in slash suggestions")
@@ -35,7 +35,6 @@ func TestCollectSlashCompletionItems(t *testing.T) {
 
 func TestCollectSlashCompletionItems_AgentOnly(t *testing.T) {
 	root := buildTestRoot()
-	root.Children[0].Metadata = map[string]string{agentlinemodule.CommandMetaAgentCommand: "true"} // commit
 
 	items := collectSlashCompletionItems(root, "/", true)
 	if _, ok := findCompletion(items, "/commit"); !ok {
@@ -43,6 +42,16 @@ func TestCollectSlashCompletionItems_AgentOnly(t *testing.T) {
 	}
 	if _, ok := findCompletion(items, "/wait"); ok {
 		t.Fatalf("expected /wait excluded in agent-only slash suggestions")
+	}
+}
+
+func TestCollectSlashCompletionItems_StrictAgentOnlyExcludesUnmarked(t *testing.T) {
+	root := buildTestRoot()
+	root.Children[0].Metadata = nil // commit no longer marked as agent
+
+	items := collectSlashCompletionItems(root, "/", true)
+	if _, ok := findCompletion(items, "/commit"); ok {
+		t.Fatalf("expected /commit excluded when command is not explicitly marked as agent")
 	}
 }
 
@@ -263,46 +272,6 @@ func TestHistoryUpDownTracksSelectedHistory(t *testing.T) {
 	}
 	if got := m.input.Value(); got != "" {
 		t.Fatalf("expected empty input after leaving history mode, got %q", got)
-	}
-}
-
-func TestRunAskCmd(t *testing.T) {
-	msg := runAskCmd("如何快速定位问题")()
-	res, ok := msg.(runResultMsg)
-	if !ok {
-		t.Fatalf("expected runResultMsg, got %T", msg)
-	}
-	if len(res.blocks) != 4 {
-		t.Fatalf("expected 4 blocks, got %d", len(res.blocks))
-	}
-	if res.blocks[0].Kind != blockKindUser {
-		t.Fatalf("expected first block user, got %s", res.blocks[0].Kind)
-	}
-	if res.blocks[1].Kind != blockKindAssistant || !strings.Contains(res.blocks[1].Title, "think") {
-		t.Fatalf("expected second block assistant.think, got kind=%s title=%s", res.blocks[1].Kind, res.blocks[1].Title)
-	}
-	if res.blocks[2].Kind != blockKindTool {
-		t.Fatalf("expected third block tool placeholder, got %s", res.blocks[2].Kind)
-	}
-	if res.blocks[3].Kind != blockKindAssistant {
-		t.Fatalf("expected fourth block assistant, got %s", res.blocks[3].Kind)
-	}
-	if !strings.Contains(strings.Join(res.blocks[3].Lines, "\n"), "duration:") {
-		t.Fatalf("expected assistant block include duration line")
-	}
-}
-
-func TestRunPlanCmd(t *testing.T) {
-	msg := runPlanCmd("实现 agentline MVP")()
-	res, ok := msg.(runResultMsg)
-	if !ok {
-		t.Fatalf("expected runResultMsg, got %T", msg)
-	}
-	if len(res.blocks) != 2 {
-		t.Fatalf("expected 2 blocks, got %d", len(res.blocks))
-	}
-	if !strings.Contains(strings.Join(res.blocks[1].Lines, "\n"), "1)") {
-		t.Fatalf("expected numbered plan output, got: %v", res.blocks[1].Lines)
 	}
 }
 
@@ -531,11 +500,33 @@ func TestTabOnEmptyInputShowsStarterSlashSuggestions(t *testing.T) {
 	if len(m.suggestions) == 0 {
 		t.Fatalf("expected starter suggestions on first TAB")
 	}
-	if _, ok := findCompletion(m.suggestions, "/ask"); !ok {
-		t.Fatalf("expected /ask suggestion")
+	if _, ok := findCompletion(m.suggestions, "/run"); !ok {
+		t.Fatalf("expected /run suggestion")
 	}
 	if got := m.input.Value(); got != "" {
 		t.Fatalf("expected first TAB not applying suggestion, got input=%q", got)
+	}
+}
+
+func TestEnterPlainTextShowsSimplifiedHint(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+	m.input.SetValue("请帮我总结今天改动")
+
+	model, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = model.(*agentlineModel)
+	if cmd != nil {
+		t.Fatalf("expected no async cmd for plain text in simplified mode")
+	}
+	if m.running {
+		t.Fatalf("expected running=false for plain text in simplified mode")
+	}
+	last := m.blocks[len(m.blocks)-1]
+	if last.Title != "input" {
+		t.Fatalf("expected input hint block, got %q", last.Title)
+	}
+	if !strings.Contains(strings.Join(last.Lines, "\n"), "精简命令模式") {
+		t.Fatalf("expected simplified mode hint in input block")
 	}
 }
 
@@ -606,6 +597,9 @@ func buildTestRoot() *redant.Command {
 	commit := &redant.Command{
 		Use:   "commit",
 		Short: "提交代码",
+		Metadata: map[string]string{
+			agentlinemodule.CommandMetaAgentCommand: "true",
+		},
 		Options: redant.OptionSet{
 			{Flag: "message", Shorthand: "m", Description: "提交信息", Value: redant.StringOf(&msg)},
 		},

@@ -77,8 +77,6 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{Name: "ask", Aliases: []string{"a"}, Description: "发起一次用户提问（user -> assistant）"},
-	{Name: "plan", Aliases: []string{"p"}, Description: "让 assistant 给出分步骤计划"},
 	{Name: "run", Aliases: []string{"r"}, Description: "执行 redant 命令（tool -> command -> result）"},
 	{Name: "output", Aliases: []string{"o", "out"}, Description: "进入输出滚动模式"},
 	{Name: "input", Aliases: []string{"i"}, Description: "返回输入模式"},
@@ -131,7 +129,7 @@ func New() *redant.Command {
 	return &redant.Command{
 		Use:   "agentline",
 		Short: "Agent CLI 风格交互终端（会话块 + slash）",
-		Long:  "启动交互式 agentline，支持 user/assistant/tool/command/result 会话块与 /ask /plan /run 等 slash 命令。",
+		Long:  "启动交互式 agentline，支持命令执行与输出浏览（/run、/history、/output 等）。",
 		Options: redant.OptionSet{
 			{Flag: "prompt", Description: "交互提示符", Value: redant.StringOf(&prompt), Default: "agent> "},
 			{Flag: "history-file", Description: "历史记录文件路径（为空自动使用 ~/.redant_agentline_history）", Value: redant.StringOf(&history)},
@@ -227,7 +225,8 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 		ti.Prompt = prompt
 	}
 
-	agentOnlyMode := hasAnyAgentCommand(root)
+	agentOnlyMode := true
+	hasAgentCommands := hasAnyAgentCommand(root)
 
 	m := &agentlineModel{
 		ctx:             ctx,
@@ -245,14 +244,17 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 			Kind:  blockKindSystem,
 			Title: "system",
 			Lines: []string{
-				"agentline started. 默认输入可自动识别为 /ask 或 /run。",
-				"试试：/ask 如何发布版本、/plan 实现 mcp 工具、/run commit --help",
+				"agentline started. 默认输入会自动识别为命令执行。",
+				"试试：/run commit --help、/history、/output",
 				"快捷键：Tab 补全，↑/↓ 选择候选，Ctrl+O 切换输出滚动，Ctrl+C 退出。",
 			},
 		}},
 	}
 	if agentOnlyMode {
-		m.blocks[0].Lines = append(m.blocks[0].Lines, "已检测到 agent command 元数据，仅自动识别这些命令为可执行命令输入。")
+		m.blocks[0].Lines = append(m.blocks[0].Lines, "仅加载显式声明为 agent 的命令（metadata: agent.command=true 或等价 agent entry）。")
+		if !hasAgentCommands {
+			m.blocks[0].Lines = append(m.blocks[0].Lines, "当前未检测到任何 agent 命令，请先为目标命令设置 metadata。")
+		}
 	}
 	m.recomputeSuggestions()
 	return m
@@ -467,9 +469,13 @@ func (m *agentlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if isCommandLikeInput(m.root, line, m.agentOnlyMode) {
 				return m, m.startCommandRun(line)
 			}
-			m.running = true
-			m.currentCancel = nil
-			return m, runAskCmd(line)
+			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "input", Lines: []string{
+				"当前为精简命令模式：请使用 /run <command...> 或 /<command ...>。",
+				"输入 /help 查看可用命令。",
+			}})
+			m.outputOffset = 0
+			m.normalizeOutputOffset()
+			return m, nil
 		}
 	}
 
@@ -553,7 +559,7 @@ func (m *agentlineModel) View() tea.View {
 	inputRegionStart := len(lines)
 	lines = append(lines, styleHeader.Render(truncateDisplayWidth(inputTitle, contentWidth)))
 	lines = append(lines, m.input.View())
-	lines = append(lines, styleHint.Render(truncateDisplayWidth("命令：/ask /plan /run /history /cancel /fold /unfold；Ctrl+O 或 /output 开启滚轮滚动；/help 查看帮助", contentWidth)))
+	lines = append(lines, styleHint.Render(truncateDisplayWidth("命令：/run /history /cancel /fold /unfold；Ctrl+O 或 /output 开启滚轮滚动；/help 查看帮助", contentWidth)))
 	inputRegionEnd := len(lines) - 1
 
 	v := tea.NewView(strings.Join(lines, "\n"))
@@ -617,22 +623,6 @@ func (m *agentlineModel) handleSlashInput(line string) (bool, tea.Cmd) {
 	switch cmd {
 	case "help", "?":
 		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/help", Lines: slashHelpLines(m.root, m.agentOnlyMode)})
-
-	case "a", "ask":
-		if argText == "" {
-			m.appendBlock(sessionBlock{Kind: blockKindError, Title: "/ask", Lines: []string{"用法：/ask <问题>"}})
-			return true, nil
-		}
-		m.running = true
-		return true, runAskCmd(argText)
-
-	case "p", "plan":
-		if argText == "" {
-			m.appendBlock(sessionBlock{Kind: blockKindError, Title: "/plan", Lines: []string{"用法：/plan <目标>"}})
-			return true, nil
-		}
-		m.running = true
-		return true, runPlanCmd(argText)
 
 	case "r", "run":
 		if argText == "" {
@@ -738,39 +728,6 @@ func (m *agentlineModel) handleSlashInput(line string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func runAskCmd(text string) tea.Cmd {
-	return func() tea.Msg {
-		startedAt := time.Now()
-		question := strings.TrimSpace(text)
-		if question == "" {
-			return runResultMsg{blocks: []sessionBlock{{Kind: blockKindError, Title: "/ask", Lines: []string{"问题不能为空"}}}}
-		}
-
-		reply := buildAssistantReply(question)
-		duration := formatDuration(time.Since(startedAt))
-		return runResultMsg{blocks: []sessionBlock{
-			{Kind: blockKindUser, Title: "user", Lines: []string{question}},
-			{Kind: blockKindAssistant, Title: "assistant.think", Lines: buildAskThinkingLines(question)},
-			{Kind: blockKindTool, Title: "tool.placeholder", Lines: buildAskToolHintLines(question)},
-			{Kind: blockKindAssistant, Title: "assistant", Lines: append([]string{fmt.Sprintf("duration: %s", duration)}, reply...)},
-		}}
-	}
-}
-
-func runPlanCmd(goal string) tea.Cmd {
-	return func() tea.Msg {
-		goal = strings.TrimSpace(goal)
-		if goal == "" {
-			return runResultMsg{blocks: []sessionBlock{{Kind: blockKindError, Title: "/plan", Lines: []string{"目标不能为空"}}}}
-		}
-
-		return runResultMsg{blocks: []sessionBlock{
-			{Kind: blockKindUser, Title: "user(plan)", Lines: []string{goal}},
-			{Kind: blockKindAssistant, Title: "assistant(plan)", Lines: buildPlanLines(goal)},
-		}}
-	}
-}
-
 func runSlashRunCmd(ctx context.Context, root *redant.Command, commandLine string) tea.Cmd {
 	return func() tea.Msg {
 		startedAt := time.Now()
@@ -861,58 +818,6 @@ func formatDuration(d time.Duration) string {
 		return d.String()
 	}
 	return d.Round(time.Millisecond).String()
-}
-
-func buildAssistantReply(question string) []string {
-	q := strings.TrimSpace(question)
-	if q == "" {
-		return []string{"请提供一个更具体的问题，我就能更快给你可执行建议。"}
-	}
-
-	return []string{
-		fmt.Sprintf("收到问题：%s", q),
-		"建议下一步：",
-		"1) 用 /plan 把目标拆成可验证步骤；",
-		"2) 用 /run 执行关键命令验证现状；",
-		"3) 迭代直到测试通过。",
-	}
-}
-
-func buildAskThinkingLines(question string) []string {
-	q := strings.TrimSpace(question)
-	if q == "" {
-		q = "（空问题）"
-	}
-	return []string{
-		fmt.Sprintf("分析问题：%s", q),
-		"拆解目标、约束与验收条件...",
-		"匹配可执行路径：/plan 生成步骤，/run 验证命令链路。",
-	}
-}
-
-func buildAskToolHintLines(question string) []string {
-	q := strings.TrimSpace(question)
-	if q == "" {
-		q = "(empty)"
-	}
-	return []string{
-		fmt.Sprintf("planned-tool: summarize-input(%q)", truncateDisplayWidth(q, 60)),
-		"planned-tool: propose-plan",
-		"planned-tool: suggest-command-checks",
-	}
-}
-
-func buildPlanLines(goal string) []string {
-	goal = strings.TrimSpace(goal)
-	return []string{
-		fmt.Sprintf("目标：%s", goal),
-		"计划：",
-		"1) 明确期望行为与验收条件；",
-		"2) 定位相关代码与依赖边界；",
-		"3) 设计最小改动并分步实施；",
-		"4) 每步运行测试并修复回归；",
-		"5) 更新文档/changelog 并复盘风险。",
-	}
 }
 
 func isCommandLikeInput(root *redant.Command, line string, agentOnly bool) bool {
@@ -1071,9 +976,8 @@ func (m *agentlineModel) recomputeSuggestions() {
 
 func collectStarterSlashItems() []completionItem {
 	return uniqueCompletionItems([]completionItem{
-		{Insert: "/ask ", Description: "提问（user -> assistant）"},
-		{Insert: "/plan ", Description: "生成步骤计划"},
 		{Insert: "/run ", Description: "执行命令"},
+		{Insert: "/history", Description: "查看输入历史"},
 		{Insert: "/help", Description: "查看 slash 帮助"},
 		{Insert: "/output", Description: "进入输出滚动"},
 	})
@@ -1818,8 +1722,6 @@ func slashHelpLines(root *redant.Command, agentOnly bool) []string {
 	lines := []string{
 		"slash commands:",
 		"  /<command ...>: 直接执行命令（例如 /commit --message hi）",
-		"  /ask <question>: 追加 user/assistant 对话块",
-		"  /plan <goal>: 生成分步骤计划块",
 		"  /run <command...>: 执行命令并输出 tool/command/result",
 		"  /history [N]: 查看最近输入历史（默认 20 条）",
 		"  /cancel: 中断当前运行中的任务",
