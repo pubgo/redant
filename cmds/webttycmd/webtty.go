@@ -11,16 +11,20 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
 	"github.com/pubgo/redant"
 )
+
+const maxUploadBytes int64 = 100 << 20 // 100MB
 
 func New() *redant.Command {
 	var addr string
@@ -100,7 +104,127 @@ func newHandler() http.Handler {
 		_, _ = w.Write([]byte(indexHTML))
 	})
 	mux.HandleFunc("/ws", handleTerminalWS)
+	mux.HandleFunc("/upload", handleUpload)
 	return mux
+}
+
+func handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes+1024)
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		http.Error(w, fmt.Sprintf("invalid multipart form: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "missing file field", http.StatusBadRequest)
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	fileName := sanitizeUploadFileName(header.Filename)
+	if fileName == "" {
+		http.Error(w, "invalid filename", http.StatusBadRequest)
+		return
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("resolve working dir failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	destDir, err := resolveUploadDir(wd, r.FormValue("dir"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		http.Error(w, fmt.Sprintf("create upload dir failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	destPath := filepath.Join(destDir, fileName)
+	out, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("open destination failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	written, copyErr := io.Copy(out, file)
+	closeErr := out.Close()
+	if copyErr != nil {
+		http.Error(w, fmt.Sprintf("write file failed: %v", copyErr), http.StatusInternalServerError)
+		return
+	}
+	if closeErr != nil {
+		http.Error(w, fmt.Sprintf("close file failed: %v", closeErr), http.StatusInternalServerError)
+		return
+	}
+
+	relPath := fileName
+	if rel, relErr := filepath.Rel(wd, destPath); relErr == nil {
+		relPath = filepath.ToSlash(rel)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":        true,
+		"savedPath": relPath,
+		"size":      written,
+	})
+}
+
+func sanitizeUploadFileName(name string) string {
+	base := filepath.Base(strings.TrimSpace(name))
+	if base == "" || base == "." || base == ".." {
+		return ""
+	}
+
+	base = strings.ReplaceAll(base, "/", "_")
+	base = strings.ReplaceAll(base, "\\", "_")
+	base = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '_'
+		}
+		if r == ':' {
+			return '_'
+		}
+		return r
+	}, base)
+
+	base = strings.TrimSpace(base)
+	if base == "" || base == "." || base == ".." {
+		return ""
+	}
+	return base
+}
+
+func resolveUploadDir(wd, rawDir string) (string, error) {
+	d := strings.TrimSpace(rawDir)
+	if d == "" {
+		return wd, nil
+	}
+
+	if filepath.IsAbs(d) {
+		return "", fmt.Errorf("dir must be relative")
+	}
+
+	clean := filepath.Clean(d)
+	if clean == "." {
+		return wd, nil
+	}
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("dir cannot escape working directory")
+	}
+
+	return filepath.Join(wd, clean), nil
 }
 
 func handleTerminalWS(w http.ResponseWriter, r *http.Request) {
@@ -261,11 +385,21 @@ const indexHTML = `<!doctype html>
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #0b1220; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; }
     #bar { height: 38px; display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid #1f2937; font-size: 13px; }
+		#bar .spacer { flex: 1; }
+		#uploadBtn { margin-left: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+		#uploadBtn:hover { background: #1e293b; }
+		#uploadStatus { margin-left: 8px; color: #94a3b8; font-size: 12px; }
     #term { width: 100%; height: calc(100% - 39px); }
   </style>
 </head>
 <body>
-  <div id="bar">webtty: local shell</div>
+	<div id="bar">
+		<span>webtty: local shell</span>
+		<span class="spacer"></span>
+		<input id="uploadInput" type="file" hidden />
+		<button id="uploadBtn" type="button">上传文件</button>
+		<span id="uploadStatus"></span>
+	</div>
   <div id="term"></div>
   <script>
     const term = new Terminal({ cursorBlink: true, fontSize: 13, theme: { background: '#020617', foreground: '#e2e8f0' } });
@@ -279,6 +413,42 @@ const indexHTML = `<!doctype html>
     ws.onmessage = (e) => term.write(e.data);
     ws.onclose = () => term.write('\r\n[disconnected]\r\n');
     ws.onerror = () => term.write('\r\n[ws error]\r\n');
+
+		const uploadInput = document.getElementById('uploadInput');
+		const uploadBtn = document.getElementById('uploadBtn');
+		const uploadStatus = document.getElementById('uploadStatus');
+
+		uploadBtn.addEventListener('click', () => uploadInput.click());
+
+		uploadInput.addEventListener('change', async () => {
+			const file = uploadInput.files && uploadInput.files[0];
+			if (!file) return;
+
+			uploadStatus.textContent = '上传中...';
+			const form = new FormData();
+			form.append('file', file);
+
+			try {
+				const resp = await fetch('/upload', { method: 'POST', body: form });
+				const text = await resp.text();
+				if (!resp.ok) {
+					uploadStatus.textContent = '上传失败';
+					term.write('\r\n[upload failed] ' + text + '\r\n');
+					return;
+				}
+
+				const data = JSON.parse(text || '{}');
+				const savedPath = String(data.savedPath || file.name);
+				const size = Number(data.size || 0);
+				uploadStatus.textContent = '已上传: ' + savedPath;
+				term.write('\r\n[upload ok] ' + savedPath + ' (' + size + ' bytes)\r\n');
+			} catch (err) {
+				uploadStatus.textContent = '上传异常';
+				term.write('\r\n[upload error] ' + String(err) + '\r\n');
+			} finally {
+				uploadInput.value = '';
+			}
+		});
 
     term.onData((data) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(data);

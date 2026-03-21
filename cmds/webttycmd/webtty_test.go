@@ -3,6 +3,12 @@ package webttycmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -54,5 +60,104 @@ func TestWebTTYCommandRunAndShutdown(t *testing.T) {
 
 	if !strings.Contains(stdout.String(), "webtty listening on") {
 		t.Fatalf("expected startup output, got %q", stdout.String())
+	}
+}
+
+func TestUploadEndpointSuccess(t *testing.T) {
+	h := newHandler()
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
+	tmp := t.TempDir()
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir tmp: %v", err)
+	}
+	defer func() { _ = os.Chdir(originalWD) }()
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("file", "hello.txt")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	_, _ = fw.Write([]byte("hello webtty"))
+	_ = mw.Close()
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/upload", &body)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		OK        bool   `json:"ok"`
+		SavedPath string `json:"savedPath"`
+		Size      int64  `json:"size"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.OK {
+		t.Fatalf("expected ok=true")
+	}
+	if payload.SavedPath != "hello.txt" {
+		t.Fatalf("unexpected savedPath: %q", payload.SavedPath)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, "hello.txt"))
+	if err != nil {
+		t.Fatalf("read uploaded file: %v", err)
+	}
+	if string(data) != "hello webtty" {
+		t.Fatalf("unexpected file content: %q", string(data))
+	}
+}
+
+func TestUploadEndpointRejectDirTraversal(t *testing.T) {
+	h := newHandler()
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("file", "evil.txt")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	_, _ = fw.Write([]byte("evil"))
+	_ = mw.Close()
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/upload", &body)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	q := req.URL.Query()
+	q.Set("dir", "../outside")
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
 	}
 }
