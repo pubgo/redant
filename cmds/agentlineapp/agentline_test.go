@@ -1,4 +1,4 @@
-package agentlinecmd
+package agentlineapp
 
 import (
 	"context"

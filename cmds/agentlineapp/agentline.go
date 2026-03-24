@@ -1,10 +1,11 @@
-package agentlinecmd
+package agentlineapp
 
 import (
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,63 +105,61 @@ var (
 	styleKindError     = lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
 )
 
-func New() *redant.Command {
-	ensureRouteHookRegistered()
+type RuntimeOptions struct {
+	Prompt      string
+	HistoryFile string
+	NoHistory   bool
+	InitialArgv []string
+	Stdin       io.Reader
+	Stdout      io.Writer
+}
 
-	var (
-		prompt     string
-		history    string
-		noHistory  bool
-		initialArg []string
-	)
-
-	return &redant.Command{
-		Use:   "agentline",
-		Short: "Agent CLI 风格交互终端（会话块 + slash）",
-		Long:  "启动交互式 agentline，支持命令执行与输出浏览（/run、/history、/output 等）。",
-		Options: redant.OptionSet{
-			{Flag: "prompt", Description: "交互提示符", Value: redant.StringOf(&prompt), Default: "agent> "},
-			{Flag: "history-file", Description: "历史记录文件路径（为空自动使用 ~/.redant_agentline_history）", Value: redant.StringOf(&history)},
-			{Flag: "no-history", Description: "禁用历史记录持久化", Value: redant.BoolOf(&noHistory)},
-			{Flag: "initial-arg", Description: "内部参数：自动进入 agent 模式时的原始 argv", Value: redant.StringArrayOf(&initialArg), Hidden: true},
-		},
-		Handler: func(ctx context.Context, inv *redant.Invocation) error {
-			root := inv.Command
-			for root.Parent() != nil {
-				root = root.Parent()
-			}
-
-			historyFile := strings.TrimSpace(history)
-			if historyFile == "" && !noHistory {
-				if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-					historyFile = filepath.Join(home, ".redant_agentline_history")
-				}
-			}
-
-			historyLines := []string{}
-			if !noHistory && historyFile != "" {
-				historyLines = loadHistory(historyFile)
-			}
-
-			bootstrapArgv := append([]string(nil), initialArg...)
-
-			model := newAgentlineModel(ctx, root, prompt, historyLines, historyFile, !noHistory, bootstrapArgv)
-			p := tea.NewProgram(model, tea.WithInput(inv.Stdin), tea.WithOutput(inv.Stdout))
-
-			done := make(chan struct{})
-			go func() {
-				select {
-				case <-ctx.Done():
-					p.Quit()
-				case <-done:
-				}
-			}()
-
-			_, err := p.Run()
-			close(done)
-			return err
-		},
+func Run(ctx context.Context, root *redant.Command, opts *RuntimeOptions) error {
+	if root == nil {
+		return errors.New("agentline runtime requires non-nil root command")
 	}
+
+	cfg := RuntimeOptions{}
+	if opts != nil {
+		cfg = *opts
+	}
+
+	historyFile := strings.TrimSpace(cfg.HistoryFile)
+	if historyFile == "" && !cfg.NoHistory {
+		if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+			historyFile = filepath.Join(home, ".redant_agentline_history")
+		}
+	}
+
+	historyLines := []string{}
+	if !cfg.NoHistory && historyFile != "" {
+		historyLines = loadHistory(historyFile)
+	}
+
+	input := cfg.Stdin
+	if input == nil {
+		input = os.Stdin
+	}
+	output := cfg.Stdout
+	if output == nil {
+		output = os.Stdout
+	}
+
+	model := newAgentlineModel(ctx, root, strings.TrimSpace(cfg.Prompt), historyLines, historyFile, !cfg.NoHistory, append([]string(nil), cfg.InitialArgv...))
+	p := tea.NewProgram(model, tea.WithInput(input), tea.WithOutput(output))
+
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			p.Quit()
+		case <-done:
+		}
+	}()
+
+	_, err := p.Run()
+	close(done)
+	return err
 }
 
 func (m *agentlineModel) buildStickyCommandLine(prompt string) string {
@@ -241,10 +240,6 @@ func stripPromptArg(args []string, promptFlag string) []string {
 		out = append(out, args[i])
 	}
 	return out
-}
-
-func AddAgentlineCommand(rootCmd *redant.Command) {
-	rootCmd.Children = append(rootCmd.Children, New())
 }
 
 type agentlineModel struct {

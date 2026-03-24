@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/pubgo/redant"
-	"github.com/pubgo/redant/cmds/agentlinecmd"
+	agentlineapp "github.com/pubgo/redant/cmds/agentlineapp"
 	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
 
@@ -41,8 +41,15 @@ func main() {
 		Children: []*redant.Command{
 			commitCmd,
 			statusCmd,
-			agentlinecmd.New(),
 		},
+	}
+
+	rootCmd.Handler = func(ctx context.Context, inv *redant.Invocation) error {
+		return agentlineapp.Run(ctx, rootCmd, &agentlineapp.RuntimeOptions{
+			Prompt: "agent> ",
+			Stdin:  inv.Stdin,
+			Stdout: inv.Stdout,
+		})
 	}
 
 	if err := rootCmd.Invoke().WithOS().Run(); err != nil {

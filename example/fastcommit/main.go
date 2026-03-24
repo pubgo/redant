@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/pubgo/redant"
-	"github.com/pubgo/redant/cmds/agentlinecmd"
+	agentlineapp "github.com/pubgo/redant/cmds/agentlineapp"
 	"github.com/pubgo/redant/cmds/completioncmd"
 	"github.com/pubgo/redant/cmds/mcpcmd"
 	"github.com/pubgo/redant/cmds/readlinecmd"
@@ -372,11 +372,18 @@ func main() {
 		completioncmd.New(),
 		readlinecmd.New(),
 		richlinecmd.New(),
-		agentlinecmd.New(),
 		mcpcmd.New(),
 		webcmd.New(),
 		webttycmd.New(),
 	)
+
+	rootCmd.Handler = func(ctx context.Context, inv *redant.Invocation) error {
+		return agentlineapp.Run(ctx, rootCmd, &agentlineapp.RuntimeOptions{
+			Prompt: "agent> ",
+			Stdin:  inv.Stdin,
+			Stdout: inv.Stdout,
+		})
+	}
 
 	err := rootCmd.Invoke().WithOS().Run()
 	if err != nil {

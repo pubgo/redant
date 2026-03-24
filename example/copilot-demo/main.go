@@ -13,7 +13,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 
 	"github.com/pubgo/redant"
-	"github.com/pubgo/redant/cmds/agentlinecmd"
+	agentlineapp "github.com/pubgo/redant/cmds/agentlineapp"
 	"github.com/pubgo/redant/cmds/webcmd"
 	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
@@ -48,7 +48,7 @@ func main() {
 	rootCmd := &redant.Command{
 		Use:   "copilot-demo",
 		Short: "Copilot SDK + redant + agentline 集成示例。",
-		Long:  "演示如何在 redant CLI 中通过 Copilot Go SDK 复用 Copilot CLI 能力，并支持 agentline 的 slash 命令执行。",
+		Long:  "演示如何在 redant CLI 中通过 Copilot Go SDK 复用 Copilot CLI 能力，并以 agentline runtime 作为交互入口。",
 		Options: redant.OptionSet{
 			{Flag: "copilot-cli-path", Description: "Copilot CLI 可执行路径（可选）", Value: redant.StringOf(&cliPath)},
 			{Flag: "copilot-log-level", Description: "Copilot CLI 日志级别", Value: redant.StringOf(&logLevel), Default: "error"},
@@ -312,7 +312,14 @@ func main() {
 		modelsCmd,
 		statusCmd,
 		webcmd.New(),
-		agentlinecmd.New(),
+	}
+
+	rootCmd.Handler = func(ctx context.Context, inv *redant.Invocation) error {
+		return agentlineapp.Run(ctx, rootCmd, &agentlineapp.RuntimeOptions{
+			Prompt: "agent> ",
+			Stdin:  inv.Stdin,
+			Stdout: inv.Stdout,
+		})
 	}
 
 	err := rootCmd.Invoke().WithOS().Run()
