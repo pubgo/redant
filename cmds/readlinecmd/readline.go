@@ -20,9 +20,10 @@ import (
 
 func New() *redant.Command {
 	var (
-		prompt    string
-		history   string
-		noHistory bool
+		prompt            string
+		history           string
+		noHistory         bool
+		doubleCtrlCToExit bool
 	)
 
 	return &redant.Command{
@@ -33,6 +34,7 @@ func New() *redant.Command {
 			{Flag: "prompt", Description: "交互提示符", Value: redant.StringOf(&prompt), Default: "redant> "},
 			{Flag: "history-file", Description: "历史记录文件路径（为空自动使用 ~/.redant_readline_history）", Value: redant.StringOf(&history)},
 			{Flag: "no-history", Description: "禁用历史记录持久化", Value: redant.BoolOf(&noHistory)},
+			{Flag: "double-ctrl-c-exit", Description: "启用后需要连续按两次 Ctrl+C 才退出 readline", Value: redant.BoolOf(&doubleCtrlCToExit)},
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			root := inv.Command
@@ -75,22 +77,18 @@ func New() *redant.Command {
 				_ = rl.Close()
 			}()
 
+			pendingInterrupt := false
 			for {
 				line, err := rl.Readline()
-				if errors.Is(err, readline.ErrInterrupt) {
-					if strings.TrimSpace(line) == "" {
-						continue
-					}
-				}
-				if errors.Is(err, io.EOF) {
-					return nil
+				done, readErr, nextPending := handleReadlineReadError(ctx, err, line, doubleCtrlCToExit, pendingInterrupt)
+				pendingInterrupt = nextPending
+				if done {
+					return readErr
 				}
 				if err != nil {
-					if ctx.Err() != nil {
-						return nil
-					}
-					return err
+					continue
 				}
+				pendingInterrupt = false
 
 				line = strings.TrimSpace(line)
 				if line == "" {
@@ -133,6 +131,35 @@ func New() *redant.Command {
 			}
 		},
 	}
+}
+
+func handleReadlineReadError(ctx context.Context, err error, line string, doubleCtrlCToExit bool, pendingInterrupt bool) (done bool, readErr error, nextPending bool) {
+	if err == nil {
+		return false, nil, false
+	}
+
+	if errors.Is(err, readline.ErrInterrupt) {
+		if strings.TrimSpace(line) == "" {
+			if !doubleCtrlCToExit {
+				return true, nil, false
+			}
+			if pendingInterrupt {
+				return true, nil, false
+			}
+			return false, nil, true
+		}
+		return false, nil, false
+	}
+
+	if errors.Is(err, io.EOF) {
+		return true, nil, false
+	}
+
+	if ctx != nil && ctx.Err() != nil {
+		return true, nil, false
+	}
+
+	return true, err, false
 }
 
 type readerOnly struct {
