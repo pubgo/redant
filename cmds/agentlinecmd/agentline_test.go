@@ -150,49 +150,10 @@ func TestView_MouseWheelDispatchByRegion(t *testing.T) {
 		t.Fatalf("expected input region delta=-1, got region=%s delta=%d", scroll.Region, scroll.Delta)
 	}
 
-	// Shift+滚轮：应旁路给终端原生行为（通常用于选择/复制场景）
+	// Shift+滚轮：应旁路给终端原生行为（通常用于选择/复制场景）。
 	cmd = v.OnMouse(tea.MouseWheelMsg{X: 0, Y: outputY, Button: tea.MouseWheelUp, Mod: tea.ModShift})
 	if cmd != nil {
 		t.Fatalf("expected shift+wheel to be bypassed")
-	}
-}
-
-func TestView_MouseModeFollowsMouseEnabled(t *testing.T) {
-	root := buildTestRoot()
-	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
-	m.width = 100
-	m.height = 24
-
-	v := m.View()
-	if v.MouseMode != tea.MouseModeCellMotion {
-		t.Fatalf("expected mouse mode enabled when outputFocus=false")
-	}
-
-	m.mouseEnabled = false
-	v = m.View()
-	if v.MouseMode == tea.MouseModeCellMotion {
-		t.Fatalf("expected mouse mode disabled when mouseEnabled=false")
-	}
-}
-
-func TestUpdate_F2TogglesMouseEnabled(t *testing.T) {
-	root := buildTestRoot()
-	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
-
-	if !m.mouseEnabled {
-		t.Fatalf("expected default mouseEnabled=true")
-	}
-
-	model, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyF2}))
-	m = model.(*agentlineModel)
-	if m.mouseEnabled {
-		t.Fatalf("expected mouseEnabled=false after first F2")
-	}
-
-	model, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyF2}))
-	m = model.(*agentlineModel)
-	if !m.mouseEnabled {
-		t.Fatalf("expected mouseEnabled=true after second F2")
 	}
 }
 
@@ -256,7 +217,7 @@ func TestView_MouseClickInputRegionFocusInput(t *testing.T) {
 		t.Fatalf("expected focus region input, got %q", focusMsg.Region)
 	}
 
-	// Shift+点击：应旁路给终端原生选择行为
+	// Shift+点击：应旁路给终端原生选择行为。
 	cmd = v.OnMouse(tea.MouseClickMsg{X: 0, Y: clickY, Button: tea.MouseLeft, Mod: tea.ModShift})
 	if cmd != nil {
 		t.Fatalf("expected shift+click to be bypassed")

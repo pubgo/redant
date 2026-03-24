@@ -232,7 +232,6 @@ type agentlineModel struct {
 	currentCancel    context.CancelFunc
 	initialArgv      []string
 	agentOnlyMode    bool
-	mouseEnabled     bool
 }
 
 type runResultMsg struct {
@@ -277,7 +276,6 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 		selectedHistory:  -1,
 		initialArgv:      append([]string(nil), initialArgv...),
 		agentOnlyMode:    agentOnlyMode,
-		mouseEnabled:     true,
 		blocks: []sessionBlock{{
 			Kind:  blockKindSystem,
 			Title: "system",
@@ -286,8 +284,8 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 				fmt.Sprintf("cwd: %s", displayPath(sessionCWD)),
 				fmt.Sprintf("git: %s", displayGitBranch(sessionGitBranch, sessionGitDirty)),
 				"试试：/run commit --help、/history、/output",
-				"快捷键：Tab 补全，↑/↓ 选择候选，Ctrl+O 切换输出滚动，F2 切换鼠标捕获，Ctrl+C 退出。",
-				"复制提示：按住 Shift 拖拽可原生选择，或按 F2 关闭鼠标捕获。",
+				"快捷键：Tab 补全，↑/↓ 选择候选，Ctrl+O 切换输出滚动，Ctrl+C 退出。",
+				"复制提示：支持直接鼠标拖拽选择并复制。",
 			},
 		}},
 	}
@@ -385,18 +383,6 @@ func (m *agentlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "ctrl+o":
 			m.outputFocus = !m.outputFocus
-			return m, nil
-		case "f2":
-			m.mouseEnabled = !m.mouseEnabled
-			state := "off"
-			if m.mouseEnabled {
-				state = "on"
-			}
-			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "mouse", Lines: []string{
-				fmt.Sprintf("mouse mode: %s", state),
-				"提示：关闭鼠标捕获后可使用终端原生复制。",
-			}})
-			m.normalizeOutputOffset()
 			return m, nil
 		case "esc":
 			if m.outputFocus {
@@ -647,21 +633,18 @@ func (m *agentlineModel) View() tea.View {
 	}
 	historyRegionEnd := len(lines) - 1
 
-	lines = append(lines, styleHint.Render(truncateDisplayWidth("命令：/run /history /cancel /fold /unfold；支持鼠标点击输出区/输入区切换焦点，点击历史行回填输入；复制可按住 Shift 拖拽，或按 F2 关闭鼠标捕获。", contentWidth)))
+	lines = append(lines, styleHint.Render(truncateDisplayWidth("命令：/run /history /cancel /fold /unfold；支持直接鼠标拖拽选择复制。", contentWidth)))
 	inputRegionEnd := len(lines) - 1
 
 	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
-	if m.mouseEnabled {
-		// 开启鼠标事件：支持点击切换输出/输入区域与滚轮分区滚动。
-		v.MouseMode = tea.MouseModeCellMotion
-	}
+	v.MouseMode = tea.MouseModeCellMotion
 	v.OnMouse = func(msg tea.MouseMsg) tea.Cmd {
 		switch event := msg.(type) {
 		case tea.MouseWheelMsg:
 			mouse := event.Mouse()
 			if mouse.Mod&tea.ModShift != 0 {
-				// 在支持的终端中，Shift 通常用于临时旁路应用层鼠标捕获以进行原生选择/复制。
+				// Shift+鼠标事件旁路给终端原生处理，便于文本选择与复制。
 				return nil
 			}
 			delta := 0
@@ -692,6 +675,7 @@ func (m *agentlineModel) View() tea.View {
 		case tea.MouseClickMsg:
 			mouse := event.Mouse()
 			if mouse.Mod&tea.ModShift != 0 {
+				// Shift+点击旁路给终端，允许原生选择。
 				return nil
 			}
 			y := mouse.Y
