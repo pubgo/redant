@@ -1,13 +1,16 @@
 package agentlineapp
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/pubgo/redant"
+	agentacp "github.com/pubgo/redant/cmds/agentlineapp/acp"
 )
 
 type slashCommand struct {
@@ -54,6 +57,21 @@ var slashBuiltins = []slashBuiltin{
 				return nil
 			}
 			return m.startCommandRun(argText)
+		},
+	},
+	{
+		Name:        "acp-demo",
+		Description: "启动 ACP 权限回合演示（可配合 /permissions /allow /deny）",
+		Handler: func(m *agentlineModel, _, _, argText string) tea.Cmd {
+			prompt := strings.TrimSpace(argText)
+			if prompt == "" {
+				prompt = "请执行一次需要权限确认的文件修改"
+			}
+			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/acp-demo", Lines: []string{
+				"ACP demo 已启动：可用 /permissions 查看待审批项。",
+				"输入 /allow 或 /deny 继续。",
+			}})
+			return m.startACPDemoTurn(prompt)
 		},
 	},
 	{
@@ -104,6 +122,48 @@ var slashBuiltins = []slashBuiltin{
 			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/history", Lines: m.historyPreviewLines(limit)})
 			m.outputOffset = 0
 			return nil
+		},
+	},
+	{
+		Name:        "permissions",
+		Aliases:     []string{"perm"},
+		Description: "查看待处理权限请求",
+		Handler: func(m *agentlineModel, _, _, _ string) tea.Cmd {
+			if m.permissionBroker == nil {
+				m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/permissions", Lines: []string{"权限队列未初始化。"}})
+				return nil
+			}
+			pending := m.permissionBroker.Pending()
+			if len(pending) == 0 {
+				m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/permissions", Lines: []string{"当前无待处理权限请求。"}})
+				return nil
+			}
+			lines := make([]string, 0, len(pending)*3)
+			for i, item := range pending {
+				lines = append(lines, fmt.Sprintf("%d) request=%s session=%s tool=%s", i+1, item.RequestID, strings.TrimSpace(string(item.SessionID)), strings.TrimSpace(string(item.ToolCallID))))
+				if strings.TrimSpace(item.Title) != "" {
+					lines = append(lines, "   title: "+strings.TrimSpace(item.Title))
+				}
+				for idx, option := range item.Options {
+					lines = append(lines, fmt.Sprintf("   option %d: id=%s kind=%s name=%s", idx+1, strings.TrimSpace(string(option.OptionId)), strings.TrimSpace(string(option.Kind)), strings.TrimSpace(option.Name)))
+				}
+			}
+			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/permissions", Lines: lines})
+			return nil
+		},
+	},
+	{
+		Name:        "allow",
+		Description: "同意权限请求（/allow [request-id] [option-id|index]）",
+		Handler: func(m *agentlineModel, _, _, argText string) tea.Cmd {
+			return resolvePermissionSlash(m, true, argText)
+		},
+	},
+	{
+		Name:        "deny",
+		Description: "拒绝权限请求（/deny [request-id] [option-id|index]）",
+		Handler: func(m *agentlineModel, _, _, argText string) tea.Cmd {
+			return resolvePermissionSlash(m, false, argText)
 		},
 	},
 	{
@@ -257,6 +317,10 @@ func slashHelpLines(root *redant.Command, agentOnly bool) []string {
 		"  /chat <command ...>: 绑定聊天粘性模式（后续普通输入自动补全命令前缀）",
 		"  /<command ...>: 直接执行命令（例如 /commit --message hi）",
 		"  /run <command...>: 执行命令并输出 tool/command/result",
+		"  /acp-demo [prompt]: 启动 ACP 权限回合演示",
+		"  /permissions: 查看待处理权限请求",
+		"  /allow [request-id] [option-id|index]: 同意权限请求",
+		"  /deny [request-id] [option-id|index]: 拒绝权限请求",
 		"  /history [N]: 查看最近输入历史（默认 20 条）",
 		"  /cancel: 中断当前运行中的任务",
 		"  /fold: 折叠 assistant/tool 详情块",
@@ -286,4 +350,98 @@ func slashHelpLines(root *redant.Command, agentOnly bool) []string {
 	}
 
 	return lines
+}
+
+func resolvePermissionSlash(m *agentlineModel, allow bool, argText string) tea.Cmd {
+	if m == nil || m.permissionBroker == nil {
+		return nil
+	}
+	pending := m.permissionBroker.Pending()
+	if len(pending) == 0 {
+		title := "/deny"
+		if allow {
+			title = "/allow"
+		}
+		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: title, Lines: []string{"当前无待处理权限请求。"}})
+		return nil
+	}
+
+	parts := strings.Fields(strings.TrimSpace(argText))
+	target := pending[len(pending)-1]
+	rest := []string{}
+	if len(parts) > 0 {
+		candidate := strings.TrimSpace(parts[0])
+		if strings.HasPrefix(candidate, "perm_") {
+			for _, item := range pending {
+				if item.RequestID == candidate {
+					target = item
+					rest = parts[1:]
+					goto resolve
+				}
+			}
+			m.appendBlock(sessionBlock{Kind: blockKindError, Title: permissionTitle(allow), Lines: []string{fmt.Sprintf("未知 request id: %s", candidate)}})
+			return nil
+		}
+		rest = parts
+	}
+
+resolve:
+	if len(rest) > 0 {
+		idx, optionID, isIndex := agentacp.ParseIndexOrOption(rest[0])
+		var err error
+		if isIndex {
+			err = m.permissionBroker.ResolveByIndex(target.RequestID, idx)
+		} else {
+			err = m.permissionBroker.ResolveSelected(target.RequestID, optionID)
+		}
+		if err != nil {
+			m.appendBlock(sessionBlock{Kind: blockKindError, Title: permissionTitle(allow), Lines: []string{err.Error()}})
+			return nil
+		}
+		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: permissionTitle(allow), Lines: []string{fmt.Sprintf("已处理 request=%s", target.RequestID)}})
+		return nil
+	}
+
+	var err error
+	if allow {
+		err = m.permissionBroker.ResolveFirstByKind(target.RequestID, acp.PermissionOptionKindAllowOnce, acp.PermissionOptionKindAllowAlways)
+	} else {
+		err = m.permissionBroker.ResolveFirstByKind(target.RequestID, acp.PermissionOptionKindRejectOnce, acp.PermissionOptionKindRejectAlways)
+	}
+	if err != nil {
+		if allow {
+			err = m.permissionBroker.ResolveCancelled(target.RequestID)
+		} else {
+			// 无 reject 选项时回退 cancelled，保持可前进。
+			err = m.permissionBroker.ResolveCancelled(target.RequestID)
+		}
+	}
+	if err != nil {
+		m.appendBlock(sessionBlock{Kind: blockKindError, Title: permissionTitle(allow), Lines: []string{err.Error()}})
+		return nil
+	}
+	m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: permissionTitle(allow), Lines: []string{fmt.Sprintf("已处理 request=%s", target.RequestID)}})
+	return nil
+}
+
+func permissionTitle(allow bool) string {
+	if allow {
+		return "/allow"
+	}
+	return "/deny"
+}
+
+// ACPPermissionClient 返回仅处理 permission 的 ACP client 适配。
+// session/update 建议通过调用方在 UI 主循环中转发到 appendACPSessionNotification。
+func (m *agentlineModel) ACPPermissionClient() *agentacp.CallbackClient {
+	if m == nil {
+		return &agentacp.CallbackClient{}
+	}
+	return &agentacp.CallbackClient{
+		PermissionBroker: m.permissionBroker,
+		OnSessionUpdate: func(_ context.Context, params acp.SessionNotification) error {
+			m.appendACPSessionNotification(params)
+			return nil
+		},
+	}
 }

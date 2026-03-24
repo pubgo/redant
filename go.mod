@@ -7,6 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.2
 	charm.land/lipgloss/v2 v2.0.0
 	github.com/chzyer/readline v1.5.1
+	github.com/coder/acp-go-sdk v0.6.3
 	github.com/coder/websocket v1.8.14
 	github.com/creack/pty v1.1.24
 	github.com/github/copilot-sdk/go v0.2.0

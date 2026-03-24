@@ -10,10 +10,12 @@ import (
 	"sync"
 	"time"
 
+	acp "github.com/coder/acp-go-sdk"
 	copilot "github.com/github/copilot-sdk/go"
 
 	"github.com/pubgo/redant"
 	agentlineapp "github.com/pubgo/redant/cmds/agentlineapp"
+	agentacp "github.com/pubgo/redant/cmds/agentlineapp/acp"
 	"github.com/pubgo/redant/cmds/webcmd"
 	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
@@ -43,6 +45,9 @@ func main() {
 		hydrateMaxScanEvents int64
 
 		deleteSessionID string
+
+		acpTurnPrompt      string
+		permissionDecision string
 	)
 
 	rootCmd := &redant.Command{
@@ -303,6 +308,39 @@ func main() {
 		},
 	}
 
+	acpTurnCmd := &redant.Command{
+		Use:      "acp-turn",
+		Short:    "运行一次 ACP 权限回合演示（显式命令入口）。",
+		Metadata: agentlinemodule.AgentCommandMetadata(),
+		Options: redant.OptionSet{
+			{Flag: "prompt", Shorthand: "p", Description: "演示回合的用户输入", Value: redant.StringOf(&acpTurnPrompt), Default: "请执行一次需要权限确认的操作"},
+			{Flag: "permission-decision", Description: "权限决策(allow/deny/cancel)", Value: redant.StringOf(&permissionDecision), Default: "allow"},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			stopReason, updates, err := runACPTurnDemo(ctx, strings.TrimSpace(acpTurnPrompt), strings.TrimSpace(permissionDecision))
+			if err != nil {
+				return err
+			}
+
+			_, _ = fmt.Fprintf(inv.Stdout, "acp stop reason: %s\n", strings.TrimSpace(string(stopReason)))
+			if len(updates) == 0 {
+				_, _ = fmt.Fprintln(inv.Stdout, "(no acp updates)")
+				return nil
+			}
+
+			for i, n := range updates {
+				blocks := agentacp.RenderSessionNotification(n)
+				for _, b := range blocks {
+					_, _ = fmt.Fprintf(inv.Stdout, "[%02d][%s/%s]\n", i+1, strings.TrimSpace(b.Kind), strings.TrimSpace(b.Title))
+					for _, line := range b.Lines {
+						_, _ = fmt.Fprintf(inv.Stdout, "  %s\n", strings.TrimSpace(line))
+					}
+				}
+			}
+			return nil
+		},
+	}
+
 	rootCmd.Children = []*redant.Command{
 		chatCmd,
 		resumeCmd,
@@ -311,6 +349,7 @@ func main() {
 		deleteSessionCmd,
 		modelsCmd,
 		statusCmd,
+		acpTurnCmd,
 		webcmd.New(),
 	}
 
@@ -536,6 +575,120 @@ func sendPromptAndRender(ctx context.Context, inv *redant.Invocation, session *c
 	case <-waitCtx.Done():
 		return fmt.Errorf("wait session idle: %w", waitCtx.Err())
 	}
+}
+
+func runACPTurnDemo(ctx context.Context, prompt string, decision string) (acp.StopReason, []acp.SessionNotification, error) {
+	prompt = withDefault(strings.TrimSpace(prompt), "请执行一次需要权限确认的操作")
+	decision = strings.TrimSpace(strings.ToLower(decision))
+
+	if decision == "" {
+		decision = "allow"
+	}
+	if decision != "allow" && decision != "deny" && decision != "cancel" {
+		return "", nil, fmt.Errorf("invalid permission decision %q: must be allow/deny/cancel", decision)
+	}
+
+	updates := make([]acp.SessionNotification, 0, 8)
+	client := &agentacp.CallbackClient{
+		OnSessionUpdate: func(_ context.Context, params acp.SessionNotification) error {
+			updates = append(updates, params)
+			return nil
+		},
+		OnRequestPermission: func(_ context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+			switch decision {
+			case "allow":
+				if optionID, ok := pickPermissionOptionID(params.Options, acp.PermissionOptionKindAllowOnce, acp.PermissionOptionKindAllowAlways); ok {
+					return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(optionID)}, nil
+				}
+				if len(params.Options) > 0 {
+					return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(params.Options[0].OptionId)}, nil
+				}
+			case "deny":
+				if optionID, ok := pickPermissionOptionID(params.Options, acp.PermissionOptionKindRejectOnce, acp.PermissionOptionKindRejectAlways); ok {
+					return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(optionID)}, nil
+				}
+			}
+			return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
+		},
+	}
+
+	var bridge *agentacp.AgentBridge
+	exec := agentacp.PromptExecutorFunc(func(ctx context.Context, sessionID acp.SessionId, _ []acp.ContentBlock, emit func(update acp.SessionUpdate) error) (acp.StopReason, error) {
+		toolID := acp.ToolCallId("call_demo_1")
+		title := "demo edit"
+		if err := emit(acp.StartToolCall(toolID, title,
+			acp.WithStartKind(acp.ToolKindEdit),
+			acp.WithStartStatus(acp.ToolCallStatusPending),
+		)); err != nil {
+			return "", err
+		}
+
+		resp, err := bridge.RequestPermission(ctx, acp.RequestPermissionRequest{
+			SessionId: sessionID,
+			ToolCall: acp.RequestPermissionToolCall{
+				ToolCallId: toolID,
+				Title:      acp.Ptr(title),
+				Kind:       acp.Ptr(acp.ToolKindEdit),
+				Status:     acp.Ptr(acp.ToolCallStatusPending),
+			},
+			Options: []acp.PermissionOption{
+				{OptionId: "allow-once", Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce},
+				{OptionId: "reject-once", Name: "Reject once", Kind: acp.PermissionOptionKindRejectOnce},
+			},
+		})
+		if err != nil {
+			return "", err
+		}
+
+		if resp.Outcome.Selected == nil || strings.TrimSpace(string(resp.Outcome.Selected.OptionId)) == "" {
+			if err := emit(acp.UpdateToolCall(toolID,
+				acp.WithUpdateStatus(acp.ToolCallStatusFailed),
+				acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock("permission denied"))}),
+			)); err != nil {
+				return "", err
+			}
+			return acp.StopReasonRefusal, nil
+		}
+
+		if err := emit(acp.UpdateToolCall(toolID, acp.WithUpdateStatus(acp.ToolCallStatusInProgress))); err != nil {
+			return "", err
+		}
+		if err := emit(acp.UpdateToolCall(toolID,
+			acp.WithUpdateStatus(acp.ToolCallStatusCompleted),
+			acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock("demo change applied"))}),
+		)); err != nil {
+			return "", err
+		}
+		if err := emit(acp.UpdateAgentMessageText("ACP demo done")); err != nil {
+			return "", err
+		}
+		return acp.StopReasonEndTurn, nil
+	})
+
+	bridge = agentacp.NewAgentBridge(agentacp.BridgeOptions{Executor: exec, PermissionRequester: client})
+	bridge.SetSessionUpdater(client)
+
+	newResp, err := bridge.NewSession(ctx, acp.NewSessionRequest{Cwd: "/tmp", McpServers: nil})
+	if err != nil {
+		return "", updates, err
+	}
+
+	resp, err := bridge.Prompt(ctx, acp.PromptRequest{SessionId: newResp.SessionId, Prompt: []acp.ContentBlock{acp.TextBlock(prompt)}})
+	if err != nil {
+		return "", updates, err
+	}
+	return resp.StopReason, updates, nil
+}
+
+func pickPermissionOptionID(options []acp.PermissionOption, kinds ...acp.PermissionOptionKind) (acp.PermissionOptionId, bool) {
+	for _, kind := range kinds {
+		for _, option := range options {
+			if option.Kind == kind {
+				return option.OptionId, true
+			}
+		}
+	}
+	return "", false
 }
 
 func buildHooks(inv *redant.Invocation) *copilot.SessionHooks {

@@ -15,8 +15,10 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/pubgo/redant"
+	agentacp "github.com/pubgo/redant/cmds/agentlineapp/acp"
 	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
 
@@ -270,11 +272,17 @@ type agentlineModel struct {
 	currentCancel    context.CancelFunc
 	initialArgv      []string
 	agentOnlyMode    bool
+	permissionBroker *agentacp.PermissionBroker
 }
 
 type runResultMsg struct {
 	blocks []sessionBlock
 	quit   bool
+}
+
+type acpDemoResultMsg struct {
+	blocks []sessionBlock
+	err    error
 }
 
 func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string, history []string, historyFile string, persist bool, initialArgv []string) *agentlineModel {
@@ -315,6 +323,7 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 		selectedHistory:  -1,
 		initialArgv:      append([]string(nil), initialArgv...),
 		agentOnlyMode:    agentOnlyMode,
+		permissionBroker: agentacp.NewPermissionBroker(),
 		blocks: []sessionBlock{{
 			Kind:  blockKindSystem,
 			Title: "system",
@@ -358,6 +367,21 @@ func (m *agentlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.quit {
 			return m, tea.Quit
+		}
+		m.normalizeOutputOffset()
+		m.normalizeInputOffset()
+		m.recomputeSuggestions()
+		return m, nil
+
+	case acpDemoResultMsg:
+		m.running = false
+		m.currentCancel = nil
+		if len(msg.blocks) > 0 {
+			m.appendBlocks(msg.blocks)
+			m.outputOffset = 0
+		}
+		if msg.err != nil {
+			m.appendBlock(sessionBlock{Kind: blockKindError, Title: "acp.demo", Lines: []string{fmt.Sprintf("%v", msg.err)}})
 		}
 		m.normalizeOutputOffset()
 		m.normalizeInputOffset()
@@ -533,11 +557,16 @@ func (m *agentlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "enter":
-			if m.running {
-				return m, nil
-			}
 			line := strings.TrimSpace(m.input.Value())
 			if line == "" {
+				return m, nil
+			}
+
+			if m.running && !isAllowedWhileRunning(line) {
+				m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "running", Lines: []string{
+					"当前任务执行中，仅支持 /permissions、/allow、/deny、/cancel。",
+				}})
+				m.normalizeOutputOffset()
 				return m, nil
 			}
 
@@ -1175,4 +1204,123 @@ func (m *agentlineModel) cancelActiveRun(message string) bool {
 		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "cancel", Lines: []string{message}})
 	}
 	return true
+}
+
+func isAllowedWhileRunning(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || !strings.HasPrefix(trimmed, "/") {
+		return false
+	}
+	cmdText := strings.TrimSpace(strings.TrimPrefix(trimmed, "/"))
+	if cmdText == "" {
+		return false
+	}
+	parts := strings.Fields(cmdText)
+	if len(parts) == 0 {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(parts[0])) {
+	case "permissions", "perm", "allow", "deny", "cancel", "stop":
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *agentlineModel) startACPDemoTurn(prompt string) tea.Cmd {
+	runCtx := m.ctx
+	if runCtx == nil {
+		runCtx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(runCtx)
+	m.running = true
+	m.currentCancel = cancel
+	m.outputFocus = false
+	return runACPDemoTurnCmd(runCtx, strings.TrimSpace(prompt), m.permissionBroker)
+}
+
+func runACPDemoTurnCmd(ctx context.Context, prompt string, broker *agentacp.PermissionBroker) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(prompt) == "" {
+			prompt = "请执行一次需要权限确认的操作"
+		}
+
+		client := &agentacp.CallbackClient{PermissionBroker: broker}
+		collector := make([]acp.SessionNotification, 0, 8)
+		client.OnSessionUpdate = func(_ context.Context, params acp.SessionNotification) error {
+			collector = append(collector, params)
+			return nil
+		}
+
+		var bridge *agentacp.AgentBridge
+		exec := agentacp.PromptExecutorFunc(func(ctx context.Context, sessionID acp.SessionId, _ []acp.ContentBlock, emit func(update acp.SessionUpdate) error) (acp.StopReason, error) {
+			toolID := acp.ToolCallId("call_demo_1")
+			title := "demo edit"
+			if err := emit(acp.StartToolCall(toolID, title,
+				acp.WithStartKind(acp.ToolKindEdit),
+				acp.WithStartStatus(acp.ToolCallStatusPending),
+			)); err != nil {
+				return "", err
+			}
+
+			resp, err := bridge.RequestPermission(ctx, acp.RequestPermissionRequest{
+				SessionId: sessionID,
+				ToolCall: acp.RequestPermissionToolCall{
+					ToolCallId: toolID,
+					Title:      acp.Ptr(title),
+					Kind:       acp.Ptr(acp.ToolKindEdit),
+					Status:     acp.Ptr(acp.ToolCallStatusPending),
+				},
+				Options: []acp.PermissionOption{
+					{OptionId: "allow-once", Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce},
+					{OptionId: "reject-once", Name: "Reject once", Kind: acp.PermissionOptionKindRejectOnce},
+				},
+			})
+			if err != nil {
+				return "", err
+			}
+
+			if resp.Outcome.Selected == nil || strings.TrimSpace(string(resp.Outcome.Selected.OptionId)) == "" {
+				if err := emit(acp.UpdateToolCall(toolID,
+					acp.WithUpdateStatus(acp.ToolCallStatusFailed),
+					acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock("permission denied"))}),
+				)); err != nil {
+					return "", err
+				}
+				return acp.StopReasonRefusal, nil
+			}
+
+			if err := emit(acp.UpdateToolCall(toolID, acp.WithUpdateStatus(acp.ToolCallStatusInProgress))); err != nil {
+				return "", err
+			}
+			if err := emit(acp.UpdateToolCall(toolID,
+				acp.WithUpdateStatus(acp.ToolCallStatusCompleted),
+				acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock("demo change applied"))}),
+			)); err != nil {
+				return "", err
+			}
+			if err := emit(acp.UpdateAgentMessageText("ACP demo done")); err != nil {
+				return "", err
+			}
+			return acp.StopReasonEndTurn, nil
+		})
+
+		bridge = agentacp.NewAgentBridge(agentacp.BridgeOptions{Executor: exec, PermissionRequester: client})
+		bridge.SetSessionUpdater(client)
+
+		newResp, err := bridge.NewSession(ctx, acp.NewSessionRequest{Cwd: "/tmp", McpServers: nil})
+		if err != nil {
+			return acpDemoResultMsg{err: err}
+		}
+
+		_, err = bridge.Prompt(ctx, acp.PromptRequest{SessionId: newResp.SessionId, Prompt: []acp.ContentBlock{acp.TextBlock(prompt)}})
+		blocks := make([]sessionBlock, 0, len(collector)+1)
+		for _, n := range collector {
+			blocks = append(blocks, sessionBlocksFromACP(n)...)
+		}
+		if len(blocks) == 0 {
+			blocks = append(blocks, sessionBlock{Kind: blockKindSystem, Title: "acp.demo", Lines: []string{"no updates received"}})
+		}
+		return acpDemoResultMsg{blocks: blocks, err: err}
+	}
 }
