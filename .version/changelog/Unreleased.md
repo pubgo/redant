@@ -12,12 +12,12 @@
 - 新增 Web 控制台能力：提供 `cmds/webcmd` 与 `internal/webui`，支持可视化选择命令、填写 flags/args、执行并查看调用过程与结果。
 - 新增 `cmds/readlinecmd`：基于 `github.com/chzyer/readline` 提供多轮交互 REPL，支持命令/子命令、flag、参数与枚举值补全；`example/fastcommit` 已接入该命令。
 - 新增 `cmds/richlinecmd`：基于 `github.com/charmbracelet/bubbletea`（对比 `tcell` 后选型）实现独立交互命令，提供竖向补全候选列表与描述信息展示，且不影响现有 `readlinecmd`。
-- 新增 `cmds/agentlinecmd`（阶段一 MVP）：提供 Agent CLI 风格会话块视图（`system/user/assistant/tool/command/result`）、状态栏与输出滚动；支持 `/ask`、`/plan`、`/run` 等 slash 命令，并接入 `example/fastcommit` 便于体验。
+- 新增 `cmds/agentlineapp`（阶段一 MVP）：提供 Agent CLI 风格会话块视图（`system/user/assistant/tool/command/result`）、状态栏与输出滚动；支持 `/ask`、`/plan`、`/run` 等 slash 命令，并接入 `example/fastcommit` 便于体验。
 - 增强 `cmds/richlinecmd` 候选可读性：补全列表新增类型标签（`CMD/FLAG/ARG/ENUM`）与总数/区间信息，并按 `CMD → FLAG → ARG → ENUM` 分组排序；大结果集支持窗口滚动显示与 `PgUp/PgDn/Home/End` 快捷定位；同时为标签、描述、选中项与提示信息提供颜色分层展示。
 - 新增 `example/copilot-demo`：集成 `github.com/github/copilot-sdk/go`，提供新会话/恢复会话、会话管理、模型查询、状态检查、自定义 tool、hooks、ask_user 与流式输出示例，并支持通过 `agentline` 以 slash command 执行 `chat`、`resume`。
 - 增强 `example/copilot-demo`：集成 `cmds/webcmd`，支持通过 `copilot-demo web` 启动可视化命令执行页面。
 - 增强 `example/copilot-demo sessions`：新增 `--hydrate` / `--hydrate-timeout` / `--hydrate-max-events`，可在会话列表元信息缺失时尝试恢复会话并补充最近 assistant 摘要与消息统计。
-- 增强 `cmds/agentlinecmd`：新增 `--resume-session-id` / `--resume-prompt`，可在启动交互模式时自动执行 `resume` 并附着到指定会话。
+- 增强 `cmds/agentlineapp`：新增 `--resume-session-id` / `--resume-prompt`，可在启动交互模式时自动执行 `resume` 并附着到指定会话。
 - 调整 `example/copilot-demo` 交互可见命令：`sessions` 标记为 `agent.command=true`，可在 `agentline` 中通过 `/sessions`（含 `--hydrate`）直接执行。
 
 ## 修复
@@ -57,12 +57,12 @@
 - `cmds/readlinecmd` 在每次执行前输出完整命令行（含必要引号转义），便于调试与复现实例命令。
 - `cmds/richlinecmd` 候选显示行数改为按当前终端窗口高度动态计算（窗口足够高时可一次显示全部候选），并将 `PgUp/PgDn` 翻页步长同步为动态行数。
 - `cmds/richlinecmd` 依赖升级到 Bubble Tea/Bubbles v2：模块路径切换为 `charm.land/bubbletea/v2` 与 `charm.land/bubbles/v2`，并同步适配 `tea.View`、输入组件样式与窗口设置 API。
-- 增强 `cmds/agentlinecmd` 运行体验：新增 `/cancel`（含 `Ctrl+C` 运行中中断语义）、`tool.parse` 轨迹块与 `result` 状态/耗时信息（`status`、`duration`），使会话执行反馈更接近 agent CLI。
-- 增强 `cmds/agentlinecmd` 对话编排：`/ask` 输出升级为多步骤会话块（`assistant.think` + `tool.placeholder` + 最终回复），并新增 `/fold` / `/unfold` 以折叠或展开 assistant/tool 详情，提升长会话可读性。
-- 增强 `cmds/agentlinecmd` 交互布局为“输出区 + 输入区”双区域视图：启用鼠标滚轮分区滚动（输出区浏览会话输出、输入区浏览输入历史），支持点击输入历史回填到输入框并高亮当前选中项，保留键盘导航与 slash 候选协同体验。
-- 调整 `cmds/agentlinecmd` 鼠标控制方式：移除 `/mouse` slash 命令，改为使用 `F2` 切换鼠标捕获，并在提示中说明 `Shift` 临时旁路复制。
+- 增强 `cmds/agentlineapp` 运行体验：新增 `/cancel`（含 `Ctrl+C` 运行中中断语义）、`tool.parse` 轨迹块与 `result` 状态/耗时信息（`status`、`duration`），使会话执行反馈更接近 agent CLI。
+- 增强 `cmds/agentlineapp` 对话编排：`/ask` 输出升级为多步骤会话块（`assistant.think` + `tool.placeholder` + 最终回复），并新增 `/fold` / `/unfold` 以折叠或展开 assistant/tool 详情，提升长会话可读性。
+- 增强 `cmds/agentlineapp` 交互布局为“输出区 + 输入区”双区域视图：启用鼠标滚轮分区滚动（输出区浏览会话输出、输入区浏览输入历史），支持点击输入历史回填到输入框并高亮当前选中项，保留键盘导航与 slash 候选协同体验。
+- 调整 `cmds/agentlineapp` 鼠标控制方式：移除 `/mouse` slash 命令，改为使用 `F2` 切换鼠标捕获，并在提示中说明 `Shift` 临时旁路复制。
 - 增强 agent 模式接入语义：`Command` 新增 `Metadata` 注解并支持 `mode=agent` / `agent.command=true` / `agent.entry=true`；其中 `agent.entry=true`（或 `mode=agent`）用于自动重定向进入 `agentline`，`agent.command=true` 用于将命令标记为交互模式可识别命令；`agentline` 新增 `/<command ...>` 直接执行路径（如 `/commit --message hi`），并在 `/` 候选与 `/help` 中动态展示命令型 slash 入口，实现“普通 CLI 命令 + 交互 slash 命令”双模式。
-- 调整 `cmds/agentlinecmd` slash 候选展示：仅显示 slash 主命令，不再展示其别名（如 `/a`、`/q`），降低候选噪音并避免列表膨胀。
+- 调整 `cmds/agentlineapp` slash 候选展示：仅显示 slash 主命令，不再展示其别名（如 `/a`、`/q`），降低候选噪音并避免列表膨胀。
 - 调整 `example/copilot-demo resume`：`prompt` 参数改为可选，默认使用“继续”。
 - 增强 `cmds/webttycmd` 上传体验：支持可配置并发上传、总进度统计，以及单文件取消/全部取消，提升大批量文件场景的可控性。
 - 增强 `cmds/webttycmd` 会话与下载能力：支持前端自动重连（指数退避）/手动重连，新增目录打包下载接口（`/download-zip`），并提供上传调度策略（FIFO/小文件优先/大文件优先）。
