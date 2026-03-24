@@ -18,6 +18,7 @@
 - 增强 `example/copilot-demo`：集成 `cmds/webcmd`，支持通过 `copilot-demo web` 启动可视化命令执行页面。
 - 增强 `example/copilot-demo sessions`：新增 `--hydrate` / `--hydrate-timeout` / `--hydrate-max-events`，可在会话列表元信息缺失时尝试恢复会话并补充最近 assistant 摘要与消息统计。
 - 增强 `cmds/agentlinecmd`：新增 `--resume-session-id` / `--resume-prompt`，可在启动交互模式时自动执行 `resume` 并附着到指定会话。
+- 调整 `example/copilot-demo` 交互可见命令：`sessions` 标记为 `agent.command=true`，可在 `agentline` 中通过 `/sessions`（含 `--hydrate`）直接执行。
 
 ## 修复
 
@@ -59,8 +60,10 @@
 - 增强 `cmds/agentlinecmd` 运行体验：新增 `/cancel`（含 `Ctrl+C` 运行中中断语义）、`tool.parse` 轨迹块与 `result` 状态/耗时信息（`status`、`duration`），使会话执行反馈更接近 agent CLI。
 - 增强 `cmds/agentlinecmd` 对话编排：`/ask` 输出升级为多步骤会话块（`assistant.think` + `tool.placeholder` + 最终回复），并新增 `/fold` / `/unfold` 以折叠或展开 assistant/tool 详情，提升长会话可读性。
 - 增强 `cmds/agentlinecmd` 交互布局为“输出区 + 输入区”双区域视图：启用鼠标滚轮分区滚动（输出区浏览会话输出、输入区浏览输入历史），支持点击输入历史回填到输入框并高亮当前选中项，保留键盘导航与 slash 候选协同体验。
+- 调整 `cmds/agentlinecmd` 鼠标控制方式：移除 `/mouse` slash 命令，改为使用 `F2` 切换鼠标捕获，并在提示中说明 `Shift` 临时旁路复制。
 - 增强 agent 模式接入语义：`Command` 新增 `Metadata` 注解并支持 `mode=agent` / `agent.command=true` / `agent.entry=true`；其中 `agent.entry=true`（或 `mode=agent`）用于自动重定向进入 `agentline`，`agent.command=true` 用于将命令标记为交互模式可识别命令；`agentline` 新增 `/<command ...>` 直接执行路径（如 `/commit --message hi`），并在 `/` 候选与 `/help` 中动态展示命令型 slash 入口，实现“普通 CLI 命令 + 交互 slash 命令”双模式。
 - 调整 `cmds/agentlinecmd` slash 候选展示：仅显示 slash 主命令，不再展示其别名（如 `/a`、`/q`），降低候选噪音并避免列表膨胀。
+- 调整 `example/copilot-demo resume`：`prompt` 参数改为可选，默认使用“继续”。
 - 增强 `cmds/webttycmd` 上传体验：支持可配置并发上传、总进度统计，以及单文件取消/全部取消，提升大批量文件场景的可控性。
 - 增强 `cmds/webttycmd` 会话与下载能力：支持前端自动重连（指数退避）/手动重连，新增目录打包下载接口（`/download-zip`），并提供上传调度策略（FIFO/小文件优先/大文件优先）。
 

@@ -18,6 +18,16 @@ const (
 	InitialArgKey = "initial-arg"
 )
 
+// AgentCommandMetadata returns metadata marking a command as an agent command.
+func AgentCommandMetadata() map[string]string {
+	return map[string]string{CommandMetaAgentCommand: "true"}
+}
+
+// AgentEntryMetadata returns metadata marking a command as an agent entry.
+func AgentEntryMetadata() map[string]string {
+	return map[string]string{CommandMetaAgentEntry: "true"}
+}
+
 // Meta returns metadata value by key. Key lookup is case-insensitive.
 func Meta(metadata map[string]string, key string) string {
 	if strings.TrimSpace(key) == "" || len(metadata) == 0 {

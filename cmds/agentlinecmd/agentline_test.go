@@ -149,23 +149,50 @@ func TestView_MouseWheelDispatchByRegion(t *testing.T) {
 	if scroll.Region != mouseRegionInput || scroll.Delta != -1 {
 		t.Fatalf("expected input region delta=-1, got region=%s delta=%d", scroll.Region, scroll.Delta)
 	}
+
+	// Shift+滚轮：应旁路给终端原生行为（通常用于选择/复制场景）
+	cmd = v.OnMouse(tea.MouseWheelMsg{X: 0, Y: outputY, Button: tea.MouseWheelUp, Mod: tea.ModShift})
+	if cmd != nil {
+		t.Fatalf("expected shift+wheel to be bypassed")
+	}
 }
 
-func TestView_MouseModeEnabledOnlyInOutputFocus(t *testing.T) {
+func TestView_MouseModeFollowsMouseEnabled(t *testing.T) {
 	root := buildTestRoot()
 	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 	m.width = 100
 	m.height = 24
 
 	v := m.View()
-	if v.MouseMode == tea.MouseModeCellMotion {
-		t.Fatalf("expected mouse mode disabled when outputFocus=false")
+	if v.MouseMode != tea.MouseModeCellMotion {
+		t.Fatalf("expected mouse mode enabled when outputFocus=false")
 	}
 
-	m.outputFocus = true
+	m.mouseEnabled = false
 	v = m.View()
-	if v.MouseMode != tea.MouseModeCellMotion {
-		t.Fatalf("expected mouse mode enabled when outputFocus=true")
+	if v.MouseMode == tea.MouseModeCellMotion {
+		t.Fatalf("expected mouse mode disabled when mouseEnabled=false")
+	}
+}
+
+func TestUpdate_F2TogglesMouseEnabled(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+
+	if !m.mouseEnabled {
+		t.Fatalf("expected default mouseEnabled=true")
+	}
+
+	model, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyF2}))
+	m = model.(*agentlineModel)
+	if m.mouseEnabled {
+		t.Fatalf("expected mouseEnabled=false after first F2")
+	}
+
+	model, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyF2}))
+	m = model.(*agentlineModel)
+	if !m.mouseEnabled {
+		t.Fatalf("expected mouseEnabled=true after second F2")
 	}
 }
 
@@ -197,7 +224,7 @@ func TestUpdate_MouseScrollMsgScrollsInputAndOutput(t *testing.T) {
 	}
 }
 
-func TestView_MouseClickInputRegionNoHistorySelection(t *testing.T) {
+func TestView_MouseClickInputRegionFocusInput(t *testing.T) {
 	root := buildTestRoot()
 	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 	m.width = 100
@@ -217,8 +244,55 @@ func TestView_MouseClickInputRegionNoHistorySelection(t *testing.T) {
 	}
 
 	cmd := v.OnMouse(tea.MouseClickMsg{X: 0, Y: clickY, Button: tea.MouseLeft})
+	if cmd == nil {
+		t.Fatalf("expected click in input region to emit focus message")
+	}
+	msg := cmd()
+	focusMsg, ok := msg.(mouseFocusMsg)
+	if !ok {
+		t.Fatalf("expected mouseFocusMsg, got %T", msg)
+	}
+	if focusMsg.Region != mouseRegionInput {
+		t.Fatalf("expected focus region input, got %q", focusMsg.Region)
+	}
+
+	// Shift+点击：应旁路给终端原生选择行为
+	cmd = v.OnMouse(tea.MouseClickMsg{X: 0, Y: clickY, Button: tea.MouseLeft, Mod: tea.ModShift})
 	if cmd != nil {
-		t.Fatalf("expected click in input region not to select history by default")
+		t.Fatalf("expected shift+click to be bypassed")
+	}
+}
+
+func TestView_MouseClickHistoryRowSelectsHistory(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+	m.width = 100
+	m.height = 24
+	m.history = []string{"/ask one", "/ask two", "/run commit --message hi", "/plan test"}
+	m.historyPos = len(m.history)
+
+	v := m.View()
+	if v.OnMouse == nil {
+		t.Fatalf("expected mouse handler configured")
+	}
+
+	lines := strings.Split(v.Content, "\n")
+	clickY := findLineContaining(lines, "002 /ask two")
+	if clickY < 0 {
+		t.Fatalf("expected rendered history row for '/ask two'")
+	}
+
+	cmd := v.OnMouse(tea.MouseClickMsg{X: 0, Y: clickY, Button: tea.MouseLeft})
+	if cmd == nil {
+		t.Fatalf("expected click on history row to emit selection message")
+	}
+	msg := cmd()
+	selMsg, ok := msg.(mouseSelectHistoryMsg)
+	if !ok {
+		t.Fatalf("expected mouseSelectHistoryMsg, got %T", msg)
+	}
+	if selMsg.HistoryIndex != 1 {
+		t.Fatalf("expected history index 1, got %d", selMsg.HistoryIndex)
 	}
 }
 
@@ -569,7 +643,7 @@ func TestIsCommandLikeInput(t *testing.T) {
 
 func TestIsCommandLikeInput_AgentOnlyMode(t *testing.T) {
 	root := buildTestRoot()
-	root.Children[0].Metadata = map[string]string{agentlinemodule.CommandMetaAgentCommand: "true"} // commit
+	root.Children[0].Metadata = agentlinemodule.AgentCommandMetadata() // commit
 
 	if !isCommandLikeInput(root, "commit --message hi", true) {
 		t.Fatalf("expected commit recognized in agent-only mode")
@@ -630,11 +704,9 @@ func TestBuildResumeBootstrapArgs(t *testing.T) {
 func buildTestRoot() *redant.Command {
 	var msg string
 	commit := &redant.Command{
-		Use:   "commit",
-		Short: "提交代码",
-		Metadata: map[string]string{
-			agentlinemodule.CommandMetaAgentCommand: "true",
-		},
+		Use:      "commit",
+		Short:    "提交代码",
+		Metadata: agentlinemodule.AgentCommandMetadata(),
 		Options: redant.OptionSet{
 			{Flag: "message", Shorthand: "m", Description: "提交信息", Value: redant.StringOf(&msg)},
 		},

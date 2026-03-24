@@ -16,7 +16,7 @@ func main() {
 	commitCmd := &redant.Command{
 		Use:      "commit",
 		Short:    "Dual-mode command: normal CLI + slash command in agentline.",
-		Metadata: map[string]string{agentlinemodule.CommandMetaAgentCommand: "true"},
+		Metadata: agentlinemodule.AgentCommandMetadata(),
 		Options: redant.OptionSet{
 			{Flag: "message", Shorthand: "m", Description: "Commit message.", Value: redant.StringOf(&message), Default: "chore: update"},
 		},

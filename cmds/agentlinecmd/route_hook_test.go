@@ -98,7 +98,7 @@ func TestAgentCommandDoesNotAutoRedirectByHook(t *testing.T) {
 
 	commit := &redant.Command{
 		Use:      "commit",
-		Metadata: map[string]string{agentlinemodule.CommandMetaAgentCommand: "true"},
+		Metadata: agentlinemodule.AgentCommandMetadata(),
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			executed = "commit"
 			return nil

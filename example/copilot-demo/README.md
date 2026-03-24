@@ -54,6 +54,8 @@
 
 `chat` 与 `resume` 已标记 `agent.command=true`，可作为 slash command 使用。
 
+`sessions` 也已标记 `agent.command=true`，可在交互中使用：`/sessions`、`/sessions --hydrate`。
+
 ## 常用参数
 
 - `--copilot-token`：显式传入 GitHub Token（也支持环境变量 `GITHUB_TOKEN`）

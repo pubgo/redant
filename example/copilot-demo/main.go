@@ -60,7 +60,7 @@ func main() {
 	chatCmd := &redant.Command{
 		Use:      "chat",
 		Short:    "创建新会话并发送 Prompt。",
-		Metadata: map[string]string{agentlinemodule.CommandMetaAgentCommand: "true"},
+		Metadata: agentlinemodule.AgentCommandMetadata(),
 		Options: redant.OptionSet{
 			{Flag: "prompt", Shorthand: "p", Description: "要发送给 Copilot 的提示词", Value: redant.StringOf(&prompt), Required: true},
 			{Flag: "session-id", Description: "指定会话 ID（可选，不指定则自动生成）", Value: redant.StringOf(&sessionID)},
@@ -92,10 +92,10 @@ func main() {
 	resumeCmd := &redant.Command{
 		Use:      "resume",
 		Short:    "恢复已有会话并继续发送 Prompt。",
-		Metadata: map[string]string{agentlinemodule.CommandMetaAgentCommand: "true"},
+		Metadata: agentlinemodule.AgentCommandMetadata(),
 		Options: redant.OptionSet{
 			{Flag: "session-id", Description: "待恢复的会话 ID", Value: redant.StringOf(&sessionID), Required: true},
-			{Flag: "prompt", Shorthand: "p", Description: "继续发送的提示词", Value: redant.StringOf(&prompt), Required: true},
+			{Flag: "prompt", Shorthand: "p", Description: "继续发送的提示词", Value: redant.StringOf(&prompt), Default: "继续"},
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			return withClient(ctx, inv, clientOptions{cliPath: cliPath, logLevel: logLevel, cwd: workingDir, token: githubToken, useLoggedInUser: useLoggedInUser}, func(ctx context.Context, client *copilot.Client) error {
@@ -112,14 +112,16 @@ func main() {
 				}
 				defer session.Disconnect()
 
-				return sendPromptAndRender(ctx, inv, session, strings.TrimSpace(prompt), streaming)
+				promptText := withDefault(strings.TrimSpace(prompt), "继续")
+				return sendPromptAndRender(ctx, inv, session, promptText, streaming)
 			})
 		},
 	}
 
 	listSessionsCmd := &redant.Command{
-		Use:   "sessions",
-		Short: "列出会话。",
+		Use:      "sessions",
+		Short:    "列出会话。",
+		Metadata: agentlinemodule.AgentCommandMetadata(),
 		Options: redant.OptionSet{
 			{Flag: "hydrate", Description: "尝试恢复会话并提取最近消息摘要", Value: redant.BoolOf(&hydrateSessions), Default: "false"},
 			{Flag: "hydrate-timeout", Description: "单个会话补全超时时间", Value: redant.StringOf(&hydrateTimeout), Default: "4s"},
