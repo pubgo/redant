@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/pubgo/redant"
 	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
@@ -565,6 +566,21 @@ func TestEnterPlainTextShowsSimplifiedHint(t *testing.T) {
 	}
 }
 
+func TestEnterPlainTextInResumeModeRunsResume(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, []string{"resume", "--session-id", "sess-42", "--prompt", "继续"})
+	m.input.SetValue("接着上次的话题")
+
+	model, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = model.(*agentlineModel)
+	if cmd == nil {
+		t.Fatalf("expected async cmd for plain text in resume mode")
+	}
+	if !m.running {
+		t.Fatalf("expected running=true in resume mode")
+	}
+}
+
 func TestSuggestionNavigationTakesPriorityOverOutputFocus(t *testing.T) {
 	root := buildTestRoot()
 	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
@@ -658,6 +674,28 @@ func TestBuildResumeBootstrapArgs(t *testing.T) {
 			if got[i] != want[i] {
 				t.Fatalf("got[%d]=%q want=%q", i, got[i], want[i])
 			}
+		}
+	})
+}
+
+func TestExtractResumeSessionID(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		if got := extractResumeSessionID(nil); got != "" {
+			t.Fatalf("expected empty, got %q", got)
+		}
+	})
+
+	t.Run("flag value", func(t *testing.T) {
+		got := extractResumeSessionID([]string{"resume", "--session-id", "sess-1", "--prompt", "继续"})
+		if got != "sess-1" {
+			t.Fatalf("expected sess-1, got %q", got)
+		}
+	})
+
+	t.Run("equals value", func(t *testing.T) {
+		got := extractResumeSessionID([]string{"resume", "--session-id=sess-2", "--prompt", "继续"})
+		if got != "sess-2" {
+			t.Fatalf("expected sess-2, got %q", got)
 		}
 	})
 }

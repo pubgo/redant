@@ -202,36 +202,113 @@ func buildResumeBootstrapArgs(sessionID, prompt string) []string {
 	return []string{"resume", "--session-id", sessionID, "--prompt", prompt}
 }
 
+func formatResumeCommandLine(commandPath []string, sessionID, prompt string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	prompt = strings.TrimSpace(prompt)
+	if sessionID == "" || len(commandPath) == 0 {
+		return ""
+	}
+	if prompt == "" {
+		prompt = "继续"
+	}
+	program := strings.TrimSpace(commandPath[0])
+	if program == "" {
+		return ""
+	}
+	args := append([]string(nil), commandPath[1:]...)
+	args = append(args, "--session-id", sessionID, "--prompt", prompt)
+	return formatCommandLine(program, args)
+}
+
+func extractResumeBootstrap(args []string) (commandPath []string, sessionID string) {
+	if len(args) == 0 {
+		return nil, ""
+	}
+
+	argv := append([]string(nil), args...)
+	cmdPath := make([]string, 0, 4)
+	idx := 0
+	for idx < len(argv) {
+		item := strings.TrimSpace(argv[idx])
+		if item == "" {
+			idx++
+			continue
+		}
+		if strings.HasPrefix(item, "-") || strings.Contains(item, "=") {
+			break
+		}
+		cmdPath = append(cmdPath, item)
+		idx++
+	}
+	if len(cmdPath) == 0 {
+		return nil, ""
+	}
+	if !strings.EqualFold(strings.TrimSpace(cmdPath[len(cmdPath)-1]), "resume") {
+		return nil, ""
+	}
+
+	sid := extractResumeSessionIDFromFlags(argv[idx:])
+	if sid == "" {
+		return nil, ""
+	}
+
+	return cmdPath, sid
+}
+
+func extractResumeSessionID(args []string) string {
+	_, sid := extractResumeBootstrap(args)
+	return sid
+}
+
+func extractResumeSessionIDFromFlags(argv []string) string {
+	for i := 0; i < len(argv); i++ {
+		item := strings.TrimSpace(argv[i])
+		if item == "--session-id" {
+			if i+1 < len(argv) {
+				return strings.TrimSpace(argv[i+1])
+			}
+			return ""
+		}
+		if strings.HasPrefix(item, "--session-id=") {
+			return strings.TrimSpace(strings.TrimPrefix(item, "--session-id="))
+		}
+	}
+
+	return ""
+}
+
 func AddAgentlineCommand(rootCmd *redant.Command) {
 	rootCmd.Children = append(rootCmd.Children, New())
 }
 
 type agentlineModel struct {
-	ctx              context.Context
-	root             *redant.Command
-	input            textinput.Model
-	prompt           string
-	sessionCWD       string
-	sessionGitBranch string
-	sessionGitDirty  bool
-	history          []string
-	historyPos       int
-	historyFile      string
-	persistHistory   bool
-	blocks           []sessionBlock
-	suggestions      []completionItem
-	selected         int
-	running          bool
-	width            int
-	height           int
-	outputOffset     int
-	outputFocus      bool
-	inputOffset      int
-	selectedHistory  int
-	foldDetails      bool
-	currentCancel    context.CancelFunc
-	initialArgv      []string
-	agentOnlyMode    bool
+	ctx               context.Context
+	root              *redant.Command
+	input             textinput.Model
+	prompt            string
+	sessionCWD        string
+	sessionGitBranch  string
+	sessionGitDirty   bool
+	resumeCommandPath []string
+	resumeSessionID   string
+	history           []string
+	historyPos        int
+	historyFile       string
+	persistHistory    bool
+	blocks            []sessionBlock
+	suggestions       []completionItem
+	selected          int
+	running           bool
+	width             int
+	height            int
+	outputOffset      int
+	outputFocus       bool
+	inputOffset       int
+	selectedHistory   int
+	foldDetails       bool
+	currentCancel     context.CancelFunc
+	initialArgv       []string
+	agentOnlyMode     bool
 }
 
 type runResultMsg struct {
@@ -260,22 +337,25 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 	agentOnlyMode := true
 	hasAgentCommands := hasAnyAgentCommand(root)
 	sessionCWD, sessionGitBranch, sessionGitDirty := detectSessionContext()
+	resumeCommandPath, resumeSessionID := extractResumeBootstrap(initialArgv)
 
 	m := &agentlineModel{
-		ctx:              ctx,
-		root:             root,
-		input:            ti,
-		prompt:           prompt,
-		sessionCWD:       sessionCWD,
-		sessionGitBranch: sessionGitBranch,
-		sessionGitDirty:  sessionGitDirty,
-		history:          append([]string(nil), history...),
-		historyPos:       len(history),
-		historyFile:      historyFile,
-		persistHistory:   persist,
-		selectedHistory:  -1,
-		initialArgv:      append([]string(nil), initialArgv...),
-		agentOnlyMode:    agentOnlyMode,
+		ctx:               ctx,
+		root:              root,
+		input:             ti,
+		prompt:            prompt,
+		sessionCWD:        sessionCWD,
+		sessionGitBranch:  sessionGitBranch,
+		sessionGitDirty:   sessionGitDirty,
+		history:           append([]string(nil), history...),
+		historyPos:        len(history),
+		historyFile:       historyFile,
+		persistHistory:    persist,
+		selectedHistory:   -1,
+		initialArgv:       append([]string(nil), initialArgv...),
+		resumeCommandPath: append([]string(nil), resumeCommandPath...),
+		resumeSessionID:   resumeSessionID,
+		agentOnlyMode:     agentOnlyMode,
 		blocks: []sessionBlock{{
 			Kind:  blockKindSystem,
 			Title: "system",
@@ -294,6 +374,9 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 		if !hasAgentCommands {
 			m.blocks[0].Lines = append(m.blocks[0].Lines, "当前未检测到任何 agent 命令，请先为目标命令设置 metadata。")
 		}
+	}
+	if strings.TrimSpace(resumeSessionID) != "" && len(resumeCommandPath) > 0 {
+		m.blocks[0].Lines = append(m.blocks[0].Lines, fmt.Sprintf("已进入续聊模式（session-id=%s）：可直接输入文本继续对话。", strings.TrimSpace(resumeSessionID)))
 	}
 	m.recomputeSuggestions()
 	return m
@@ -516,6 +599,9 @@ func (m *agentlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if isCommandLikeInput(m.root, line, m.agentOnlyMode) {
 				return m, m.startCommandRun(line)
+			}
+			if strings.TrimSpace(m.resumeSessionID) != "" && len(m.resumeCommandPath) > 0 {
+				return m, m.startCommandRun(formatResumeCommandLine(m.resumeCommandPath, m.resumeSessionID, line))
 			}
 			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "input", Lines: []string{
 				"当前为精简命令模式：请使用 /run <command...> 或 /<command ...>。",
@@ -934,7 +1020,7 @@ func isCommandLikeInput(root *redant.Command, line string, agentOnly bool) bool 
 	return isCommandLikeInputWithAlias(root, line, agentOnly, true)
 }
 
-func isCommandLikeInputWithAlias(root *redant.Command, line string, agentOnly bool, allowAlias bool) bool {
+func isCommandLikeInputWithAlias(root *redant.Command, line string, agentOnly, allowAlias bool) bool {
 	cmd, ok := resolveCommandLikeInput(root, line, allowAlias)
 	if !ok {
 		return false
@@ -1441,9 +1527,7 @@ func (m *agentlineModel) appendBlock(block sessionBlock) {
 
 	normalized := make([]string, 0, len(block.Lines))
 	for _, line := range block.Lines {
-		for _, s := range normalizeOutputLines(line) {
-			normalized = append(normalized, s)
-		}
+		normalized = append(normalized, normalizeOutputLines(line)...)
 	}
 
 	m.blocks = append(m.blocks, sessionBlock{Kind: kind, Title: title, Lines: normalized})

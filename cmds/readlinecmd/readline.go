@@ -133,7 +133,7 @@ func New() *redant.Command {
 	}
 }
 
-func handleReadlineReadError(ctx context.Context, err error, line string, doubleCtrlCToExit bool, pendingInterrupt bool) (done bool, readErr error, nextPending bool) {
+func handleReadlineReadError(ctx context.Context, err error, line string, doubleCtrlCToExit, pendingInterrupt bool) (done bool, readErr error, nextPending bool) {
 	if err == nil {
 		return false, nil, false
 	}
@@ -591,7 +591,7 @@ func enumValuesFromValue(value pflag.Value) []string {
 }
 
 func parseEnumValues(typ string) []string {
-	if !(strings.HasPrefix(typ, "enum[") || strings.HasPrefix(typ, "enum-array[")) || !strings.HasSuffix(typ, "]") {
+	if (!strings.HasPrefix(typ, "enum[") && !strings.HasPrefix(typ, "enum-array[")) || !strings.HasSuffix(typ, "]") {
 		return nil
 	}
 

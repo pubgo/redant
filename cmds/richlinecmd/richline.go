@@ -761,9 +761,7 @@ func (m *richlineModel) appendBlock(block outputBlock) {
 
 	normalized := make([]string, 0, len(block.Lines))
 	for _, line := range block.Lines {
-		for _, s := range normalizeOutputLines(line) {
-			normalized = append(normalized, s)
-		}
+		normalized = append(normalized, normalizeOutputLines(line)...)
 	}
 
 	m.blocks = append(m.blocks, outputBlock{Title: title, Lines: normalized})
@@ -1605,7 +1603,7 @@ func enumValuesFromValue(value pflag.Value) []string {
 }
 
 func parseEnumValues(typ string) []string {
-	if !(strings.HasPrefix(typ, "enum[") || strings.HasPrefix(typ, "enum-array[")) || !strings.HasSuffix(typ, "]") {
+	if (!strings.HasPrefix(typ, "enum[") && !strings.HasPrefix(typ, "enum-array[")) || !strings.HasSuffix(typ, "]") {
 		return nil
 	}
 	start := strings.IndexByte(typ, '[')

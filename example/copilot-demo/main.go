@@ -8,6 +8,7 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+
 	"github.com/pubgo/redant"
 	"github.com/pubgo/redant/cmds/agentlinecmd"
 	"github.com/pubgo/redant/cmds/webcmd"
@@ -422,7 +423,7 @@ func newEchoTool(inv *redant.Invocation) copilot.Tool {
 	}
 }
 
-func withDefault(v string, fallback string) string {
+func withDefault(v, fallback string) string {
 	if strings.TrimSpace(v) == "" {
 		return fallback
 	}
