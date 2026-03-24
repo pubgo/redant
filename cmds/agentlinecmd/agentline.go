@@ -124,6 +124,9 @@ func New() *redant.Command {
 		history    string
 		noHistory  bool
 		initialArg []string
+
+		resumeSessionID string
+		resumePrompt    string
 	)
 
 	return &redant.Command{
@@ -134,6 +137,8 @@ func New() *redant.Command {
 			{Flag: "prompt", Description: "交互提示符", Value: redant.StringOf(&prompt), Default: "agent> "},
 			{Flag: "history-file", Description: "历史记录文件路径（为空自动使用 ~/.redant_agentline_history）", Value: redant.StringOf(&history)},
 			{Flag: "no-history", Description: "禁用历史记录持久化", Value: redant.BoolOf(&noHistory)},
+			{Flag: "resume-session-id", Description: "启动后自动执行 /resume --session-id <ID>", Value: redant.StringOf(&resumeSessionID)},
+			{Flag: "resume-prompt", Description: "自动恢复时发送的 prompt", Value: redant.StringOf(&resumePrompt), Default: "继续"},
 			{Flag: "initial-arg", Description: "内部参数：自动进入 agent 模式时的原始 argv", Value: redant.StringArrayOf(&initialArg), Hidden: true},
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
@@ -154,7 +159,12 @@ func New() *redant.Command {
 				historyLines = loadHistory(historyFile)
 			}
 
-			model := newAgentlineModel(ctx, root, prompt, historyLines, historyFile, !noHistory, initialArg)
+			bootstrapArgv := append([]string(nil), initialArg...)
+			if len(bootstrapArgv) == 0 {
+				bootstrapArgv = buildResumeBootstrapArgs(resumeSessionID, resumePrompt)
+			}
+
+			model := newAgentlineModel(ctx, root, prompt, historyLines, historyFile, !noHistory, bootstrapArgv)
 			p := tea.NewProgram(model, tea.WithInput(inv.Stdin), tea.WithOutput(inv.Stdout))
 
 			done := make(chan struct{})
@@ -171,6 +181,20 @@ func New() *redant.Command {
 			return err
 		},
 	}
+}
+
+func buildResumeBootstrapArgs(sessionID, prompt string) []string {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil
+	}
+
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		prompt = "继续"
+	}
+
+	return []string{"resume", "--session-id", sessionID, "--prompt", prompt}
 }
 
 func AddAgentlineCommand(rootCmd *redant.Command) {

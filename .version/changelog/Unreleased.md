@@ -16,6 +16,8 @@
 - 增强 `cmds/richlinecmd` 候选可读性：补全列表新增类型标签（`CMD/FLAG/ARG/ENUM`）与总数/区间信息，并按 `CMD → FLAG → ARG → ENUM` 分组排序；大结果集支持窗口滚动显示与 `PgUp/PgDn/Home/End` 快捷定位；同时为标签、描述、选中项与提示信息提供颜色分层展示。
 - 新增 `example/copilot-demo`：集成 `github.com/github/copilot-sdk/go`，提供新会话/恢复会话、会话管理、模型查询、状态检查、自定义 tool、hooks、ask_user 与流式输出示例，并支持通过 `agentline` 以 slash command 执行 `chat`、`resume`。
 - 增强 `example/copilot-demo`：集成 `cmds/webcmd`，支持通过 `copilot-demo web` 启动可视化命令执行页面。
+- 增强 `example/copilot-demo sessions`：新增 `--hydrate` / `--hydrate-timeout` / `--hydrate-max-events`，可在会话列表元信息缺失时尝试恢复会话并补充最近 assistant 摘要与消息统计。
+- 增强 `cmds/agentlinecmd`：新增 `--resume-session-id` / `--resume-prompt`，可在启动交互模式时自动执行 `resume` 并附着到指定会话。
 
 ## 修复
 

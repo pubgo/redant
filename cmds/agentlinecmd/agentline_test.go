@@ -592,6 +592,41 @@ func TestNewAgentlineModel_InitWithInitialArgv(t *testing.T) {
 	}
 }
 
+func TestBuildResumeBootstrapArgs(t *testing.T) {
+	t.Run("empty session id", func(t *testing.T) {
+		got := buildResumeBootstrapArgs("   ", "继续")
+		if got != nil {
+			t.Fatalf("expected nil, got %#v", got)
+		}
+	})
+
+	t.Run("default prompt", func(t *testing.T) {
+		got := buildResumeBootstrapArgs("sess-1", "")
+		want := []string{"resume", "--session-id", "sess-1", "--prompt", "继续"}
+		if len(got) != len(want) {
+			t.Fatalf("len(got)=%d want=%d, got=%#v", len(got), len(want), got)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("got[%d]=%q want=%q", i, got[i], want[i])
+			}
+		}
+	})
+
+	t.Run("custom prompt", func(t *testing.T) {
+		got := buildResumeBootstrapArgs("sess-2", "继续这个话题")
+		want := []string{"resume", "--session-id", "sess-2", "--prompt", "继续这个话题"}
+		if len(got) != len(want) {
+			t.Fatalf("len(got)=%d want=%d, got=%#v", len(got), len(want), got)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("got[%d]=%q want=%q", i, got[i], want[i])
+			}
+		}
+	})
+}
+
 func buildTestRoot() *redant.Command {
 	var msg string
 	commit := &redant.Command{

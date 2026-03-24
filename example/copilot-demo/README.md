@@ -27,6 +27,13 @@
   - `go run example/copilot-demo/main.go resume --session-id <SESSION_ID> --prompt "继续"`
 - 列出会话：
   - `go run example/copilot-demo/main.go sessions`
+- 补全会话摘要（恢复会话并抓最近消息）：
+  - `go run example/copilot-demo/main.go sessions --hydrate`
+  - `go run example/copilot-demo/main.go sessions --hydrate --hydrate-timeout 6s --hydrate-max-events 120`
+
+> 说明：若你看到会话列表大多只有 `id`，通常是 Copilot CLI 当前仅返回了 `sessionId`，未返回 `summary/start/modified/context`。示例会在这种情况下显示 `meta=empty` 并给出提示信息。
+
+启用 `--hydrate` 后，示例会尝试短时恢复每个会话并读取最近事件，从而补充 `hydrate.assistant`（最近一条 assistant 消息摘要）与 `hydrate.messages`（事件总数）。
 - 模型列表：
   - `go run example/copilot-demo/main.go models`
 - 启动可视化页面（默认会自动打开浏览器）：
@@ -38,6 +45,9 @@
 
 - 启动交互：
   - `go run example/copilot-demo/main.go agentline`
+- 启动交互并自动恢复会话：
+  - `go run example/copilot-demo/main.go agentline --resume-session-id <SESSION_ID>`
+  - `go run example/copilot-demo/main.go agentline --resume-session-id <SESSION_ID> --resume-prompt "继续修复这个问题"`
 - 在交互中执行 slash 命令：
   - `/chat --prompt "给我一个 Go CLI 设计建议"`
   - `/resume --session-id <SESSION_ID> --prompt "继续"`
