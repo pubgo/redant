@@ -1,0 +1,54 @@
+# copilot-demo 示例
+
+用于演示如何在 `redant` 中通过 `github/copilot-sdk/go` 复用 Copilot CLI 能力，并与 `agentline` 交互模式打通。
+
+## 功能覆盖
+
+- 连接与健康检查：`status`（包含 `Ping`、`GetStatus`、`GetAuthStatus`）
+- 新会话对话：`chat`
+- 恢复会话：`resume`
+- 会话管理：`sessions`、`last-session`、`delete-session`
+- 模型发现：`models`
+- 可视化控制台：`web`（集成 `cmds/webcmd`）
+- SDK 能力演示：
+  - `OnPermissionRequest`（默认 `ApproveAll`）
+  - `OnUserInputRequest`（自动回答）
+  - `SessionHooks`（start/end）
+  - 自定义 Tool（`demo_echo`）
+  - 流式输出（`--stream`）
+
+## 快速运行
+
+- 查看状态：
+  - `go run example/copilot-demo/main.go status`
+- 新建会话并对话：
+  - `go run example/copilot-demo/main.go chat --prompt "解释一下 redant 的命令分发"`
+- 恢复会话继续对话：
+  - `go run example/copilot-demo/main.go resume --session-id <SESSION_ID> --prompt "继续"`
+- 列出会话：
+  - `go run example/copilot-demo/main.go sessions`
+- 模型列表：
+  - `go run example/copilot-demo/main.go models`
+- 启动可视化页面（默认会自动打开浏览器）：
+  - `go run example/copilot-demo/main.go web`
+- 指定地址并禁用自动打开浏览器：
+  - `go run example/copilot-demo/main.go web --addr 127.0.0.1:18080 --open=false`
+
+## 与 agentline 联动
+
+- 启动交互：
+  - `go run example/copilot-demo/main.go agentline`
+- 在交互中执行 slash 命令：
+  - `/chat --prompt "给我一个 Go CLI 设计建议"`
+  - `/resume --session-id <SESSION_ID> --prompt "继续"`
+
+`chat` 与 `resume` 已标记 `agent.command=true`，可作为 slash command 使用。
+
+## 常用参数
+
+- `--copilot-token`：显式传入 GitHub Token（也支持环境变量 `GITHUB_TOKEN`）
+- `--copilot-cli-path`：指定 Copilot CLI 可执行路径
+- `--model`：指定模型（默认 `gpt-5`）
+- `--reasoning-effort`：推理强度（`low/medium/high/xhigh`）
+- `--system-message`：追加系统提示词
+- `--stream`：启用流式输出

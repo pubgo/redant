@@ -14,6 +14,8 @@
 - 新增 `cmds/richlinecmd`：基于 `github.com/charmbracelet/bubbletea`（对比 `tcell` 后选型）实现独立交互命令，提供竖向补全候选列表与描述信息展示，且不影响现有 `readlinecmd`。
 - 新增 `cmds/agentlinecmd`（阶段一 MVP）：提供 Agent CLI 风格会话块视图（`system/user/assistant/tool/command/result`）、状态栏与输出滚动；支持 `/ask`、`/plan`、`/run` 等 slash 命令，并接入 `example/fastcommit` 便于体验。
 - 增强 `cmds/richlinecmd` 候选可读性：补全列表新增类型标签（`CMD/FLAG/ARG/ENUM`）与总数/区间信息，并按 `CMD → FLAG → ARG → ENUM` 分组排序；大结果集支持窗口滚动显示与 `PgUp/PgDn/Home/End` 快捷定位；同时为标签、描述、选中项与提示信息提供颜色分层展示。
+- 新增 `example/copilot-demo`：集成 `github.com/github/copilot-sdk/go`，提供新会话/恢复会话、会话管理、模型查询、状态检查、自定义 tool、hooks、ask_user 与流式输出示例，并支持通过 `agentline` 以 slash command 执行 `chat`、`resume`。
+- 增强 `example/copilot-demo`：集成 `cmds/webcmd`，支持通过 `copilot-demo web` 启动可视化命令执行页面。
 
 ## 修复
 
