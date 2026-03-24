@@ -1,15 +1,12 @@
 package agentlinecmd
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -19,7 +16,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/pubgo/redant"
-	"github.com/pubgo/redant/internal/gitshell"
 	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
 
@@ -75,30 +71,17 @@ type completionItem struct {
 	Description string
 }
 
-type slashCommand struct {
-	Name        string
-	Aliases     []string
-	Description string
+type stickyInvocation struct {
+	BaseArgs   []string
+	PromptFlag string
 }
 
-var slashCommands = []slashCommand{
-	{Name: "run", Aliases: []string{"r"}, Description: "执行 redant 命令（tool -> command -> result）"},
-	{Name: "output", Aliases: []string{"o", "out"}, Description: "进入输出滚动模式"},
-	{Name: "input", Aliases: []string{"i"}, Description: "返回输入模式"},
-	{Name: "top", Description: "跳到历史顶部"},
-	{Name: "bottom", Aliases: []string{"end"}, Description: "跳到历史底部"},
-	{Name: "up", Description: "历史按行向上滚动"},
-	{Name: "down", Description: "历史按行向下滚动"},
-	{Name: "pgup", Description: "历史按页向上滚动"},
-	{Name: "pgdown", Description: "历史按页向下滚动"},
-	{Name: "history", Aliases: []string{"his"}, Description: "查看输入历史（默认最近 20 条，可 /history 50）"},
-	{Name: "cancel", Aliases: []string{"stop"}, Description: "中断当前运行中的任务"},
-	{Name: "fold", Description: "折叠 assistant/tool 详情块"},
-	{Name: "unfold", Description: "展开 assistant/tool 详情块"},
-	{Name: "clear", Aliases: []string{"cls"}, Description: "清空历史块（保留欢迎信息）"},
-	{Name: "help", Aliases: []string{"?"}, Description: "显示 slash 命令帮助"},
-	{Name: "quit", Aliases: []string{"exit", "q"}, Description: "退出 agentline"},
-}
+type interactionMode string
+
+const (
+	interactionModeCommand interactionMode = "command"
+	interactionModeChat    interactionMode = "chat"
+)
 
 var (
 	stylePrompt          = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
@@ -129,9 +112,6 @@ func New() *redant.Command {
 		history    string
 		noHistory  bool
 		initialArg []string
-
-		resumeSessionID string
-		resumePrompt    string
 	)
 
 	return &redant.Command{
@@ -142,8 +122,6 @@ func New() *redant.Command {
 			{Flag: "prompt", Description: "交互提示符", Value: redant.StringOf(&prompt), Default: "agent> "},
 			{Flag: "history-file", Description: "历史记录文件路径（为空自动使用 ~/.redant_agentline_history）", Value: redant.StringOf(&history)},
 			{Flag: "no-history", Description: "禁用历史记录持久化", Value: redant.BoolOf(&noHistory)},
-			{Flag: "resume-session-id", Description: "启动后自动执行 /resume --session-id <ID>", Value: redant.StringOf(&resumeSessionID)},
-			{Flag: "resume-prompt", Description: "自动恢复时发送的 prompt", Value: redant.StringOf(&resumePrompt), Default: "继续"},
 			{Flag: "initial-arg", Description: "内部参数：自动进入 agent 模式时的原始 argv", Value: redant.StringArrayOf(&initialArg), Hidden: true},
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
@@ -165,9 +143,6 @@ func New() *redant.Command {
 			}
 
 			bootstrapArgv := append([]string(nil), initialArg...)
-			if len(bootstrapArgv) == 0 {
-				bootstrapArgv = buildResumeBootstrapArgs(resumeSessionID, resumePrompt)
-			}
 
 			model := newAgentlineModel(ctx, root, prompt, historyLines, historyFile, !noHistory, bootstrapArgv)
 			p := tea.NewProgram(model, tea.WithInput(inv.Stdin), tea.WithOutput(inv.Stdout))
@@ -188,10 +163,9 @@ func New() *redant.Command {
 	}
 }
 
-func buildResumeBootstrapArgs(sessionID, prompt string) []string {
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return nil
+func (m *agentlineModel) buildStickyCommandLine(prompt string) string {
+	if m == nil || m.stickyInvocation == nil || m.root == nil {
+		return ""
 	}
 
 	prompt = strings.TrimSpace(prompt)
@@ -199,82 +173,74 @@ func buildResumeBootstrapArgs(sessionID, prompt string) []string {
 		prompt = "继续"
 	}
 
-	return []string{"resume", "--session-id", sessionID, "--prompt", prompt}
+	args := append([]string(nil), m.stickyInvocation.BaseArgs...)
+	args = append(args, m.stickyInvocation.PromptFlag, prompt)
+	return formatCommandLine(m.root.Name(), args)
 }
 
-func formatResumeCommandLine(commandPath []string, sessionID, prompt string) string {
-	sessionID = strings.TrimSpace(sessionID)
-	prompt = strings.TrimSpace(prompt)
-	if sessionID == "" || len(commandPath) == 0 {
-		return ""
+func buildStickyInvocation(root *redant.Command, commandLine string, agentOnly bool) (*stickyInvocation, error) {
+	args, err := splitCommandLine(commandLine)
+	if err != nil {
+		return nil, fmt.Errorf("解析命令失败: %w", err)
 	}
-	if prompt == "" {
-		prompt = "继续"
-	}
-	program := strings.TrimSpace(commandPath[0])
-	if program == "" {
-		return ""
-	}
-	args := append([]string(nil), commandPath[1:]...)
-	args = append(args, "--session-id", sessionID, "--prompt", prompt)
-	return formatCommandLine(program, args)
-}
-
-func extractResumeBootstrap(args []string) (commandPath []string, sessionID string) {
 	if len(args) == 0 {
-		return nil, ""
+		return nil, errors.New("/chat 需要指定命令，例如 /chat commit --message hi")
 	}
 
-	argv := append([]string(nil), args...)
-	cmdPath := make([]string, 0, 4)
-	idx := 0
-	for idx < len(argv) {
-		item := strings.TrimSpace(argv[idx])
-		if item == "" {
-			idx++
+	resolvedLine := strings.Join(args, " ")
+	cmd, ok := resolveCommandLikeInput(root, resolvedLine, false)
+	if !ok || cmd == nil {
+		return nil, errors.New("/chat 仅支持可执行命令")
+	}
+	if agentOnly && !agentlinemodule.IsAgentCommand(cmd.Metadata) {
+		return nil, errors.New("当前命令未标记为 agent 命令，无法进入聊天粘性模式")
+	}
+
+	promptFlag := strings.TrimSpace(agentlinemodule.Meta(cmd.Metadata, "agentline.prompt-flag"))
+	if promptFlag == "" {
+		promptFlag = "--prompt"
+	}
+
+	baseArgs := stripRootIfPresent(root, args)
+	baseArgs = stripPromptArg(baseArgs, promptFlag)
+	if len(baseArgs) == 0 {
+		return nil, errors.New("无法提取聊天粘性命令参数")
+	}
+
+	return &stickyInvocation{BaseArgs: baseArgs, PromptFlag: promptFlag}, nil
+}
+
+func stripRootIfPresent(root *redant.Command, args []string) []string {
+	if root == nil || len(args) == 0 {
+		return append([]string(nil), args...)
+	}
+	if strings.TrimSpace(args[0]) == root.Name() {
+		return append([]string(nil), args[1:]...)
+	}
+	return append([]string(nil), args...)
+}
+
+func stripPromptArg(args []string, promptFlag string) []string {
+	promptFlag = strings.TrimSpace(promptFlag)
+	if promptFlag == "" {
+		return append([]string(nil), args...)
+	}
+
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		item := strings.TrimSpace(args[i])
+		if item == promptFlag {
+			if i+1 < len(args) {
+				i++
+			}
 			continue
 		}
-		if strings.HasPrefix(item, "-") || strings.Contains(item, "=") {
-			break
+		if strings.HasPrefix(item, promptFlag+"=") {
+			continue
 		}
-		cmdPath = append(cmdPath, item)
-		idx++
+		out = append(out, args[i])
 	}
-	if len(cmdPath) == 0 {
-		return nil, ""
-	}
-	if !strings.EqualFold(strings.TrimSpace(cmdPath[len(cmdPath)-1]), "resume") {
-		return nil, ""
-	}
-
-	sid := extractResumeSessionIDFromFlags(argv[idx:])
-	if sid == "" {
-		return nil, ""
-	}
-
-	return cmdPath, sid
-}
-
-func extractResumeSessionID(args []string) string {
-	_, sid := extractResumeBootstrap(args)
-	return sid
-}
-
-func extractResumeSessionIDFromFlags(argv []string) string {
-	for i := 0; i < len(argv); i++ {
-		item := strings.TrimSpace(argv[i])
-		if item == "--session-id" {
-			if i+1 < len(argv) {
-				return strings.TrimSpace(argv[i+1])
-			}
-			return ""
-		}
-		if strings.HasPrefix(item, "--session-id=") {
-			return strings.TrimSpace(strings.TrimPrefix(item, "--session-id="))
-		}
-	}
-
-	return ""
+	return out
 }
 
 func AddAgentlineCommand(rootCmd *redant.Command) {
@@ -282,33 +248,33 @@ func AddAgentlineCommand(rootCmd *redant.Command) {
 }
 
 type agentlineModel struct {
-	ctx               context.Context
-	root              *redant.Command
-	input             textinput.Model
-	prompt            string
-	sessionCWD        string
-	sessionGitBranch  string
-	sessionGitDirty   bool
-	resumeCommandPath []string
-	resumeSessionID   string
-	history           []string
-	historyPos        int
-	historyFile       string
-	persistHistory    bool
-	blocks            []sessionBlock
-	suggestions       []completionItem
-	selected          int
-	running           bool
-	width             int
-	height            int
-	outputOffset      int
-	outputFocus       bool
-	inputOffset       int
-	selectedHistory   int
-	foldDetails       bool
-	currentCancel     context.CancelFunc
-	initialArgv       []string
-	agentOnlyMode     bool
+	ctx              context.Context
+	root             *redant.Command
+	input            textinput.Model
+	prompt           string
+	mode             interactionMode
+	sessionCWD       string
+	sessionGitBranch string
+	sessionGitDirty  bool
+	stickyInvocation *stickyInvocation
+	history          []string
+	historyPos       int
+	historyFile      string
+	persistHistory   bool
+	blocks           []sessionBlock
+	suggestions      []completionItem
+	selected         int
+	running          bool
+	width            int
+	height           int
+	outputOffset     int
+	outputFocus      bool
+	inputOffset      int
+	selectedHistory  int
+	foldDetails      bool
+	currentCancel    context.CancelFunc
+	initialArgv      []string
+	agentOnlyMode    bool
 }
 
 type runResultMsg struct {
@@ -337,25 +303,23 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 	agentOnlyMode := true
 	hasAgentCommands := hasAnyAgentCommand(root)
 	sessionCWD, sessionGitBranch, sessionGitDirty := detectSessionContext()
-	resumeCommandPath, resumeSessionID := extractResumeBootstrap(initialArgv)
 
 	m := &agentlineModel{
-		ctx:               ctx,
-		root:              root,
-		input:             ti,
-		prompt:            prompt,
-		sessionCWD:        sessionCWD,
-		sessionGitBranch:  sessionGitBranch,
-		sessionGitDirty:   sessionGitDirty,
-		history:           append([]string(nil), history...),
-		historyPos:        len(history),
-		historyFile:       historyFile,
-		persistHistory:    persist,
-		selectedHistory:   -1,
-		initialArgv:       append([]string(nil), initialArgv...),
-		resumeCommandPath: append([]string(nil), resumeCommandPath...),
-		resumeSessionID:   resumeSessionID,
-		agentOnlyMode:     agentOnlyMode,
+		ctx:              ctx,
+		root:             root,
+		input:            ti,
+		prompt:           prompt,
+		mode:             interactionModeCommand,
+		sessionCWD:       sessionCWD,
+		sessionGitBranch: sessionGitBranch,
+		sessionGitDirty:  sessionGitDirty,
+		history:          append([]string(nil), history...),
+		historyPos:       len(history),
+		historyFile:      historyFile,
+		persistHistory:   persist,
+		selectedHistory:  -1,
+		initialArgv:      append([]string(nil), initialArgv...),
+		agentOnlyMode:    agentOnlyMode,
 		blocks: []sessionBlock{{
 			Kind:  blockKindSystem,
 			Title: "system",
@@ -374,9 +338,6 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 		if !hasAgentCommands {
 			m.blocks[0].Lines = append(m.blocks[0].Lines, "当前未检测到任何 agent 命令，请先为目标命令设置 metadata。")
 		}
-	}
-	if strings.TrimSpace(resumeSessionID) != "" && len(resumeCommandPath) > 0 {
-		m.blocks[0].Lines = append(m.blocks[0].Lines, fmt.Sprintf("已进入续聊模式（session-id=%s）：可直接输入文本继续对话。", strings.TrimSpace(resumeSessionID)))
 	}
 	m.recomputeSuggestions()
 	return m
@@ -593,23 +554,7 @@ func (m *agentlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inputOffset = 0
 			m.selectedHistory = -1
 
-			if handled, cmd := m.handleSlashInput(line); handled {
-				return m, cmd
-			}
-
-			if isCommandLikeInput(m.root, line, m.agentOnlyMode) {
-				return m, m.startCommandRun(line)
-			}
-			if strings.TrimSpace(m.resumeSessionID) != "" && len(m.resumeCommandPath) > 0 {
-				return m, m.startCommandRun(formatResumeCommandLine(m.resumeCommandPath, m.resumeSessionID, line))
-			}
-			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "input", Lines: []string{
-				"当前为精简命令模式：请使用 /run <command...> 或 /<command ...>。",
-				"输入 /help 查看可用命令。",
-			}})
-			m.outputOffset = 0
-			m.normalizeOutputOffset()
-			return m, nil
+			return m, m.dispatchInputLine(line)
 		}
 	}
 
@@ -621,307 +566,60 @@ func (m *agentlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *agentlineModel) View() tea.View {
-	contentWidth := m.contentWidth()
-
-	renderedOutput := m.renderOutputLines(contentWidth)
-	outputRows := m.outputRows()
-	outputOffset := clampOutputOffset(m.outputOffset, len(renderedOutput), outputRows)
-	outputStart, outputEnd := visibleOutputRange(len(renderedOutput), outputRows, outputOffset)
-
-	status := styleStatusIdle.Render("IDLE")
-	if m.running {
-		status = styleStatusBusy.Render("RUNNING")
-	}
-	focus := "INPUT"
-	if m.outputFocus {
-		focus = "OUTPUT"
+func (m *agentlineModel) dispatchInputLine(line string) tea.Cmd {
+	if handled, cmd := m.handleSlashInput(line); handled {
+		return cmd
 	}
 
-	lines := make([]string, 0, m.height+8)
-	header := fmt.Sprintf("agentline · status=%s · focus=%s · blocks=%d · lines=%d", status, focus, len(m.blocks), len(renderedOutput))
-	lines = append(lines, styleHeader.Render(truncateDisplayWidth(header, contentWidth)))
-	lines = append(lines, styleHint.Render(truncateDisplayWidth(m.sessionContextLine(), contentWidth)))
-
-	outputTitle := fmt.Sprintf("输出区域（%d-%d/%d）", displayStart(outputStart, outputEnd), outputEnd, len(renderedOutput))
-	lines = append(lines, styleHeader.Render(truncateDisplayWidth(outputTitle, contentWidth)))
-	outputRegionStart := len(lines) - 1
-	if len(renderedOutput) == 0 {
-		lines = append(lines, styleHint.Render("暂无输出"))
-	} else {
-		for i := outputStart; i < outputEnd; i++ {
-			lines = append(lines, renderedOutput[i])
-		}
+	if request, ok := m.resolveExecutionRequest(line); ok {
+		return m.startCommandRun(request)
 	}
 
-	if len(m.suggestions) > 0 {
-		rows := m.suggestionRows(len(m.suggestions))
-		s, e := visibleSuggestionRange(len(m.suggestions), m.selected, rows)
-		suggestionHeader := fmt.Sprintf("slash 候选（%d，显示 %d-%d）", len(m.suggestions), s+1, e)
-		lines = append(lines, styleHeader.Render(truncateDisplayWidth(suggestionHeader, contentWidth)))
-
-		suggestionWidth := contentWidth
-		if suggestionWidth > 0 {
-			suggestionWidth -= 2
-		}
-
-		for i := s; i < e; i++ {
-			item := m.suggestions[i]
-			prefix := "  "
-			if i == m.selected {
-				prefix = "> "
-			}
-			line := padRightDisplay(item.Insert, 18)
-			raw := line
-			if item.Description != "" {
-				raw += " " + styleDesc.Render(item.Description)
-			}
-			raw = truncateDisplayWidth(raw, suggestionWidth)
-			if i == m.selected {
-				raw = styleSelected.Render(raw)
-			}
-			lines = append(lines, prefix+raw)
-		}
-		lines = append(lines, "  "+styleHint.Render("提示：↑/↓ 选择，Tab 应用，Esc 关闭候选"))
-	}
-
-	if m.running {
-		lines = append(lines, styleRunning.Render(truncateDisplayWidth("执行中...", contentWidth)))
-	}
-	outputRegionEnd := len(lines) - 1
-
-	inputTitle := "输入区域（支持点击历史回填）"
-	inputRegionStart := len(lines)
-	lines = append(lines, styleHeader.Render(truncateDisplayWidth(inputTitle, contentWidth)))
-	lines = append(lines, m.input.View())
-
-	historyRendered, historyIndices := m.renderInputHistoryLinesWithIndices(contentWidth)
-	historyRows := m.inputRows()
-	historyStart, historyEnd := visibleInputRange(len(historyRendered), historyRows, m.inputOffset)
-
-	historyTitle := fmt.Sprintf("最近历史（%d-%d/%d，可点击回填）", displayStart(historyStart, historyEnd), historyEnd, len(historyRendered))
-	if len(historyRendered) == 0 {
-		historyTitle = "最近历史（暂无）"
-	}
-	lines = append(lines, styleHeader.Render(truncateDisplayWidth(historyTitle, contentWidth)))
-
-	historyRegionStart := len(lines)
-	if len(historyRendered) == 0 {
-		lines = append(lines, styleHint.Render("暂无输入历史"))
-	} else {
-		for i := historyStart; i < historyEnd; i++ {
-			line := historyRendered[i]
-			if i >= 0 && i < len(historyIndices) && historyIndices[i] == m.selectedHistory {
-				line = styleHistorySelected.Render(line)
-			}
-			lines = append(lines, line)
-		}
-	}
-	historyRegionEnd := len(lines) - 1
-
-	lines = append(lines, styleHint.Render(truncateDisplayWidth("命令：/run /history /cancel /fold /unfold；支持直接鼠标拖拽选择复制。", contentWidth)))
-	inputRegionEnd := len(lines) - 1
-
-	v := tea.NewView(strings.Join(lines, "\n"))
-	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
-	v.OnMouse = func(msg tea.MouseMsg) tea.Cmd {
-		switch event := msg.(type) {
-		case tea.MouseWheelMsg:
-			mouse := event.Mouse()
-			if mouse.Mod&tea.ModShift != 0 {
-				// Shift+鼠标事件旁路给终端原生处理，便于文本选择与复制。
-				return nil
-			}
-			delta := 0
-			switch mouse.Button {
-			case tea.MouseWheelUp:
-				delta = 1
-			case tea.MouseWheelDown:
-				delta = -1
-			default:
-				return nil
-			}
-
-			if mouse.Y < outputRegionStart || mouse.Y > inputRegionEnd {
-				return nil
-			}
-
-			region := mouseRegionOutput
-			if mouse.Y >= inputRegionStart && mouse.Y <= inputRegionEnd {
-				region = mouseRegionInput
-			} else if mouse.Y > outputRegionEnd {
-				return nil
-			}
-
-			return func() tea.Msg {
-				return mouseScrollMsg{Region: region, Delta: delta}
-			}
-
-		case tea.MouseClickMsg:
-			mouse := event.Mouse()
-			if mouse.Mod&tea.ModShift != 0 {
-				// Shift+点击旁路给终端，允许原生选择。
-				return nil
-			}
-			y := mouse.Y
-
-			if y < outputRegionStart || y > inputRegionEnd {
-				return nil
-			}
-
-			if y >= outputRegionStart && y <= outputRegionEnd {
-				return func() tea.Msg {
-					return mouseFocusMsg{Region: mouseRegionOutput}
-				}
-			}
-
-			if y >= inputRegionStart && y <= inputRegionEnd {
-				if y >= historyRegionStart && y <= historyRegionEnd && len(historyRendered) > 0 {
-					row := y - historyRegionStart
-					renderedIndex := historyStart + row
-					if renderedIndex >= 0 && renderedIndex < len(historyIndices) {
-						hIdx := historyIndices[renderedIndex]
-						return func() tea.Msg {
-							return mouseSelectHistoryMsg{HistoryIndex: hIdx}
-						}
-					}
-				}
-
-				return func() tea.Msg {
-					return mouseFocusMsg{Region: mouseRegionInput}
-				}
-			}
-
-			return nil
-		}
-
-		return nil
-	}
-
-	return v
+	m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "input", Lines: []string{
+		"当前为精简命令模式：请使用 /run <command...> 或 /<command ...>。",
+		"输入 /help 查看可用命令。",
+	}})
+	m.outputOffset = 0
+	m.normalizeOutputOffset()
+	return nil
 }
 
-func (m *agentlineModel) handleSlashInput(line string) (bool, tea.Cmd) {
-	raw := strings.TrimSpace(line)
-	if !strings.HasPrefix(raw, "/") {
-		return false, nil
+func (m *agentlineModel) resolveExecutionRequest(line string) (string, bool) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return "", false
 	}
 
-	cmdText := strings.TrimSpace(strings.TrimPrefix(raw, "/"))
-	if cmdText == "" {
-		cmdText = "help"
-	}
-	parts := strings.Fields(cmdText)
-	cmd := strings.ToLower(parts[0])
-	argText := strings.TrimSpace(strings.TrimPrefix(cmdText, parts[0]))
-
-	switch cmd {
-	case "help", "?":
-		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/help", Lines: slashHelpLines(m.root, m.agentOnlyMode)})
-
-	case "r", "run":
-		if argText == "" {
-			m.appendBlock(sessionBlock{Kind: blockKindError, Title: "/run", Lines: []string{"用法：/run <command ...>"}})
-			return true, nil
-		}
-		return true, m.startCommandRun(argText)
-
-	case "cancel", "stop":
-		if m.cancelActiveRun("收到 /cancel，正在尝试中断当前任务...") {
-			return true, nil
-		}
-		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/cancel", Lines: []string{"当前没有可中断的运行任务。"}})
-		m.normalizeOutputOffset()
-		return true, nil
-
-	case "fold":
-		if m.foldDetails {
-			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/fold", Lines: []string{"当前已是折叠状态。"}})
-		} else {
-			m.foldDetails = true
-			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/fold", Lines: []string{"已折叠 assistant/tool 详情。输入 /unfold 可恢复。"}})
-		}
-		m.normalizeOutputOffset()
-		return true, nil
-
-	case "unfold":
-		if !m.foldDetails {
-			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/unfold", Lines: []string{"当前已是展开状态。"}})
-		} else {
-			m.foldDetails = false
-			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/unfold", Lines: []string{"已展开 assistant/tool 详情。"}})
-		}
-		m.normalizeOutputOffset()
-		return true, nil
-
-	case "o", "out", "output":
-		m.outputFocus = true
-		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/output", Lines: []string{
-			"已进入输出滚动模式。",
-			"使用 ↑/↓ 单行滚动，PgUp/PgDn 翻页，Home/End 顶/底。",
-			"输入 /input 返回普通输入模式。",
-		}})
-
-	case "i", "input":
-		m.outputFocus = false
-		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/input", Lines: []string{"已返回输入模式。"}})
-
-	case "top":
-		m.scrollOutputTop()
-	case "bottom", "end":
-		m.scrollOutputBottom()
-	case "up":
-		m.scrollOutputLines(1)
-	case "down":
-		m.scrollOutputLines(-1)
-	case "pgup":
-		m.scrollOutputPage(1)
-	case "pgdown":
-		m.scrollOutputPage(-1)
-
-	case "history", "his":
-		limit := 20
-		if argText != "" {
-			n, err := strconv.Atoi(argText)
-			if err != nil || n <= 0 {
-				m.appendBlock(sessionBlock{Kind: blockKindError, Title: "/history", Lines: []string{"用法：/history [正整数]，例如 /history 50"}})
-				m.normalizeOutputOffset()
-				return true, nil
-			}
-			limit = n
-		}
-
-		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/history", Lines: m.historyPreviewLines(limit)})
-		m.outputOffset = 0
-		m.normalizeOutputOffset()
-		return true, nil
-
-	case "clear", "cls":
-		m.blocks = []sessionBlock{{
-			Kind:  blockKindSystem,
-			Title: "system",
-			Lines: []string{"输出历史已清空。", "输入 /help 查看可用命令。"},
-		}}
-		m.outputOffset = 0
-
-	case "quit", "exit", "q":
-		return true, tea.Quit
-
-	default:
-		if isCommandLikeInputWithAlias(m.root, cmdText, m.agentOnlyMode, false) {
-			return true, m.startCommandRun(cmdText)
-		}
-
-		m.appendBlock(sessionBlock{Kind: blockKindError, Title: raw, Lines: []string{
-			fmt.Sprintf("未知 slash 命令: %s", cmd),
-			"可尝试 /run <command...>，或直接使用 /<command ...> 形式。",
-			"输入 /help 查看可用命令。",
-		}})
+	if isCommandLikeInput(m.root, line, m.agentOnlyMode) {
+		return line, true
 	}
 
-	m.normalizeOutputOffset()
-	return true, nil
+	if m.isChatMode() {
+		request := m.buildStickyCommandLine(line)
+		if strings.TrimSpace(request) != "" {
+			return request, true
+		}
+	}
+
+	return "", false
+}
+
+func (m *agentlineModel) bindStickyInvocation(sticky *stickyInvocation) {
+	m.stickyInvocation = sticky
+	if sticky == nil {
+		m.mode = interactionModeCommand
+		return
+	}
+	m.mode = interactionModeChat
+}
+
+func (m *agentlineModel) unbindStickyInvocation() {
+	m.stickyInvocation = nil
+	m.mode = interactionModeCommand
+}
+
+func (m *agentlineModel) isChatMode() bool {
+	return m.mode == interactionModeChat && m.stickyInvocation != nil
 }
 
 func runSlashRunCmd(ctx context.Context, root *redant.Command, commandLine string) tea.Cmd {
@@ -997,23 +695,6 @@ func runSlashRunCmd(ctx context.Context, root *redant.Command, commandLine strin
 		}
 		return appendResult(status, resultLines, runErr)
 	}
-}
-
-func runStatus(err error) string {
-	if err == nil {
-		return "ok"
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return "canceled"
-	}
-	return "failed"
-}
-
-func formatDuration(d time.Duration) string {
-	if d < time.Millisecond {
-		return d.String()
-	}
-	return d.Round(time.Millisecond).String()
 }
 
 func isCommandLikeInput(root *redant.Command, line string, agentOnly bool) bool {
@@ -1364,150 +1045,6 @@ func applySelectedCompletion(input, selected string) string {
 	return trimmedRight[:idx+1] + selected + " "
 }
 
-func (m *agentlineModel) scrollOutputLines(delta int) {
-	total := len(m.renderOutputLines(m.contentWidth()))
-	rows := m.outputRows()
-	m.outputOffset = clampOutputOffset(m.outputOffset+delta, total, rows)
-}
-
-func (m *agentlineModel) scrollInputLines(delta int) {
-	total := len(m.renderInputHistoryLines(m.contentWidth()))
-	rows := m.inputRows()
-	m.inputOffset = clampInputOffset(m.inputOffset+delta, total, rows)
-}
-
-func (m *agentlineModel) scrollOutputPage(deltaPage int) {
-	if deltaPage == 0 {
-		return
-	}
-	rows := m.outputRows()
-	m.scrollOutputLines(deltaPage * rows)
-}
-
-func (m *agentlineModel) scrollOutputTop() {
-	total := len(m.renderOutputLines(m.contentWidth()))
-	rows := m.outputRows()
-	maxOffset := total - rows
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	m.outputOffset = maxOffset
-}
-
-func (m *agentlineModel) scrollOutputBottom() {
-	m.outputOffset = 0
-}
-
-func (m *agentlineModel) normalizeOutputOffset() {
-	total := len(m.renderOutputLines(m.contentWidth()))
-	m.outputOffset = clampOutputOffset(m.outputOffset, total, m.outputRows())
-}
-
-func (m *agentlineModel) normalizeInputOffset() {
-	total := len(m.renderInputHistoryLines(m.contentWidth()))
-	m.inputOffset = clampInputOffset(m.inputOffset, total, m.inputRows())
-}
-
-func (m *agentlineModel) renderOutputLines(width int) []string {
-	if len(m.blocks) == 0 {
-		return nil
-	}
-
-	out := make([]string, 0, len(m.blocks)*3)
-	for i, block := range m.blocks {
-		title := strings.TrimSpace(block.Title)
-		if title == "" {
-			title = string(block.Kind)
-		}
-
-		head := fmt.Sprintf("■ #%d [%s] %s", i+1, strings.ToUpper(string(block.Kind)), title)
-		out = append(out, renderBlockHeader(block.Kind, truncateDisplayWidth(head, width)))
-
-		linesToRender := block.Lines
-		if m.foldDetails && (block.Kind == blockKindAssistant || block.Kind == blockKindTool) && len(block.Lines) > 1 {
-			linesToRender = []string{
-				block.Lines[0],
-				fmt.Sprintf("... (%d more lines folded)", len(block.Lines)-1),
-			}
-		}
-
-		if len(linesToRender) == 0 {
-			out = append(out, "  (no output)")
-		} else {
-			for _, line := range linesToRender {
-				wrapped := wrapDisplayWidth(line, width-2)
-				if len(wrapped) == 0 {
-					continue
-				}
-				for _, w := range wrapped {
-					out = append(out, "  "+w)
-				}
-			}
-		}
-
-		if i < len(m.blocks)-1 {
-			sep := "────────────────"
-			if width > 0 {
-				sep = strings.Repeat("─", width)
-			}
-			out = append(out, sep)
-		}
-	}
-
-	return out
-}
-
-func (m *agentlineModel) renderInputHistoryLines(width int) []string {
-	lines, _ := m.renderInputHistoryLinesWithIndices(width)
-	return lines
-}
-
-func (m *agentlineModel) renderInputHistoryLinesWithIndices(width int) ([]string, []int) {
-	if len(m.history) == 0 {
-		return nil, nil
-	}
-
-	historyWidth := width
-	if historyWidth > 0 {
-		historyWidth -= 2
-	}
-	out := make([]string, 0, len(m.history))
-	indices := make([]int, 0, len(m.history))
-	for i, line := range m.history {
-		entry := fmt.Sprintf("%03d %s", i+1, strings.TrimSpace(line))
-		wrapped := wrapDisplayWidth(entry, historyWidth)
-		if len(wrapped) == 0 {
-			continue
-		}
-		for _, w := range wrapped {
-			out = append(out, w)
-			indices = append(indices, i)
-		}
-	}
-	return out, indices
-}
-
-func renderBlockHeader(kind blockKind, text string) string {
-	switch kind {
-	case blockKindSystem:
-		return styleKindSystem.Render(text)
-	case blockKindUser:
-		return styleKindUser.Render(text)
-	case blockKindAssistant:
-		return styleKindAssistant.Render(text)
-	case blockKindTool:
-		return styleKindTool.Render(text)
-	case blockKindCommand:
-		return styleKindCommand.Render(text)
-	case blockKindResult:
-		return styleKindResult.Render(text)
-	case blockKindError:
-		return styleKindError.Render(text)
-	default:
-		return text
-	}
-}
-
 func (m *agentlineModel) appendBlocks(blocks []sessionBlock) {
 	for _, block := range blocks {
 		m.appendBlock(block)
@@ -1598,355 +1135,6 @@ func (m *agentlineModel) historyDown() {
 	m.input.CursorEnd()
 }
 
-func (m *agentlineModel) contentWidth() int {
-	if m.width <= 0 {
-		return 0
-	}
-	w := m.width - 1
-	if w < 1 {
-		return 1
-	}
-	return w
-}
-
-func (m *agentlineModel) suggestionRows(total int) int {
-	if total <= 0 {
-		return 1
-	}
-
-	rows := defaultSuggestionRows
-	if m.height <= 0 {
-		if total < rows {
-			return total
-		}
-		return rows
-	}
-
-	available := m.height - m.baseOccupiedRows(true) - minOutputRows
-	if available < 1 {
-		available = 1
-	}
-	if available > rows {
-		available = rows
-	}
-	if available > total {
-		available = total
-	}
-	return available
-}
-
-func (m *agentlineModel) inputRows() int {
-	if m.height <= 0 {
-		return defaultInputRows
-	}
-
-	rows := defaultInputRows
-	maxRows := m.height / 3
-	if maxRows < 1 {
-		maxRows = 1
-	}
-	if rows > maxRows {
-		rows = maxRows
-	}
-	if rows < 1 {
-		rows = 1
-	}
-	return rows
-}
-
-func (m *agentlineModel) outputRows() int {
-	if m.height <= 0 {
-		return defaultOutputRows
-	}
-
-	occupied := m.baseOccupiedRows(false)
-	if len(m.suggestions) > 0 {
-		occupied += 3 + m.suggestionRows(len(m.suggestions))
-	}
-
-	rows := m.height - occupied
-	if rows < 1 {
-		rows = 1
-	}
-	return rows
-}
-
-func (m *agentlineModel) baseOccupiedRows(withSuggestionFrame bool) int {
-	rows := 5
-	if m.running {
-		rows++
-	}
-	if withSuggestionFrame {
-		rows += 2
-	}
-	return rows
-}
-
-func displayStart(start, end int) int {
-	if end == 0 {
-		return 0
-	}
-	return start + 1
-}
-
-func visibleSuggestionRange(total, selected, maxRows int) (start, end int) {
-	if total <= 0 {
-		return 0, 0
-	}
-	if maxRows <= 0 {
-		maxRows = 1
-	}
-	if total <= maxRows {
-		return 0, total
-	}
-	if selected < 0 {
-		selected = 0
-	}
-	if selected >= total {
-		selected = total - 1
-	}
-
-	start = selected - maxRows/2
-	if start < 0 {
-		start = 0
-	}
-	if start+maxRows > total {
-		start = total - maxRows
-	}
-	end = start + maxRows
-	return start, end
-}
-
-func visibleOutputRange(total, rows, offset int) (start, end int) {
-	if total <= 0 {
-		return 0, 0
-	}
-	if rows <= 0 {
-		rows = 1
-	}
-	if total <= rows {
-		return 0, total
-	}
-
-	offset = clampOutputOffset(offset, total, rows)
-	end = total - offset
-	start = end - rows
-	return start, end
-}
-
-func visibleInputRange(total, rows, offset int) (start, end int) {
-	if total <= 0 {
-		return 0, 0
-	}
-	if rows <= 0 {
-		rows = 1
-	}
-	if total <= rows {
-		return 0, total
-	}
-
-	offset = clampInputOffset(offset, total, rows)
-	end = total - offset
-	start = end - rows
-	return start, end
-}
-
-func clampOutputOffset(offset, total, rows int) int {
-	if offset < 0 {
-		offset = 0
-	}
-	if total <= 0 {
-		return 0
-	}
-	if rows <= 0 {
-		rows = 1
-	}
-	maxOffset := total - rows
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if offset > maxOffset {
-		return maxOffset
-	}
-	return offset
-}
-
-func clampInputOffset(offset, total, rows int) int {
-	if offset < 0 {
-		offset = 0
-	}
-	if total <= 0 {
-		return 0
-	}
-	if rows <= 0 {
-		rows = 1
-	}
-	maxOffset := total - rows
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if offset > maxOffset {
-		return maxOffset
-	}
-	return offset
-}
-
-func uniqueCompletionItems(items []completionItem) []completionItem {
-	if len(items) == 0 {
-		return nil
-	}
-	seen := map[string]struct{}{}
-	out := make([]completionItem, 0, len(items))
-	for _, item := range items {
-		ins := strings.TrimSpace(item.Insert)
-		if ins == "" {
-			continue
-		}
-		if _, ok := seen[ins]; ok {
-			continue
-		}
-		seen[ins] = struct{}{}
-		item.Insert = ins
-		out = append(out, item)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Insert != out[j].Insert {
-			return out[i].Insert < out[j].Insert
-		}
-		return out[i].Description < out[j].Description
-	})
-	return out
-}
-
-func padRightDisplay(s string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	s = truncateDisplayWidth(s, width)
-	w := lipgloss.Width(s)
-	if w >= width {
-		return s
-	}
-	return s + strings.Repeat(" ", width-w)
-}
-
-func truncateDisplayWidth(s string, maxWidth int) string {
-	if maxWidth <= 0 {
-		return s
-	}
-	if lipgloss.Width(s) <= maxWidth {
-		return s
-	}
-
-	ellipsis := "…"
-	ellipsisWidth := lipgloss.Width(ellipsis)
-	if maxWidth <= ellipsisWidth {
-		return ellipsis
-	}
-
-	target := maxWidth - ellipsisWidth
-	var b strings.Builder
-	w := 0
-	for _, r := range s {
-		rw := lipgloss.Width(string(r))
-		if w+rw > target {
-			break
-		}
-		b.WriteRune(r)
-		w += rw
-	}
-	return b.String() + ellipsis
-}
-
-func wrapDisplayWidth(s string, maxWidth int) []string {
-	s = strings.ReplaceAll(s, "\t", "    ")
-	if maxWidth <= 0 || lipgloss.Width(s) <= maxWidth {
-		return []string{s}
-	}
-
-	var lines []string
-	var cur strings.Builder
-	curWidth := 0
-
-	flush := func() {
-		lines = append(lines, cur.String())
-		cur.Reset()
-		curWidth = 0
-	}
-
-	for _, r := range s {
-		rw := lipgloss.Width(string(r))
-		if rw <= 0 {
-			rw = 1
-		}
-		if curWidth > 0 && curWidth+rw > maxWidth {
-			flush()
-		}
-		cur.WriteRune(r)
-		curWidth += rw
-	}
-	if cur.Len() > 0 {
-		flush()
-	}
-	if len(lines) == 0 {
-		return []string{""}
-	}
-	return lines
-}
-
-func normalizeOutputLines(s string) []string {
-	if s == "" {
-		return nil
-	}
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	parts := strings.Split(s, "\n")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if strings.Contains(part, "\r") {
-			seg := strings.Split(part, "\r")
-			part = seg[len(seg)-1]
-		}
-		part = strings.TrimRight(part, "\r")
-		out = append(out, part)
-	}
-	return out
-}
-
-func slashHelpLines(root *redant.Command, agentOnly bool) []string {
-	lines := []string{
-		"slash commands:",
-		"  /<command ...>: 直接执行命令（例如 /commit --message hi）",
-		"  /run <command...>: 执行命令并输出 tool/command/result",
-		"  /history [N]: 查看最近输入历史（默认 20 条）",
-		"  /cancel: 中断当前运行中的任务",
-		"  /fold: 折叠 assistant/tool 详情块",
-		"  /unfold: 展开 assistant/tool 详情块",
-		"  /output (/o): 进入输出滚动模式",
-		"  /input (/i): 返回输入模式",
-		"  /top /bottom /up /down /pgup /pgdown: 浏览历史",
-		"  /clear: 清空历史块",
-		"  /quit: 退出 agentline",
-	}
-
-	commands := collectCommandSlashItems(root, agentOnly, "")
-	if len(commands) > 0 {
-		lines = append(lines, "")
-		lines = append(lines, "可直接执行的命令：")
-		limit := len(commands)
-		if limit > 8 {
-			limit = 8
-		}
-		for i := 0; i < limit; i++ {
-			lines = append(lines, "  "+strings.TrimSpace(commands[i].Insert))
-		}
-		if len(commands) > limit {
-			lines = append(lines, fmt.Sprintf("  ...(共 %d 个，可输入 / 查看候选)", len(commands)))
-		}
-	}
-
-	return lines
-}
-
 func (m *agentlineModel) historyPreviewLines(limit int) []string {
 	if len(m.history) == 0 {
 		return []string{"暂无输入历史。"}
@@ -1992,161 +1180,4 @@ func (m *agentlineModel) cancelActiveRun(message string) bool {
 		m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "cancel", Lines: []string{message}})
 	}
 	return true
-}
-
-func loadHistory(path string) []string {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer func() { _ = f.Close() }()
-
-	out := make([]string, 0)
-	s := bufio.NewScanner(f)
-	for s.Scan() {
-		line := strings.TrimSpace(s.Text())
-		if line == "" {
-			continue
-		}
-		out = append(out, line)
-	}
-	return out
-}
-
-func appendHistoryLine(path, line string) error {
-	if strings.TrimSpace(path) == "" || strings.TrimSpace(line) == "" {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-	_, err = fmt.Fprintln(f, line)
-	return err
-}
-
-func splitCommandLine(input string) ([]string, error) {
-	var (
-		out     []string
-		cur     strings.Builder
-		quote   rune
-		escaped bool
-	)
-	flush := func() {
-		if cur.Len() == 0 {
-			return
-		}
-		out = append(out, cur.String())
-		cur.Reset()
-	}
-
-	for _, r := range input {
-		switch {
-		case escaped:
-			cur.WriteRune(r)
-			escaped = false
-		case r == '\\':
-			escaped = true
-		case quote != 0:
-			if r == quote {
-				quote = 0
-			} else {
-				cur.WriteRune(r)
-			}
-		case r == '\'' || r == '"':
-			quote = r
-		case unicode.IsSpace(r):
-			flush()
-		default:
-			cur.WriteRune(r)
-		}
-	}
-
-	if escaped {
-		return nil, errors.New("unfinished escape sequence")
-	}
-	if quote != 0 {
-		return nil, errors.New("unclosed quote")
-	}
-	flush()
-	return out, nil
-}
-
-func formatCommandLine(program string, args []string) string {
-	parts := make([]string, 0, len(args)+1)
-	parts = append(parts, quoteShellArg(program))
-	for _, arg := range args {
-		parts = append(parts, quoteShellArg(arg))
-	}
-	return strings.Join(parts, " ")
-}
-
-func quoteShellArg(s string) string {
-	if s == "" {
-		return `""`
-	}
-	if !needsQuote(s) {
-		return s
-	}
-	return strconv.Quote(s)
-}
-
-func (m *agentlineModel) sessionContextLine() string {
-	return fmt.Sprintf("cwd=%s · git=%s", displayPath(m.sessionCWD), displayGitBranch(m.sessionGitBranch, m.sessionGitDirty))
-}
-
-func displayPath(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return "(unknown)"
-	}
-	home, err := os.UserHomeDir()
-	if err == nil && strings.TrimSpace(home) != "" {
-		home = filepath.Clean(home)
-		cleanPath := filepath.Clean(path)
-		if cleanPath == home {
-			return "~"
-		}
-		prefix := home + string(os.PathSeparator)
-		if strings.HasPrefix(cleanPath, prefix) {
-			return "~" + string(os.PathSeparator) + strings.TrimPrefix(cleanPath, prefix)
-		}
-	}
-	return path
-}
-
-func displayGitBranch(branch string, dirty bool) string {
-	branch = strings.TrimSpace(branch)
-	if branch == "" {
-		return "(not repo)"
-	}
-	if dirty {
-		return branch + "*"
-	}
-	return branch
-}
-
-func detectSessionContext() (cwd, gitBranch string, gitDirty bool) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", "", false
-	}
-	return wd, gitshell.DetectBranch(wd), gitshell.IsDirty(wd)
-}
-
-func needsQuote(s string) bool {
-	for _, r := range s {
-		if unicode.IsSpace(r) {
-			return true
-		}
-		switch r {
-		case '"', '\'', '\\', '$', '`', '|', '&', ';', '(', ')', '<', '>', '*', '?', '[', ']', '{', '}', '!':
-			return true
-		}
-	}
-	return false
 }

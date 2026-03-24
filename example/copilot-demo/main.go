@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -14,6 +17,8 @@ import (
 	"github.com/pubgo/redant/cmds/webcmd"
 	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
+
+var demoRT = newDemoRuntime()
 
 func main() {
 	var (
@@ -83,7 +88,8 @@ func main() {
 				if err != nil {
 					return fmt.Errorf("create session: %w", err)
 				}
-				defer session.Disconnect()
+				demoRT.StoreSession(session)
+				_, _ = fmt.Fprintf(inv.Stdout, "session created and cached: %s\n", strings.TrimSpace(session.SessionID))
 
 				return sendPromptAndRender(ctx, inv, session, strings.TrimSpace(prompt), streaming)
 			})
@@ -100,7 +106,44 @@ func main() {
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			return withClient(ctx, inv, clientOptions{cliPath: cliPath, logLevel: logLevel, cwd: workingDir, token: githubToken, useLoggedInUser: useLoggedInUser}, func(ctx context.Context, client *copilot.Client) error {
-				session, err := client.ResumeSession(ctx, strings.TrimSpace(sessionID), &copilot.ResumeSessionConfig{
+				sid := strings.TrimSpace(sessionID)
+				var (
+					session *copilot.Session
+					ok      bool
+					err     error
+				)
+
+				if session, ok = demoRT.GetSession(sid); ok {
+					_, _ = fmt.Fprintf(inv.Stdout, "reuse cached session: %s\n", sid)
+				} else {
+					session, err = client.ResumeSession(ctx, sid, &copilot.ResumeSessionConfig{
+						Model:               strings.TrimSpace(model),
+						ReasoningEffort:     strings.TrimSpace(reasoningEffort),
+						Streaming:           streaming,
+						OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+						OnUserInputRequest:  buildUserInputHandler(inv, autoUserAnswer),
+						Hooks:               buildHooks(inv),
+					})
+					if err != nil {
+						return fmt.Errorf("resume session: %w", err)
+					}
+					demoRT.StoreSession(session)
+					_, _ = fmt.Fprintf(inv.Stdout, "session resumed and cached: %s\n", sid)
+				}
+
+				promptText := withDefault(strings.TrimSpace(prompt), "请继续")
+				err = sendPromptAndRender(ctx, inv, session, promptText, streaming)
+				if err == nil {
+					return nil
+				}
+
+				if !ok {
+					return err
+				}
+
+				// 缓存会话失效时，自动回退为一次真实 Resume。
+				demoRT.DeleteSession(sid, inv.Stderr)
+				session, err = client.ResumeSession(ctx, sid, &copilot.ResumeSessionConfig{
 					Model:               strings.TrimSpace(model),
 					ReasoningEffort:     strings.TrimSpace(reasoningEffort),
 					Streaming:           streaming,
@@ -109,11 +152,10 @@ func main() {
 					Hooks:               buildHooks(inv),
 				})
 				if err != nil {
-					return fmt.Errorf("resume session: %w", err)
+					return fmt.Errorf("resume session after cache fallback: %w", err)
 				}
-				defer session.Disconnect()
-
-				promptText := withDefault(strings.TrimSpace(prompt), "继续")
+				demoRT.StoreSession(session)
+				_, _ = fmt.Fprintf(inv.Stdout, "cached session invalid, resumed again: %s\n", sid)
 				return sendPromptAndRender(ctx, inv, session, promptText, streaming)
 			})
 		},
@@ -200,10 +242,12 @@ func main() {
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			return withClient(ctx, inv, clientOptions{cliPath: cliPath, logLevel: logLevel, cwd: workingDir, token: githubToken, useLoggedInUser: useLoggedInUser}, func(ctx context.Context, client *copilot.Client) error {
-				if err := client.DeleteSession(ctx, strings.TrimSpace(deleteSessionID)); err != nil {
+				sid := strings.TrimSpace(deleteSessionID)
+				if err := client.DeleteSession(ctx, sid); err != nil {
 					return fmt.Errorf("delete session: %w", err)
 				}
-				_, _ = fmt.Fprintf(inv.Stdout, "已删除会话: %s\n", strings.TrimSpace(deleteSessionID))
+				demoRT.DeleteSession(sid, inv.Stderr)
+				_, _ = fmt.Fprintf(inv.Stdout, "已删除会话: %s\n", sid)
 				return nil
 			})
 		},
@@ -271,7 +315,9 @@ func main() {
 		agentlinecmd.New(),
 	}
 
-	if err := rootCmd.Invoke().WithOS().Run(); err != nil {
+	err := rootCmd.Invoke().WithOS().Run()
+	demoRT.Close(os.Stderr)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -285,7 +331,40 @@ type clientOptions struct {
 	useLoggedInUser bool
 }
 
-func withClient(ctx context.Context, inv *redant.Invocation, opts clientOptions, fn func(ctx context.Context, client *copilot.Client) error) error {
+func (o clientOptions) key() string {
+	return strings.Join([]string{
+		strings.TrimSpace(o.cliPath),
+		withDefault(strings.TrimSpace(o.logLevel), "error"),
+		strings.TrimSpace(o.cwd),
+		strings.TrimSpace(o.token),
+		fmt.Sprintf("%t", o.useLoggedInUser),
+	}, "|")
+}
+
+type demoRuntime struct {
+	mu        sync.Mutex
+	client    *copilot.Client
+	clientKey string
+	sessions  map[string]*copilot.Session
+}
+
+func newDemoRuntime() *demoRuntime {
+	return &demoRuntime{sessions: make(map[string]*copilot.Session)}
+}
+
+func (r *demoRuntime) ensureClient(ctx context.Context, inv *redant.Invocation, opts clientOptions) (*copilot.Client, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	key := opts.key()
+	if r.client != nil && r.clientKey == key {
+		return r.client, nil
+	}
+
+	if err := r.closeLocked(inv.Stderr); err != nil {
+		_, _ = fmt.Fprintf(inv.Stderr, "warn: close previous copilot runtime failed: %v\n", err)
+	}
+
 	client := copilot.NewClient(&copilot.ClientOptions{
 		CLIPath:         strings.TrimSpace(opts.cliPath),
 		LogLevel:        withDefault(strings.TrimSpace(opts.logLevel), "error"),
@@ -296,11 +375,103 @@ func withClient(ctx context.Context, inv *redant.Invocation, opts clientOptions,
 	})
 
 	if err := client.Start(ctx); err != nil {
-		return fmt.Errorf("start client: %w", err)
+		return nil, fmt.Errorf("start client: %w", err)
 	}
-	defer client.Stop()
 
+	r.client = client
+	r.clientKey = key
+	r.sessions = make(map[string]*copilot.Session)
 	_, _ = fmt.Fprintln(inv.Stdout, "Copilot client started")
+	return r.client, nil
+}
+
+func (r *demoRuntime) GetSession(sessionID string) (*copilot.Session, bool) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil, false
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.sessions[sessionID]
+	return s, ok
+}
+
+func (r *demoRuntime) StoreSession(session *copilot.Session) {
+	if session == nil {
+		return
+	}
+	sid := strings.TrimSpace(session.SessionID)
+	if sid == "" {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sessions[sid] = session
+}
+
+func (r *demoRuntime) DeleteSession(sessionID string, stderr io.Writer) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+
+	r.mu.Lock()
+	session, ok := r.sessions[sessionID]
+	if ok {
+		delete(r.sessions, sessionID)
+	}
+	r.mu.Unlock()
+
+	if ok {
+		if err := session.Disconnect(); err != nil && stderr != nil {
+			_, _ = fmt.Fprintf(stderr, "warn: disconnect cached session(%s) failed: %v\n", sessionID, err)
+		}
+	}
+}
+
+func (r *demoRuntime) Close(stderr io.Writer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.closeLocked(stderr); err != nil && stderr != nil {
+		_, _ = fmt.Fprintf(stderr, "warn: close copilot runtime failed: %v\n", err)
+	}
+}
+
+func (r *demoRuntime) closeLocked(stderr io.Writer) error {
+	var closeErr error
+	for sid, session := range r.sessions {
+		if session == nil {
+			delete(r.sessions, sid)
+			continue
+		}
+		if err := session.Disconnect(); err != nil {
+			closeErr = errors.Join(closeErr, fmt.Errorf("disconnect session(%s): %w", sid, err))
+		}
+		delete(r.sessions, sid)
+	}
+
+	if r.client != nil {
+		if err := r.client.Stop(); err != nil {
+			if stderr != nil {
+				_, _ = fmt.Fprintf(stderr, "warn: stop client failed: %v\n", err)
+			}
+			closeErr = errors.Join(closeErr, fmt.Errorf("stop client: %w", err))
+		}
+	}
+
+	r.client = nil
+	r.clientKey = ""
+	r.sessions = make(map[string]*copilot.Session)
+	return closeErr
+}
+
+func withClient(ctx context.Context, inv *redant.Invocation, opts clientOptions, fn func(ctx context.Context, client *copilot.Client) error) error {
+	client, err := demoRT.ensureClient(ctx, inv, opts)
+	if err != nil {
+		return err
+	}
 	return fn(ctx, client)
 }
 
@@ -515,7 +686,15 @@ func hydrateSession(ctx context.Context, client *copilot.Client, sessionID strin
 		info.errorText = compactText(err.Error(), 120)
 		return info
 	}
-	defer session.Disconnect()
+	defer func() {
+		if err := session.Disconnect(); err != nil {
+			if strings.TrimSpace(info.errorText) == "" {
+				info.errorText = compactText(fmt.Sprintf("disconnect session: %v", err), 120)
+			} else {
+				info.errorText = compactText(info.errorText+"; disconnect session: "+err.Error(), 120)
+			}
+		}
+	}()
 
 	events, err := session.GetMessages(rctx)
 	if err != nil {

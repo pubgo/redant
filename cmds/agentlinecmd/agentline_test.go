@@ -566,18 +566,86 @@ func TestEnterPlainTextShowsSimplifiedHint(t *testing.T) {
 	}
 }
 
-func TestEnterPlainTextInResumeModeRunsResume(t *testing.T) {
+func TestEnterPlainTextInChatStickyModeRunsCommand(t *testing.T) {
 	root := buildTestRoot()
-	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, []string{"resume", "--session-id", "sess-42", "--prompt", "继续"})
-	m.input.SetValue("接着上次的话题")
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+	m.input.SetValue("/chat commit")
 
 	model, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	m = model.(*agentlineModel)
+	if cmd != nil {
+		t.Fatalf("expected no async cmd while entering chat sticky mode")
+	}
+	if m.stickyInvocation == nil {
+		t.Fatalf("expected sticky invocation to be configured")
+	}
+
+	m.input.SetValue("接着上次的话题")
+
+	model, cmd = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = model.(*agentlineModel)
 	if cmd == nil {
-		t.Fatalf("expected async cmd for plain text in resume mode")
+		t.Fatalf("expected async cmd for plain text in chat sticky mode")
 	}
 	if !m.running {
-		t.Fatalf("expected running=true in resume mode")
+		t.Fatalf("expected running=true in chat sticky mode")
+	}
+}
+
+func TestHandleSlashInput_ChatRequiresCommand(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+
+	handled, cmd := m.handleSlashInput("/chat")
+	if !handled || cmd != nil {
+		t.Fatalf("expected /chat handled without async cmd, handled=%v cmd=%v", handled, cmd)
+	}
+	last := m.blocks[len(m.blocks)-1]
+	if last.Kind != blockKindError {
+		t.Fatalf("expected error block for empty /chat, got %s", last.Kind)
+	}
+	if !strings.Contains(strings.Join(last.Lines, "\n"), "需要指定命令") {
+		t.Fatalf("expected usage hint for empty /chat")
+	}
+}
+
+func TestHandleSlashInput_ChatAndUnbind(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+
+	handled, cmd := m.handleSlashInput("/chat commit")
+	if !handled || cmd != nil {
+		t.Fatalf("expected /chat handled without async cmd, handled=%v cmd=%v", handled, cmd)
+	}
+	if m.stickyInvocation == nil {
+		t.Fatalf("expected sticky invocation after /chat")
+	}
+
+	handled, cmd = m.handleSlashInput("/unbind")
+	if !handled || cmd != nil {
+		t.Fatalf("expected /unbind handled without async cmd, handled=%v cmd=%v", handled, cmd)
+	}
+	if m.stickyInvocation != nil {
+		t.Fatalf("expected sticky invocation cleared after /unbind")
+	}
+	if m.mode != interactionModeCommand {
+		t.Fatalf("expected command mode after /unbind, got %q", m.mode)
+	}
+}
+
+func TestHandleSlashInput_ChatSetsMode(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+
+	handled, cmd := m.handleSlashInput("/chat commit")
+	if !handled || cmd != nil {
+		t.Fatalf("expected /chat handled without async cmd, handled=%v cmd=%v", handled, cmd)
+	}
+	if m.mode != interactionModeChat {
+		t.Fatalf("expected chat mode after /chat, got %q", m.mode)
+	}
+	if !m.isChatMode() {
+		t.Fatalf("expected isChatMode=true after /chat")
 	}
 }
 
@@ -643,59 +711,38 @@ func TestNewAgentlineModel_InitWithInitialArgv(t *testing.T) {
 	}
 }
 
-func TestBuildResumeBootstrapArgs(t *testing.T) {
-	t.Run("empty session id", func(t *testing.T) {
-		got := buildResumeBootstrapArgs("   ", "继续")
-		if got != nil {
-			t.Fatalf("expected nil, got %#v", got)
+func TestBuildStickyInvocation(t *testing.T) {
+	root := buildTestRoot()
+
+	t.Run("empty command", func(t *testing.T) {
+		_, err := buildStickyInvocation(root, "", true)
+		if err == nil {
+			t.Fatalf("expected error for empty /chat command")
 		}
 	})
 
-	t.Run("default prompt", func(t *testing.T) {
-		got := buildResumeBootstrapArgs("sess-1", "")
-		want := []string{"resume", "--session-id", "sess-1", "--prompt", "继续"}
-		if len(got) != len(want) {
-			t.Fatalf("len(got)=%d want=%d, got=%#v", len(got), len(want), got)
+	t.Run("agent command", func(t *testing.T) {
+		sticky, err := buildStickyInvocation(root, "commit --message old", true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-		for i := range want {
-			if got[i] != want[i] {
-				t.Fatalf("got[%d]=%q want=%q", i, got[i], want[i])
+		if sticky == nil {
+			t.Fatalf("expected sticky invocation")
+		} else {
+			if sticky.PromptFlag != "--prompt" {
+				t.Fatalf("expected default prompt flag, got %q", sticky.PromptFlag)
+			}
+			joined := strings.Join(sticky.BaseArgs, " ")
+			if !strings.Contains(joined, "commit") {
+				t.Fatalf("expected command args keep command path, got %q", joined)
 			}
 		}
 	})
 
-	t.Run("custom prompt", func(t *testing.T) {
-		got := buildResumeBootstrapArgs("sess-2", "继续这个话题")
-		want := []string{"resume", "--session-id", "sess-2", "--prompt", "继续这个话题"}
-		if len(got) != len(want) {
-			t.Fatalf("len(got)=%d want=%d, got=%#v", len(got), len(want), got)
-		}
-		for i := range want {
-			if got[i] != want[i] {
-				t.Fatalf("got[%d]=%q want=%q", i, got[i], want[i])
-			}
-		}
-	})
-}
-
-func TestExtractResumeSessionID(t *testing.T) {
-	t.Run("empty", func(t *testing.T) {
-		if got := extractResumeSessionID(nil); got != "" {
-			t.Fatalf("expected empty, got %q", got)
-		}
-	})
-
-	t.Run("flag value", func(t *testing.T) {
-		got := extractResumeSessionID([]string{"resume", "--session-id", "sess-1", "--prompt", "继续"})
-		if got != "sess-1" {
-			t.Fatalf("expected sess-1, got %q", got)
-		}
-	})
-
-	t.Run("equals value", func(t *testing.T) {
-		got := extractResumeSessionID([]string{"resume", "--session-id=sess-2", "--prompt", "继续"})
-		if got != "sess-2" {
-			t.Fatalf("expected sess-2, got %q", got)
+	t.Run("reject non-agent command in agent-only mode", func(t *testing.T) {
+		_, err := buildStickyInvocation(root, "wait", true)
+		if err == nil {
+			t.Fatalf("expected non-agent command rejected")
 		}
 	})
 }

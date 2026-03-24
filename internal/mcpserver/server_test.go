@@ -138,10 +138,16 @@ func TestServeSDKClientListAndCallTool(t *testing.T) {
 		t.Fatalf("client connect: %v", err)
 	}
 	defer func() { _ = session.Close() }()
-	if initRes := session.InitializeResult(); initRes == nil || initRes.ServerInfo == nil {
+	initRes := session.InitializeResult()
+	serverInfoName := ""
+	if initRes != nil && initRes.ServerInfo != nil {
+		serverInfoName = initRes.ServerInfo.Name
+	}
+	if serverInfoName == "" {
 		t.Fatalf("initialize result or server info is nil")
-	} else if initRes.ServerInfo.Name != "app" {
-		t.Fatalf("server info name = %q, want %q", initRes.ServerInfo.Name, "app")
+	}
+	if serverInfoName != "app" {
+		t.Fatalf("server info name = %q, want %q", serverInfoName, "app")
 	}
 
 	listRes, err := session.ListTools(ctx, &mcp.ListToolsParams{})
@@ -150,6 +156,9 @@ func TestServeSDKClientListAndCallTool(t *testing.T) {
 	}
 	if len(listRes.Tools) == 0 {
 		t.Fatalf("expected at least one tool")
+	}
+	if listRes.Tools[0] == nil {
+		t.Fatalf("first tool is nil")
 	}
 	if listRes.Tools[0].Name != "echo" {
 		t.Fatalf("tool name = %q, want %q", listRes.Tools[0].Name, "echo")
@@ -169,6 +178,9 @@ func TestServeSDKClientListAndCallTool(t *testing.T) {
 	}
 	if len(callRes.Content) == 0 {
 		t.Fatalf("call tool content is empty")
+	}
+	if callRes.Content[0] == nil {
+		t.Fatalf("first content is nil")
 	}
 	text, ok := callRes.Content[0].(*mcp.TextContent)
 	if !ok {
@@ -247,14 +259,18 @@ func TestServeSDKClientValidatesToolDescriptionAndParameters(t *testing.T) {
 		t.Fatalf("list tools: %v", err)
 	}
 
-	var deployTool *mcp.Tool
+	var (
+		deployTool  mcp.Tool
+		deployFound bool
+	)
 	for i := range listRes.Tools {
 		if listRes.Tools[i] != nil && listRes.Tools[i].Name == "deploy" {
-			deployTool = listRes.Tools[i]
+			deployTool = *listRes.Tools[i]
+			deployFound = true
 			break
 		}
 	}
-	if deployTool == nil {
+	if !deployFound {
 		t.Fatalf("tool deploy not found in %#v", listRes.Tools)
 	}
 
@@ -392,14 +408,18 @@ func TestServeSDKClientStructFlagAndArg(t *testing.T) {
 		t.Fatalf("list tools: %v", err)
 	}
 
-	var applyTool *mcp.Tool
+	var (
+		applyTool  mcp.Tool
+		applyFound bool
+	)
 	for i := range listRes.Tools {
 		if listRes.Tools[i] != nil && listRes.Tools[i].Name == "apply" {
-			applyTool = listRes.Tools[i]
+			applyTool = *listRes.Tools[i]
+			applyFound = true
 			break
 		}
 	}
-	if applyTool == nil {
+	if !applyFound {
 		t.Fatalf("tool apply not found in %#v", listRes.Tools)
 	}
 
