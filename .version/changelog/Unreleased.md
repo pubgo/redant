@@ -19,6 +19,9 @@
 - 增强 `example/copilot-demo sessions`：新增 `--hydrate` / `--hydrate-timeout` / `--hydrate-max-events`，可在会话列表元信息缺失时尝试恢复会话并补充最近 assistant 摘要与消息统计。
 - 增强 `cmds/agentlineapp`：新增 `--resume-session-id` / `--resume-prompt`，可在启动交互模式时自动执行 `resume` 并附着到指定会话。
 - 调整 `example/copilot-demo` 交互可见命令：`sessions` 标记为 `agent.command=true`，可在 `agentline` 中通过 `/sessions`（含 `--hydrate`）直接执行。
+- 新增 `cmds/agentlineapp/acp` 最小 ACP 适配层：提供 `AgentBridge`、`CallbackClient`、`PermissionBroker` 与 `session/update` 渲染映射，打通 prompt turn 与权限请求闭环。
+- 增强 `cmds/agentlineapp` ACP 交互能力：新增 `/permissions`、`/allow`、`/deny`、`/acp-demo` slash 命令，支持运行中权限审批与演示回合。
+- 增强 `example/copilot-demo`：新增 `acp-turn` 显式命令入口，支持以 `allow/deny/cancel` 决策模拟 ACP `session/request_permission` 回合。
 
 ## 修复
 
