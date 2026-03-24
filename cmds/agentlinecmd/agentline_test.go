@@ -701,6 +701,29 @@ func TestBuildResumeBootstrapArgs(t *testing.T) {
 	})
 }
 
+func TestSessionContextLine(t *testing.T) {
+	m := &agentlineModel{sessionCWD: "/tmp/work", sessionGitBranch: "feat/copilot", sessionGitDirty: true}
+	got := m.sessionContextLine()
+	if !strings.Contains(got, "cwd=/tmp/work") {
+		t.Fatalf("expected cwd in session context line, got %q", got)
+	}
+	if !strings.Contains(got, "git=feat/copilot*") {
+		t.Fatalf("expected git branch in session context line, got %q", got)
+	}
+}
+
+func TestDisplayGitBranch_NotRepo(t *testing.T) {
+	if got := displayGitBranch("", false); got != "(not repo)" {
+		t.Fatalf("expected (not repo), got %q", got)
+	}
+}
+
+func TestDisplayGitBranch_DirtySuffix(t *testing.T) {
+	if got := displayGitBranch("feat/copilot", true); got != "feat/copilot*" {
+		t.Fatalf("expected dirty branch suffix, got %q", got)
+	}
+}
+
 func buildTestRoot() *redant.Command {
 	var msg string
 	commit := &redant.Command{

@@ -19,6 +19,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/pubgo/redant"
+	"github.com/pubgo/redant/internal/gitshell"
 	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
 
@@ -206,29 +207,32 @@ func AddAgentlineCommand(rootCmd *redant.Command) {
 }
 
 type agentlineModel struct {
-	ctx             context.Context
-	root            *redant.Command
-	input           textinput.Model
-	prompt          string
-	history         []string
-	historyPos      int
-	historyFile     string
-	persistHistory  bool
-	blocks          []sessionBlock
-	suggestions     []completionItem
-	selected        int
-	running         bool
-	width           int
-	height          int
-	outputOffset    int
-	outputFocus     bool
-	inputOffset     int
-	selectedHistory int
-	foldDetails     bool
-	currentCancel   context.CancelFunc
-	initialArgv     []string
-	agentOnlyMode   bool
-	mouseEnabled    bool
+	ctx              context.Context
+	root             *redant.Command
+	input            textinput.Model
+	prompt           string
+	sessionCWD       string
+	sessionGitBranch string
+	sessionGitDirty  bool
+	history          []string
+	historyPos       int
+	historyFile      string
+	persistHistory   bool
+	blocks           []sessionBlock
+	suggestions      []completionItem
+	selected         int
+	running          bool
+	width            int
+	height           int
+	outputOffset     int
+	outputFocus      bool
+	inputOffset      int
+	selectedHistory  int
+	foldDetails      bool
+	currentCancel    context.CancelFunc
+	initialArgv      []string
+	agentOnlyMode    bool
+	mouseEnabled     bool
 }
 
 type runResultMsg struct {
@@ -256,25 +260,31 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 
 	agentOnlyMode := true
 	hasAgentCommands := hasAnyAgentCommand(root)
+	sessionCWD, sessionGitBranch, sessionGitDirty := detectSessionContext()
 
 	m := &agentlineModel{
-		ctx:             ctx,
-		root:            root,
-		input:           ti,
-		prompt:          prompt,
-		history:         append([]string(nil), history...),
-		historyPos:      len(history),
-		historyFile:     historyFile,
-		persistHistory:  persist,
-		selectedHistory: -1,
-		initialArgv:     append([]string(nil), initialArgv...),
-		agentOnlyMode:   agentOnlyMode,
-		mouseEnabled:    true,
+		ctx:              ctx,
+		root:             root,
+		input:            ti,
+		prompt:           prompt,
+		sessionCWD:       sessionCWD,
+		sessionGitBranch: sessionGitBranch,
+		sessionGitDirty:  sessionGitDirty,
+		history:          append([]string(nil), history...),
+		historyPos:       len(history),
+		historyFile:      historyFile,
+		persistHistory:   persist,
+		selectedHistory:  -1,
+		initialArgv:      append([]string(nil), initialArgv...),
+		agentOnlyMode:    agentOnlyMode,
+		mouseEnabled:     true,
 		blocks: []sessionBlock{{
 			Kind:  blockKindSystem,
 			Title: "system",
 			Lines: []string{
 				"agentline started. 默认输入会自动识别为命令执行。",
+				fmt.Sprintf("cwd: %s", displayPath(sessionCWD)),
+				fmt.Sprintf("git: %s", displayGitBranch(sessionGitBranch, sessionGitDirty)),
 				"试试：/run commit --help、/history、/output",
 				"快捷键：Tab 补全，↑/↓ 选择候选，Ctrl+O 切换输出滚动，F2 切换鼠标捕获，Ctrl+C 退出。",
 				"复制提示：按住 Shift 拖拽可原生选择，或按 F2 关闭鼠标捕获。",
@@ -559,6 +569,7 @@ func (m *agentlineModel) View() tea.View {
 	lines := make([]string, 0, m.height+8)
 	header := fmt.Sprintf("agentline · status=%s · focus=%s · blocks=%d · lines=%d", status, focus, len(m.blocks), len(renderedOutput))
 	lines = append(lines, styleHeader.Render(truncateDisplayWidth(header, contentWidth)))
+	lines = append(lines, styleHint.Render(truncateDisplayWidth(m.sessionContextLine(), contentWidth)))
 
 	outputTitle := fmt.Sprintf("输出区域（%d-%d/%d）", displayStart(outputStart, outputEnd), outputEnd, len(renderedOutput))
 	lines = append(lines, styleHeader.Render(truncateDisplayWidth(outputTitle, contentWidth)))
@@ -2014,6 +2025,49 @@ func quoteShellArg(s string) string {
 		return s
 	}
 	return strconv.Quote(s)
+}
+
+func (m *agentlineModel) sessionContextLine() string {
+	return fmt.Sprintf("cwd=%s · git=%s", displayPath(m.sessionCWD), displayGitBranch(m.sessionGitBranch, m.sessionGitDirty))
+}
+
+func displayPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "(unknown)"
+	}
+	home, err := os.UserHomeDir()
+	if err == nil && strings.TrimSpace(home) != "" {
+		home = filepath.Clean(home)
+		cleanPath := filepath.Clean(path)
+		if cleanPath == home {
+			return "~"
+		}
+		prefix := home + string(os.PathSeparator)
+		if strings.HasPrefix(cleanPath, prefix) {
+			return "~" + string(os.PathSeparator) + strings.TrimPrefix(cleanPath, prefix)
+		}
+	}
+	return path
+}
+
+func displayGitBranch(branch string, dirty bool) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return "(not repo)"
+	}
+	if dirty {
+		return branch + "*"
+	}
+	return branch
+}
+
+func detectSessionContext() (cwd, gitBranch string, gitDirty bool) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", "", false
+	}
+	return wd, gitshell.DetectBranch(wd), gitshell.IsDirty(wd)
 }
 
 func needsQuote(s string) bool {
