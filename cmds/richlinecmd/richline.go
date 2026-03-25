@@ -490,6 +490,17 @@ func (m *richlineModel) handleSlashCommand(line string) (bool, tea.Cmd) {
 	parts := strings.Fields(cmdText)
 	cmd := strings.ToLower(parts[0])
 
+	// 支持 /<command ...> 直接执行业务命令（优先于内建 slash unknown 分支）。
+	if isRichlineCommandLikeInput(m.root, cmdText) {
+		if m.running {
+			return true, nil
+		}
+		m.running = true
+		m.runningCommand = cmdText
+		m.outputFocus = false
+		return true, runLineCmd(m.ctx, m.root, cmdText)
+	}
+
 	switch cmd {
 	case "help", "?":
 		m.appendBlock(outputBlock{Title: "/help", Lines: slashHelpLines()})
@@ -640,7 +651,7 @@ func (m *richlineModel) recomputeSuggestions() {
 	m.starterPinned = false
 
 	if strings.HasPrefix(strings.TrimLeftFunc(line, unicode.IsSpace), "/") {
-		m.suggestions = collectSlashCompletionItems(line)
+		m.suggestions = collectSlashCompletionItems(m.root, line)
 		if len(m.suggestions) == 0 {
 			m.selected = 0
 			return
@@ -668,7 +679,7 @@ func (m *richlineModel) recomputeSuggestions() {
 	}
 }
 
-func collectSlashCompletionItems(input string) []completionItem {
+func collectSlashCompletionItems(root *redant.Command, input string) []completionItem {
 	trimmedRight := strings.TrimRightFunc(input, unicode.IsSpace)
 	if trimmedRight == "" {
 		return nil
@@ -715,7 +726,94 @@ func collectSlashCompletionItems(input string) []completionItem {
 		out = append(out, completionItem{Insert: "/" + name, Description: desc, Kind: completionKindCommand})
 	}
 
+	// 将业务命令一并作为 slash 候选展示（仅展示主命令，不展示别名）。
+	cmdItems := collectTopLevelSlashCommandItems(root, prefix)
+	out = append(out, cmdItems...)
+
 	return uniqueCompletionItems(out)
+}
+
+func collectTopLevelSlashCommandItems(root *redant.Command, prefix string) []completionItem {
+	if root == nil {
+		return nil
+	}
+	prefix = strings.TrimSpace(prefix)
+	out := make([]completionItem, 0, len(root.Children))
+	for _, child := range root.Children {
+		if child == nil || child.Hidden {
+			continue
+		}
+		name := strings.TrimSpace(child.Name())
+		if name == "" {
+			continue
+		}
+		matched := prefix == "" || strings.HasPrefix(name, prefix)
+		if !matched {
+			for _, alias := range child.Aliases {
+				if strings.HasPrefix(strings.TrimSpace(alias), prefix) {
+					matched = true
+					break
+				}
+			}
+		}
+		if !matched {
+			continue
+		}
+
+		desc := strings.TrimSpace(commandDescription(child))
+		if desc == "" {
+			desc = "命令"
+		}
+		if len(child.Aliases) > 0 {
+			aliases := make([]string, 0, len(child.Aliases))
+			for _, alias := range child.Aliases {
+				alias = strings.TrimSpace(alias)
+				if alias == "" {
+					continue
+				}
+				aliases = append(aliases, "/"+alias)
+			}
+			if len(aliases) > 0 {
+				desc += "（别名: " + strings.Join(aliases, " ") + "）"
+			}
+		}
+		out = append(out, completionItem{Insert: "/" + name, Description: "command · " + desc, Kind: completionKindCommand})
+}
+
+	return out
+}
+
+func isRichlineCommandLikeInput(root *redant.Command, line string) bool {
+	if root == nil {
+		return false
+	}
+	args, err := splitCommandLine(strings.TrimSpace(line))
+	if err != nil || len(args) == 0 {
+		return false
+	}
+
+	if args[0] == root.Name() {
+		args = args[1:]
+		if len(args) == 0 {
+			return false
+		}
+	}
+
+	cur := root
+	consumed := 0
+	for _, tok := range args {
+		if strings.HasPrefix(tok, "-") || strings.Contains(tok, "=") {
+			break
+		}
+		next, ok := resolveCommandToken(cur, tok)
+		if !ok {
+			break
+		}
+		cur = next
+		consumed++
+	}
+
+	return consumed > 0
 }
 
 func slashCommandMatchesPrefix(cmd slashCommand, prefix string) bool {

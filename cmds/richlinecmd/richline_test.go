@@ -355,18 +355,22 @@ func TestHandleSlashCommand_HelpAndUnknown(t *testing.T) {
 }
 
 func TestCollectSlashCompletionItems(t *testing.T) {
-	items := collectSlashCompletionItems("/")
+	root := buildTestRoot()
+	items := collectSlashCompletionItems(root, "/")
 	if len(items) == 0 {
 		t.Fatalf("expected slash suggestions for '/'")
 	}
 	if _, ok := findCompletion(items, "/output"); !ok {
 		t.Fatalf("expected /output in slash suggestions")
 	}
+	if _, ok := findCompletion(items, "/commit"); !ok {
+		t.Fatalf("expected /commit in slash suggestions")
+	}
 	if _, ok := findCompletion(items, "/o"); ok {
 		t.Fatalf("expected alias /o hidden from slash suggestions")
 	}
 
-	items = collectSlashCompletionItems("/o")
+	items = collectSlashCompletionItems(root, "/o")
 	if _, ok := findCompletion(items, "/output"); !ok {
 		t.Fatalf("expected /output for prefix /o")
 	}
@@ -374,7 +378,7 @@ func TestCollectSlashCompletionItems(t *testing.T) {
 		t.Fatalf("expected alias /o hidden for prefix /o")
 	}
 
-	items = collectSlashCompletionItems("/q")
+	items = collectSlashCompletionItems(root, "/q")
 	if _, ok := findCompletion(items, "/quit"); !ok {
 		t.Fatalf("expected /quit for prefix /q")
 	}
@@ -385,9 +389,28 @@ func TestCollectSlashCompletionItems(t *testing.T) {
 		t.Fatalf("expected alias /exit hidden for prefix /q")
 	}
 
-	items = collectSlashCompletionItems("/output now")
+	items = collectSlashCompletionItems(root, "/output now")
 	if len(items) != 0 {
 		t.Fatalf("expected no slash suggestions after second token, got=%d", len(items))
+	}
+}
+
+func TestHandleSlashCommand_CommandAsSlash(t *testing.T) {
+	root := buildTestRoot()
+	m := newRichlineModel(context.Background(), root, "richline> ", nil, "", false)
+
+	handled, cmd := m.handleSlashCommand("/commit --message hi")
+	if !handled {
+		t.Fatalf("expected slash command handled")
+	}
+	if cmd == nil {
+		t.Fatalf("expected slash command returns run cmd")
+	}
+	if !m.running {
+		t.Fatalf("expected running=true for slash business command")
+	}
+	if strings.TrimSpace(m.runningCommand) != "commit --message hi" {
+		t.Fatalf("unexpected running command: %q", m.runningCommand)
 	}
 }
 
