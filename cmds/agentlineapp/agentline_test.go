@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -395,7 +396,8 @@ func TestHistoryUpDownTracksSelectedHistory(t *testing.T) {
 
 func TestRunSlashRunCmd(t *testing.T) {
 	root := buildTestRoot()
-	msg := runSlashRunCmd(context.Background(), root, "commit --message hello")()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+	msg := runSlashRunCmd(context.Background(), m, root, "commit --message hello")()
 	res, ok := msg.(runResultMsg)
 	if !ok {
 		t.Fatalf("expected runResultMsg, got %T", msg)
@@ -434,8 +436,9 @@ func TestRunSlashRunCmd_Canceled(t *testing.T) {
 	root := buildTestRoot()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
 
-	msg := runSlashRunCmd(ctx, root, "wait")()
+	msg := runSlashRunCmd(ctx, m, root, "wait")()
 	res, ok := msg.(runResultMsg)
 	if !ok {
 		t.Fatalf("expected runResultMsg, got %T", msg)
@@ -691,6 +694,13 @@ func TestEnterPlainTextInChatStickyModeRunsCommand(t *testing.T) {
 	if !m.running {
 		t.Fatalf("expected running=true in chat sticky mode")
 	}
+	last := m.blocks[len(m.blocks)-1]
+	if last.Kind != blockKindUser || last.Title != "user" {
+		t.Fatalf("expected user echo block before command run, got kind=%s title=%q", last.Kind, last.Title)
+	}
+	if !strings.Contains(strings.Join(last.Lines, "\n"), "接着上次的话题") {
+		t.Fatalf("expected user echo contains latest input")
+	}
 }
 
 func TestEnterCommandLikeInputInChatModeRunsStickyCommand(t *testing.T) {
@@ -728,6 +738,47 @@ func TestView_ShowsChatModeHintLine(t *testing.T) {
 	}
 	if !strings.Contains(v.Content, "chat=commit --prompt <text>") {
 		t.Fatalf("expected view to contain chat binding line")
+	}
+}
+
+func TestView_ShowsPendingQuestionHintWhileRunning(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+	m.width = 120
+	m.height = 28
+	m.running = true
+
+	respCh := make(chan AskResponse, 1)
+	go func() {
+		resp, _ := m.questionBroker.Request(context.Background(), AskRequest{Prompt: "请确认是否继续执行"})
+		respCh <- resp
+	}()
+
+	for i := 0; i < 50; i++ {
+		if len(m.questionBroker.Pending()) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	v := m.View()
+	if !strings.Contains(v.Content, "WAITING_ANSWER") {
+		t.Fatalf("expected running view status to be WAITING_ANSWER")
+	}
+	if !strings.Contains(v.Content, "等待问题回复") {
+		t.Fatalf("expected running view contains waiting-question hint")
+	}
+	if !strings.Contains(v.Content, "最新问题:") {
+		t.Fatalf("expected running view contains latest question line")
+	}
+
+	if err := m.questionBroker.Cancel(""); err != nil {
+		t.Fatalf("cancel pending question failed: %v", err)
+	}
+	select {
+	case <-respCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting question cancel")
 	}
 }
 

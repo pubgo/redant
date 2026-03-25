@@ -22,11 +22,13 @@
 - 新增 `cmds/agentlineapp/acp` 最小 ACP 适配层：提供 `AgentBridge`、`CallbackClient`、`PermissionBroker` 与 `session/update` 渲染映射，打通 prompt turn 与权限请求闭环。
 - 增强 `cmds/agentlineapp` ACP 交互能力：新增 `/permissions`、`/allow`、`/deny`、`/acp-demo` slash 命令，支持运行中权限审批与演示回合。
 - 增强 `cmds/agentlineapp` ACP 观测能力：新增 `/acp-events`、`/acp-events-summary`、`/acp-events-export [path]`，支持在交互中回看事件时间线、统计摘要并导出 JSONL（默认 `.local/data.jsonl`）。
+- 新增 `cmds/agentlineapp` 双向交互协议（`agentline.interaction.v1`）：命令可通过 Invocation 注解获取桥接对象并执行 `Emit/Ask`；交互端新增 `/questions`、`/reply`、`/skip` 处理运行中问答回路。
 - 增强 `example/copilot-demo`：新增 `acp-turn` 显式命令入口，支持以 `allow/deny/cancel` 决策模拟 ACP `session/request_permission` 回合。
 - 调整 `example/copilot-demo chat`：当提供 `--session-id` 时自动按 resume 模式继续指定会话；未提供时保持创建新会话语义。
 - 增强 `example/copilot-demo chat/resume`：新增 `--dump-events` / `--events-limit` / `--events-raw`，可在 ResumeSession 与发送 Prompt 后通过 `GetMessages` 打印会话事件明细，便于排查多轮执行过程。
 - 新增 `example/copilot-demo events` 只读命令：支持通过 `--session-id` 查看 `GetMessages` 事件明细（可配合 `--events-limit` / `--events-raw`），且不发送 Prompt。
 - 增强 `example/copilot-demo` 事件观测：新增 `--events-out`（默认 `data.jsonl` JSONL 导出）与 `--events-view`（`timeline/summary/none`），支持“可归档 + 可回放”的会话过程查看方式。
+- 增强 `example/copilot-demo` 与 `cmds/agentlineapp` 协议联动：新增 `interactive-demo` 命令示例，演示命令侧通过 `agentline.interaction.v1` 进行 `Emit/Ask` 双向交互，并可配合 `/questions`、`/reply`、`/skip` 完成问答闭环。
 
 ## 修复
 

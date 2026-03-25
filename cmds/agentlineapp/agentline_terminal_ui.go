@@ -15,10 +15,26 @@ func (m *agentlineModel) View() tea.View {
 	outputOffset := clampOutputOffset(m.outputOffset, len(renderedOutput), outputRows)
 	outputStart, outputEnd := visibleOutputRange(len(renderedOutput), outputRows, outputOffset)
 
-	status := styleStatusIdle.Render("IDLE")
+	statusText := "IDLE"
+	statusStyle := styleStatusIdle
 	if m.running {
-		status = styleStatusBusy.Render("RUNNING")
+		statusText = "RUNNING"
+		statusStyle = styleStatusBusy
 	}
+	pendingQuestions := 0
+	latestQuestion := ""
+	if m.questionBroker != nil {
+		pending := m.questionBroker.Pending()
+		pendingQuestions = len(pending)
+		if pendingQuestions > 0 {
+			latestQuestion = strings.TrimSpace(pending[pendingQuestions-1].Prompt)
+			if m.running {
+				statusText = "WAITING_ANSWER"
+				statusStyle = styleStatusBusy
+			}
+		}
+	}
+	status := statusStyle.Render(statusText)
 	mode := strings.ToUpper(string(m.mode))
 	if strings.TrimSpace(mode) == "" {
 		mode = strings.ToUpper(string(interactionModeCommand))
@@ -30,6 +46,9 @@ func (m *agentlineModel) View() tea.View {
 
 	lines := make([]string, 0, m.height+8)
 	header := fmt.Sprintf("agentline · status=%s · mode=%s · focus=%s · blocks=%d · lines=%d", status, mode, focus, len(m.blocks), len(renderedOutput))
+	if pendingQuestions > 0 {
+		header += fmt.Sprintf(" · pending_questions=%d", pendingQuestions)
+	}
 	lines = append(lines, styleHeader.Render(truncateDisplayWidth(header, contentWidth)))
 	lines = append(lines, styleHint.Render(truncateDisplayWidth(m.sessionContextLine(), contentWidth)))
 	if binding := strings.TrimSpace(m.chatBindingLine()); binding != "" {
@@ -79,7 +98,15 @@ func (m *agentlineModel) View() tea.View {
 	}
 
 	if m.running {
-		lines = append(lines, styleRunning.Render(truncateDisplayWidth("执行中...", contentWidth)))
+		if pendingQuestions > 0 {
+			lines = append(lines, styleRunning.Render(truncateDisplayWidth(fmt.Sprintf("执行中（等待问题回复，pending=%d）", pendingQuestions), contentWidth)))
+			if latestQuestion != "" {
+				lines = append(lines, styleHint.Render(truncateDisplayWidth("最新问题: "+latestQuestion, contentWidth)))
+			}
+			lines = append(lines, styleHint.Render(truncateDisplayWidth("可直接输入并回车回复，或使用 /questions、/reply、/skip。", contentWidth)))
+		} else {
+			lines = append(lines, styleRunning.Render(truncateDisplayWidth("执行中...", contentWidth)))
+		}
 	}
 	outputRegionEnd := len(lines) - 1
 

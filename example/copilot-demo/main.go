@@ -50,8 +50,9 @@ func main() {
 		deleteSessionID  string
 		inspectSessionID string
 
-		acpTurnPrompt      string
-		permissionDecision string
+		acpTurnPrompt       string
+		permissionDecision  string
+		interactiveQuestion string
 
 		dumpSessionEvents bool
 		eventsLimit       int64
@@ -375,6 +376,45 @@ func main() {
 		},
 	}
 
+	interactiveDemoCmd := &redant.Command{
+		Use:      "interactive-demo",
+		Short:    "演示命令与 agentline 的双向交互（Emit + Ask）。",
+		Metadata: agentlinemodule.AgentCommandMetadata(),
+		Options: redant.OptionSet{
+			{Flag: "question", Description: "要向用户提问的问题", Value: redant.StringOf(&interactiveQuestion), Default: "是否继续执行下一步？"},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			bridge, ok := agentlineapp.InteractionFromInvocation(inv)
+			if !ok || bridge == nil {
+				_, _ = fmt.Fprintln(inv.Stdout, "interactive bridge 不可用：请在 agentline 模式中运行该命令（例如 /interactive-demo）。")
+				return nil
+			}
+
+			_ = bridge.Emit(ctx, agentlineapp.InteractionEvent{Kind: "system", Title: "interactive-demo", Lines: []string{"开始演示双向交互协议 v1"}})
+			_ = bridge.Emit(ctx, agentlineapp.InteractionEvent{Kind: "assistant", Title: "assistant", Lines: []string{"我将发起一个问题，请用 /reply 回答。"}})
+
+			resp, err := bridge.Ask(ctx, agentlineapp.AskRequest{Prompt: strings.TrimSpace(interactiveQuestion)})
+			if err != nil {
+				_ = bridge.Emit(ctx, agentlineapp.InteractionEvent{Kind: "error", Title: "ask.error", Lines: []string{err.Error()}})
+				return err
+			}
+
+			if resp.Cancelled {
+				_ = bridge.Emit(ctx, agentlineapp.InteractionEvent{Kind: "result", Title: "interactive-demo", Lines: []string{"问题已取消，演示结束。"}})
+				return nil
+			}
+
+			answer := strings.TrimSpace(resp.Answer)
+			if answer == "" {
+				answer = "(empty)"
+			}
+			_ = bridge.Emit(ctx, agentlineapp.InteractionEvent{Kind: "user", Title: "user.answer", Lines: []string{answer}})
+			_ = bridge.Emit(ctx, agentlineapp.InteractionEvent{Kind: "assistant", Title: "assistant", Lines: []string{"已收到你的回复，将继续执行。"}})
+			_ = bridge.Emit(ctx, agentlineapp.InteractionEvent{Kind: "result", Title: "interactive-demo", Lines: []string{"双向交互演示完成。"}})
+			return nil
+		},
+	}
+
 	eventsCmd := &redant.Command{
 		Use:      "events",
 		Short:    "只读查看会话事件（ResumeSession + GetMessages）。",
@@ -455,6 +495,7 @@ func main() {
 	rootCmd.Children = []*redant.Command{
 		chatCmd,
 		resumeCmd,
+		interactiveDemoCmd,
 		eventsCmd,
 		listSessionsCmd,
 		lastSessionCmd,

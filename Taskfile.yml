@@ -24,3 +24,13 @@ tasks:
     desc: "golangci-lint"
     cmds:
       - golangci-lint run --verbose ./...
+
+  pr:current:
+    desc: "get PR of current branch"
+    cmds:
+      - bash scripts/get-current-pr.sh
+
+  pr:ensure-draft:
+    desc: "get current branch PR or create draft if missing"
+    cmds:
+      - bash scripts/get-current-pr.sh --ensure-draft --base main

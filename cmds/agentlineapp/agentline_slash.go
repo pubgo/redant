@@ -194,6 +194,89 @@ var slashBuiltins = []slashBuiltin{
 		},
 	},
 	{
+		Name:        "questions",
+		Description: "查看待回答问题队列",
+		Handler: func(m *agentlineModel, _, _, _ string) tea.Cmd {
+			if m == nil || m.questionBroker == nil {
+				m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/questions", Lines: []string{"问题队列未初始化。"}})
+				return nil
+			}
+			pending := m.questionBroker.Pending()
+			if len(pending) == 0 {
+				m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/questions", Lines: []string{"当前无待回答问题。"}})
+				return nil
+			}
+			lines := make([]string, 0, len(pending)+1)
+			lines = append(lines, fmt.Sprintf("pending: %d", len(pending)))
+			for i, q := range pending {
+				lines = append(lines, fmt.Sprintf("%d) id=%s time=%s", i+1, q.ID, q.CreatedAt.Format("15:04:05")))
+				lines = append(lines, "   prompt: "+strings.TrimSpace(q.Prompt))
+			}
+			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/questions", Lines: lines})
+			return nil
+		},
+	},
+	{
+		Name:        "reply",
+		Description: "回答问题（/reply [ask_id] <answer>）",
+		Handler: func(m *agentlineModel, _, _, argText string) tea.Cmd {
+			if m == nil || m.questionBroker == nil {
+				return nil
+			}
+			parts := strings.Fields(strings.TrimSpace(argText))
+			if len(parts) == 0 {
+				m.appendBlock(sessionBlock{Kind: blockKindError, Title: "/reply", Lines: []string{"用法：/reply [ask_id] <answer>"}})
+				return nil
+			}
+			targetID := ""
+			answer := strings.TrimSpace(argText)
+			if strings.HasPrefix(parts[0], "ask_") {
+				targetID = strings.TrimSpace(parts[0])
+				answer = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(argText), targetID))
+			} else if idx, err := strconv.Atoi(strings.TrimSpace(parts[0])); err == nil {
+				pending := m.questionBroker.Pending()
+				if idx <= 0 || idx > len(pending) {
+					m.appendBlock(sessionBlock{Kind: blockKindError, Title: "/reply", Lines: []string{fmt.Sprintf("问题序号超出范围: %d", idx)}})
+					return nil
+				}
+				targetID = strings.TrimSpace(pending[idx-1].ID)
+				answer = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(argText), strings.TrimSpace(parts[0])))
+			}
+			if strings.TrimSpace(answer) == "" {
+				m.appendBlock(sessionBlock{Kind: blockKindError, Title: "/reply", Lines: []string{"answer 不能为空。"}})
+				return nil
+			}
+			if err := m.questionBroker.Reply(targetID, answer); err != nil {
+				m.appendBlock(sessionBlock{Kind: blockKindError, Title: "/reply", Lines: []string{err.Error()}})
+				return nil
+			}
+			if strings.TrimSpace(targetID) == "" {
+				targetID = "(latest)"
+			}
+			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/reply", Lines: []string{fmt.Sprintf("已回复问题: %s", targetID)}})
+			return nil
+		},
+	},
+	{
+		Name:        "skip",
+		Description: "跳过问题（/skip [ask_id]）",
+		Handler: func(m *agentlineModel, _, _, argText string) tea.Cmd {
+			if m == nil || m.questionBroker == nil {
+				return nil
+			}
+			targetID := strings.TrimSpace(argText)
+			if err := m.questionBroker.Cancel(targetID); err != nil {
+				m.appendBlock(sessionBlock{Kind: blockKindError, Title: "/skip", Lines: []string{err.Error()}})
+				return nil
+			}
+			if targetID == "" {
+				targetID = "(latest)"
+			}
+			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/skip", Lines: []string{fmt.Sprintf("已跳过问题: %s", targetID)}})
+			return nil
+		},
+	},
+	{
 		Name:        "allow",
 		Description: "同意权限请求（/allow [request-id] [option-id|index]）",
 		Handler: func(m *agentlineModel, _, _, argText string) tea.Cmd {
@@ -486,6 +569,9 @@ func slashHelpLines(root *redant.Command, agentOnly bool) []string {
 		"  /acp-events [N]: 查看 ACP 事件时间线（默认最近 40 条）",
 		"  /acp-events-summary: 查看 ACP 事件统计摘要",
 		"  /acp-events-export [path]: 导出 ACP 事件到 JSONL（默认 .local/data.jsonl）",
+		"  /questions: 查看待回答问题",
+		"  /reply [ask_id] <answer>: 回答问题（省略 ask_id 默认回复最新）",
+		"  /skip [ask_id]: 跳过问题（省略 ask_id 默认跳过最新）",
 		"  /permissions: 查看待处理权限请求",
 		"  /allow [request-id] [option-id|index]: 同意权限请求",
 		"  /deny [request-id] [option-id|index]: 拒绝权限请求",

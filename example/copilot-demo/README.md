@@ -12,6 +12,7 @@
 - 模型发现：`models`
 - 可视化控制台：`web`（集成 `cmds/webcmd`）
 - ACP 权限回合演示：`acp-turn`（支持 allow/deny/cancel 三种决策）
+- 双向交互协议演示：`interactive-demo`（通过 interaction bridge 执行 Emit + Ask）
 - SDK 能力演示：
   - `OnPermissionRequest`（默认 `ApproveAll`）
   - `OnUserInputRequest`（自动回答）
@@ -58,6 +59,10 @@
   - `go run example/copilot-demo/main.go acp-turn --prompt "请修改一个文件"`
   - `go run example/copilot-demo/main.go acp-turn --permission-decision deny`
   - `go run example/copilot-demo/main.go acp-turn --permission-decision cancel`
+- 在 agentline 中演示双向交互协议（推荐）：
+  - `go run example/copilot-demo/main.go agentline`
+  - 在交互里执行：`/interactive-demo --question "是否继续执行下一步？"`
+  - 查看并回复待答问题：`/questions`，然后 `/reply 1 继续`（或 `/skip 1`）
 
 ## 与 agentline 联动
 
@@ -69,9 +74,11 @@
 - 在交互中执行 slash 命令：
   - `/chat --prompt "给我一个 Go CLI 设计建议"`
   - `/resume --session-id <SESSION_ID> --prompt "继续"`
+  - `/interactive-demo --question "是否继续执行下一步？"`
   - `/acp-demo --prompt "请执行一次需要权限确认的操作"`
   - `/permissions`（查看待审批请求）
   - `/allow 1` / `/deny 1`（对指定请求决策）
+  - `/questions`、`/reply 1 <answer>`、`/skip 1`（处理运行中问答）
 
 `chat` 与 `resume` 已标记 `agent.command=true`，可作为 slash command 使用。
 

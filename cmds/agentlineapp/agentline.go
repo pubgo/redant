@@ -273,6 +273,7 @@ type agentlineModel struct {
 	initialArgv      []string
 	agentOnlyMode    bool
 	permissionBroker *agentacp.PermissionBroker
+	questionBroker   *QuestionBroker
 	acpEventSeq      int64
 	acpEventEntries  []acpEventEntry
 }
@@ -326,6 +327,7 @@ func newAgentlineModel(ctx context.Context, root *redant.Command, prompt string,
 		initialArgv:      append([]string(nil), initialArgv...),
 		agentOnlyMode:    agentOnlyMode,
 		permissionBroker: agentacp.NewPermissionBroker(),
+		questionBroker:   NewQuestionBroker(),
 		blocks: []sessionBlock{{
 			Kind:  blockKindSystem,
 			Title: "system",
@@ -564,12 +566,33 @@ func (m *agentlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			if m.running && !isAllowedWhileRunning(line) {
-				m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "running", Lines: []string{
-					"当前任务执行中，仅支持 /permissions、/allow、/deny、/cancel。",
-				}})
-				m.normalizeOutputOffset()
-				return m, nil
+			if m.running {
+				if !strings.HasPrefix(line, "/") && m.questionBroker != nil && len(m.questionBroker.Pending()) > 0 {
+					m.appendHistory(line)
+					m.input.SetValue("")
+					m.historyPos = len(m.history)
+					m.suggestions = nil
+					m.selected = 0
+					m.inputOffset = 0
+					m.selectedHistory = -1
+
+					if err := m.questionBroker.Reply("", line); err != nil {
+						m.appendBlock(sessionBlock{Kind: blockKindError, Title: "reply.direct", Lines: []string{err.Error()}})
+					} else {
+						m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "reply.direct", Lines: []string{"已作为问题回复提交（latest）。"}})
+					}
+					m.normalizeOutputOffset()
+					return m, nil
+				}
+
+				if !isAllowedWhileRunning(line) {
+					m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "running", Lines: []string{
+						"当前任务执行中，仅支持 /permissions、/allow、/deny、/questions、/reply、/skip、/cancel。",
+						"若存在待回答问题，也可直接输入文本并回车（默认回复最新问题）。",
+					}})
+					m.normalizeOutputOffset()
+					return m, nil
+				}
 			}
 
 			m.appendHistory(line)
@@ -597,6 +620,12 @@ func (m *agentlineModel) dispatchInputLine(line string) tea.Cmd {
 		return cmd
 	}
 
+	if m.shouldRenderChatUserInput(line) {
+		m.appendBlock(sessionBlock{Kind: blockKindUser, Title: "user", Lines: []string{strings.TrimSpace(line)}})
+		m.outputOffset = 0
+		m.normalizeOutputOffset()
+	}
+
 	if request, ok := m.resolveExecutionRequest(line); ok {
 		return m.startCommandRun(request)
 	}
@@ -608,6 +637,24 @@ func (m *agentlineModel) dispatchInputLine(line string) tea.Cmd {
 	m.outputOffset = 0
 	m.normalizeOutputOffset()
 	return nil
+}
+
+func (m *agentlineModel) shouldRenderChatUserInput(line string) bool {
+	if m == nil || !m.isChatMode() {
+		return false
+	}
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		return false
+	}
+	// 若本身是显式命令输入，则按命令处理，不作为自然语言 chat 轮次回显。
+	if isCommandLikeInput(m.root, trimmed, m.agentOnlyMode) {
+		return false
+	}
+	return true
 }
 
 func (m *agentlineModel) resolveExecutionRequest(line string) (string, bool) {
@@ -648,7 +695,7 @@ func (m *agentlineModel) isChatMode() bool {
 	return m.mode == interactionModeChat && m.stickyInvocation != nil
 }
 
-func runSlashRunCmd(ctx context.Context, root *redant.Command, commandLine string) tea.Cmd {
+func runSlashRunCmd(ctx context.Context, m *agentlineModel, root *redant.Command, commandLine string) tea.Cmd {
 	return func() tea.Msg {
 		startedAt := time.Now()
 		request := strings.TrimSpace(commandLine)
@@ -708,6 +755,39 @@ func runSlashRunCmd(ctx context.Context, root *redant.Command, commandLine strin
 		runInv.Stdout = stdout
 		runInv.Stderr = stderr
 		runInv.Stdin = strings.NewReader("")
+		if runInv.Annotations == nil {
+			runInv.Annotations = map[string]any{}
+		}
+		runInv.Annotations[InteractionAnnotationKey] = &runtimeInteractionBridge{
+			emitFn: func(_ context.Context, event InteractionEvent) error {
+				kind := interactionKindToBlockKind(event.Kind)
+				title := strings.TrimSpace(event.Title)
+				if title == "" {
+					title = "interaction"
+				}
+				lines := append([]string(nil), event.Lines...)
+				if len(lines) == 0 {
+					lines = []string{"(empty)"}
+				}
+				blocks = append(blocks, sessionBlock{Kind: kind, Title: title, Lines: lines})
+				return nil
+			},
+			askFn: func(ctx context.Context, req AskRequest) (AskResponse, error) {
+				if m == nil || m.questionBroker == nil {
+					return AskResponse{Cancelled: true}, nil
+				}
+				prompt := strings.TrimSpace(req.Prompt)
+				if prompt == "" {
+					return AskResponse{}, errors.New("ask prompt is empty")
+				}
+				blocks = append(blocks, sessionBlock{Kind: blockKindSystem, Title: "ask.pending", Lines: []string{
+					prompt,
+					"使用 /questions 查看待回答问题，使用 /reply [ask_id] <answer> 回复，/skip [ask_id] 跳过。",
+					"也可直接输入文本并回车（默认回复最新问题）。",
+				}})
+				return m.questionBroker.Request(ctx, req)
+			},
+		}
 
 		runErr := runInv.WithContext(ctx).Run()
 		status := runStatus(runErr)
@@ -1320,7 +1400,7 @@ func (m *agentlineModel) startCommandRun(commandLine string) tea.Cmd {
 	m.running = true
 	m.currentCancel = cancel
 	m.outputFocus = false
-	return runSlashRunCmd(runCtx, m.root, commandLine)
+	return runSlashRunCmd(runCtx, m, m.root, commandLine)
 }
 
 func (m *agentlineModel) cancelActiveRun(message string) bool {
@@ -1351,6 +1431,8 @@ func isAllowedWhileRunning(line string) bool {
 	}
 	switch strings.ToLower(strings.TrimSpace(parts[0])) {
 	case "permissions", "perm", "allow", "deny", "cancel", "stop":
+		return true
+	case "questions", "reply", "skip":
 		return true
 	case "acp-events", "acp-events-summary", "acp-events-export":
 		return true
