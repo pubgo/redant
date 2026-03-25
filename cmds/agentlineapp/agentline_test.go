@@ -111,10 +111,49 @@ func TestCollectSlashCompletionItems_ChatCommandFlags(t *testing.T) {
 	}
 }
 
+func TestCollectSlashCompletionItems_ChatCommandShowsFlagsAndArgsWithoutTrailingSpace(t *testing.T) {
+	var (
+		sessionID string
+		prompt    string
+	)
+	root := &redant.Command{
+		Use: "app",
+		Children: []*redant.Command{
+			{
+				Use:      "resume",
+				Short:    "恢复会话",
+				Metadata: agentlinemodule.AgentCommandMetadata(),
+				Options: redant.OptionSet{
+					{Flag: "session-id", Value: redant.StringOf(&sessionID), Description: "会话 ID"},
+					{Flag: "prompt", Value: redant.StringOf(&prompt), Description: "提示词"},
+				},
+				Args: redant.ArgSet{
+					{Name: "topic", Description: "对话主题", Required: true},
+				},
+			},
+		},
+	}
+
+	items := collectSlashCompletionItems(root, "/chat resume", true)
+	if _, ok := findCompletion(items, "--session-id"); !ok {
+		t.Fatalf("expected --session-id in '/chat resume' suggestions")
+	}
+	if _, ok := findCompletion(items, "topic"); !ok {
+		t.Fatalf("expected positional arg 'topic' in '/chat resume' suggestions")
+	}
+}
+
 func TestApplySelectedCompletion_ChatDoesNotDuplicatePrefix(t *testing.T) {
 	got := applySelectedCompletion("/chat ", "/chat commit ")
 	if got != "/chat commit " {
 		t.Fatalf("expected '/chat commit ', got %q", got)
+	}
+}
+
+func TestApplySelectedCompletion_ChatPrefixTokenDoesNotDuplicatePrefix(t *testing.T) {
+	got := applySelectedCompletion("/chat r", "/chat resume ")
+	if got != "/chat resume " {
+		t.Fatalf("expected '/chat resume ', got %q", got)
 	}
 }
 

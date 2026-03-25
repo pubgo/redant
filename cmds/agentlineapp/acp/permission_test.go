@@ -16,7 +16,7 @@ func TestPermissionBroker_RequestResolveSelected(t *testing.T) {
 		resp, _ := b.RequestPermission(context.Background(), acp.RequestPermissionRequest{
 			SessionId: "sess_1",
 			ToolCall:  acp.RequestPermissionToolCall{ToolCallId: "call_1"},
-			Options: []acp.PermissionOption{{OptionId: "allow-once", Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce}},
+			Options:   []acp.PermissionOption{{OptionId: "allow-once", Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce}},
 		})
 		respCh <- resp
 	}()
@@ -69,7 +69,7 @@ func TestCallbackClient_UsesPermissionBroker(t *testing.T) {
 		resp, _ := client.RequestPermission(context.Background(), acp.RequestPermissionRequest{
 			SessionId: "sess_1",
 			ToolCall:  acp.RequestPermissionToolCall{ToolCallId: "call_1"},
-			Options: []acp.PermissionOption{{OptionId: "reject-once", Name: "Reject once", Kind: acp.PermissionOptionKindRejectOnce}},
+			Options:   []acp.PermissionOption{{OptionId: "reject-once", Name: "Reject once", Kind: acp.PermissionOptionKindRejectOnce}},
 		})
 		respCh <- resp
 	}()

@@ -915,17 +915,20 @@ func collectSlashCompletionItems(root *redant.Command, input string, agentOnly b
 		if len(chatTokens) > 0 {
 			cmd, ok := resolveCommandLikeInput(root, strings.Join(chatTokens, " "), false)
 			if ok && cmd != nil {
+				if len(chatTokens) == 1 && strings.EqualFold(strings.TrimSpace(chatTokens[0]), cmd.Name()) {
+					return collectCommandInputItems(cmd, "")
+				}
 				if len(chatTokens) == 1 && len(trimmedRight) < len(input) {
-					return collectCommandFlagItems(cmd, "")
+					return collectCommandInputItems(cmd, "")
 				}
 
 				last := chatTokens[len(chatTokens)-1]
 				if strings.HasPrefix(last, "-") {
-					return collectCommandFlagItems(cmd, last)
+					return collectCommandInputItems(cmd, last)
 				}
 
 				if len(trimmedRight) < len(input) {
-					return collectCommandFlagItems(cmd, "")
+					return collectCommandInputItems(cmd, "")
 				}
 			}
 		}
@@ -1046,6 +1049,51 @@ func collectCommandFlagItems(cmd *redant.Command, prefix string) []completionIte
 	return uniqueCompletionItems(out)
 }
 
+func collectCommandArgItems(cmd *redant.Command, prefix string) []completionItem {
+	if cmd == nil || len(cmd.Args) == 0 {
+		return nil
+	}
+
+	prefix = strings.TrimSpace(prefix)
+	var out []completionItem
+	for i, arg := range cmd.Args {
+		name := strings.TrimSpace(arg.Name)
+		if name == "" {
+			name = fmt.Sprintf("arg%d", i+1)
+		}
+		if prefix != "" && !strings.HasPrefix(name, prefix) {
+			continue
+		}
+
+		desc := strings.TrimSpace(arg.Description)
+		if desc == "" {
+			desc = "命令参数"
+		}
+		if arg.Required {
+			desc = desc + " (required)"
+		}
+		if strings.TrimSpace(arg.Default) != "" {
+			desc = desc + fmt.Sprintf(" (default=%s)", strings.TrimSpace(arg.Default))
+		}
+
+		out = append(out, completionItem{Insert: name + " ", Description: desc})
+	}
+
+	return uniqueCompletionItems(out)
+}
+
+func collectCommandInputItems(cmd *redant.Command, prefix string) []completionItem {
+	prefix = strings.TrimSpace(prefix)
+	if strings.HasPrefix(prefix, "-") {
+		return collectCommandFlagItems(cmd, prefix)
+	}
+
+	out := make([]completionItem, 0, 8)
+	out = append(out, collectCommandArgItems(cmd, prefix)...)
+	out = append(out, collectCommandFlagItems(cmd, prefix)...)
+	return uniqueCompletionItems(out)
+}
+
 func collectCommandSlashItems(root *redant.Command, agentOnly bool, prefix string) []completionItem {
 	if root == nil {
 		return nil
@@ -1113,6 +1161,12 @@ func (m *agentlineModel) applySuggestion() {
 func applySelectedCompletion(input, selected string) string {
 	trimmedRight := strings.TrimRightFunc(input, unicode.IsSpace)
 	if trimmedRight == "" {
+		if strings.HasSuffix(selected, " ") {
+			return selected
+		}
+		return selected + " "
+	}
+	if strings.HasPrefix(strings.TrimSpace(selected), "/") {
 		if strings.HasSuffix(selected, " ") {
 			return selected
 		}

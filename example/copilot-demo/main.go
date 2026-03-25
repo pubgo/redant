@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -44,10 +47,17 @@ func main() {
 		hydrateTimeout       string
 		hydrateMaxScanEvents int64
 
-		deleteSessionID string
+		deleteSessionID  string
+		inspectSessionID string
 
 		acpTurnPrompt      string
 		permissionDecision string
+
+		dumpSessionEvents bool
+		eventsLimit       int64
+		eventsRaw         bool
+		eventsOut         string
+		eventsView        string
 	)
 
 	rootCmd := &redant.Command{
@@ -74,29 +84,67 @@ func main() {
 		Metadata: agentlinemodule.AgentCommandMetadata(),
 		Options: redant.OptionSet{
 			{Flag: "prompt", Shorthand: "p", Description: "要发送给 Copilot 的提示词", Value: redant.StringOf(&prompt), Required: true},
-			{Flag: "session-id", Description: "指定会话 ID（可选，不指定则自动生成）", Value: redant.StringOf(&sessionID)},
+			{Flag: "session-id", Description: "指定会话 ID（可选；提供时按 resume 模式继续会话）", Value: redant.StringOf(&sessionID)},
+			{Flag: "dump-events", Description: "打印 GetMessages 事件详情（含 ResumeSession 后事件）", Value: redant.BoolOf(&dumpSessionEvents), Default: "false"},
+			{Flag: "events-limit", Description: "最多打印最近 N 条事件（0 表示全部）", Value: redant.Int64Of(&eventsLimit), Default: "80"},
+			{Flag: "events-raw", Description: "打印事件 data 的完整 JSON（默认摘要）", Value: redant.BoolOf(&eventsRaw), Default: "false"},
+			{Flag: "events-out", Description: "事件导出文件（JSONL，默认 data.jsonl）", Value: redant.StringOf(&eventsOut), Default: "data.jsonl"},
+			{Flag: "events-view", Description: "事件展示模式(timeline/summary/none)", Value: redant.StringOf(&eventsView), Default: "timeline"},
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			return withClient(ctx, inv, clientOptions{cliPath: cliPath, logLevel: logLevel, cwd: workingDir, token: githubToken, useLoggedInUser: useLoggedInUser}, func(ctx context.Context, client *copilot.Client) error {
-				tool := newEchoTool(inv)
-				session, err := client.CreateSession(ctx, &copilot.SessionConfig{
-					SessionID:           strings.TrimSpace(sessionID),
-					Model:               strings.TrimSpace(model),
-					ReasoningEffort:     strings.TrimSpace(reasoningEffort),
-					Streaming:           streaming,
-					Tools:               []copilot.Tool{tool},
-					SystemMessage:       buildSystemMessage(systemMessage),
-					OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
-					OnUserInputRequest:  buildUserInputHandler(inv, autoUserAnswer),
-					Hooks:               buildHooks(inv),
-				})
-				if err != nil {
-					return fmt.Errorf("create session: %w", err)
-				}
-				demoRT.StoreSession(session)
-				_, _ = fmt.Fprintf(inv.Stdout, "session created and cached: %s\n", strings.TrimSpace(session.SessionID))
+				sid := strings.TrimSpace(sessionID)
+				var (
+					session *copilot.Session
+					err     error
+				)
 
-				return sendPromptAndRender(ctx, inv, session, strings.TrimSpace(prompt), streaming)
+				if sid != "" {
+					if cached, ok := demoRT.GetSession(sid); ok {
+						session = cached
+						_, _ = fmt.Fprintf(inv.Stdout, "chat switched to resume mode, reuse cached session: %s\n", sid)
+					} else {
+						session, err = client.ResumeSession(ctx, sid, &copilot.ResumeSessionConfig{
+							Model:               strings.TrimSpace(model),
+							ReasoningEffort:     strings.TrimSpace(reasoningEffort),
+							Streaming:           streaming,
+							OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+							OnUserInputRequest:  buildUserInputHandler(inv, autoUserAnswer),
+							Hooks:               buildHooks(inv),
+						})
+						if err != nil {
+							return fmt.Errorf("chat resume session: %w", err)
+						}
+						demoRT.StoreSession(session)
+						_, _ = fmt.Fprintf(inv.Stdout, "chat switched to resume mode, session resumed and cached: %s\n", sid)
+					}
+					if dumpSessionEvents {
+						_ = dumpSessionMessages(ctx, inv, session, "after-resume", int(eventsLimit), eventsRaw, strings.TrimSpace(eventsOut), strings.TrimSpace(eventsView))
+					}
+				} else {
+					tool := newEchoTool(inv)
+					session, err = client.CreateSession(ctx, &copilot.SessionConfig{
+						Model:               strings.TrimSpace(model),
+						ReasoningEffort:     strings.TrimSpace(reasoningEffort),
+						Streaming:           streaming,
+						Tools:               []copilot.Tool{tool},
+						SystemMessage:       buildSystemMessage(systemMessage),
+						OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+						OnUserInputRequest:  buildUserInputHandler(inv, autoUserAnswer),
+						Hooks:               buildHooks(inv),
+					})
+					if err != nil {
+						return fmt.Errorf("create session: %w", err)
+					}
+					demoRT.StoreSession(session)
+					_, _ = fmt.Fprintf(inv.Stdout, "session created and cached: %s\n", strings.TrimSpace(session.SessionID))
+				}
+
+				err = sendPromptAndRender(ctx, inv, session, strings.TrimSpace(prompt), streaming)
+				if dumpSessionEvents {
+					_ = dumpSessionMessages(ctx, inv, session, "after-prompt", int(eventsLimit), eventsRaw, strings.TrimSpace(eventsOut), strings.TrimSpace(eventsView))
+				}
+				return err
 			})
 		},
 	}
@@ -108,6 +156,11 @@ func main() {
 		Options: redant.OptionSet{
 			{Flag: "session-id", Description: "待恢复的会话 ID", Value: redant.StringOf(&sessionID), Required: true},
 			{Flag: "prompt", Shorthand: "p", Description: "继续发送的提示词", Value: redant.StringOf(&prompt), Default: "继续"},
+			{Flag: "dump-events", Description: "打印 GetMessages 事件详情（含 ResumeSession 后事件）", Value: redant.BoolOf(&dumpSessionEvents), Default: "false"},
+			{Flag: "events-limit", Description: "最多打印最近 N 条事件（0 表示全部）", Value: redant.Int64Of(&eventsLimit), Default: "80"},
+			{Flag: "events-raw", Description: "打印事件 data 的完整 JSON（默认摘要）", Value: redant.BoolOf(&eventsRaw), Default: "false"},
+			{Flag: "events-out", Description: "事件导出文件（JSONL，默认 data.jsonl）", Value: redant.StringOf(&eventsOut), Default: "data.jsonl"},
+			{Flag: "events-view", Description: "事件展示模式(timeline/summary/none)", Value: redant.StringOf(&eventsView), Default: "timeline"},
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			return withClient(ctx, inv, clientOptions{cliPath: cliPath, logLevel: logLevel, cwd: workingDir, token: githubToken, useLoggedInUser: useLoggedInUser}, func(ctx context.Context, client *copilot.Client) error {
@@ -136,8 +189,15 @@ func main() {
 					_, _ = fmt.Fprintf(inv.Stdout, "session resumed and cached: %s\n", sid)
 				}
 
+				if dumpSessionEvents {
+					_ = dumpSessionMessages(ctx, inv, session, "after-resume", int(eventsLimit), eventsRaw, strings.TrimSpace(eventsOut), strings.TrimSpace(eventsView))
+				}
+
 				promptText := withDefault(strings.TrimSpace(prompt), "请继续")
 				err = sendPromptAndRender(ctx, inv, session, promptText, streaming)
+				if dumpSessionEvents {
+					_ = dumpSessionMessages(ctx, inv, session, "after-prompt", int(eventsLimit), eventsRaw, strings.TrimSpace(eventsOut), strings.TrimSpace(eventsView))
+				}
 				if err == nil {
 					return nil
 				}
@@ -161,7 +221,14 @@ func main() {
 				}
 				demoRT.StoreSession(session)
 				_, _ = fmt.Fprintf(inv.Stdout, "cached session invalid, resumed again: %s\n", sid)
-				return sendPromptAndRender(ctx, inv, session, promptText, streaming)
+				if dumpSessionEvents {
+					_ = dumpSessionMessages(ctx, inv, session, "after-resume-fallback", int(eventsLimit), eventsRaw, strings.TrimSpace(eventsOut), strings.TrimSpace(eventsView))
+				}
+				err = sendPromptAndRender(ctx, inv, session, promptText, streaming)
+				if dumpSessionEvents {
+					_ = dumpSessionMessages(ctx, inv, session, "after-prompt-fallback", int(eventsLimit), eventsRaw, strings.TrimSpace(eventsOut), strings.TrimSpace(eventsView))
+				}
+				return err
 			})
 		},
 	}
@@ -308,6 +375,50 @@ func main() {
 		},
 	}
 
+	eventsCmd := &redant.Command{
+		Use:      "events",
+		Short:    "只读查看会话事件（ResumeSession + GetMessages）。",
+		Metadata: agentlinemodule.AgentCommandMetadata(),
+		Options: redant.OptionSet{
+			{Flag: "session-id", Description: "待查看的会话 ID", Value: redant.StringOf(&inspectSessionID), Required: true},
+			{Flag: "events-limit", Description: "最多打印最近 N 条事件（0 表示全部）", Value: redant.Int64Of(&eventsLimit), Default: "80"},
+			{Flag: "events-raw", Description: "打印事件 data 的完整 JSON（默认摘要）", Value: redant.BoolOf(&eventsRaw), Default: "false"},
+			{Flag: "events-out", Description: "事件导出文件（JSONL，默认 data.jsonl）", Value: redant.StringOf(&eventsOut), Default: "data.jsonl"},
+			{Flag: "events-view", Description: "事件展示模式(timeline/summary/none)", Value: redant.StringOf(&eventsView), Default: "timeline"},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			return withClient(ctx, inv, clientOptions{cliPath: cliPath, logLevel: logLevel, cwd: workingDir, token: githubToken, useLoggedInUser: useLoggedInUser}, func(ctx context.Context, client *copilot.Client) error {
+				sid := strings.TrimSpace(inspectSessionID)
+				if sid == "" {
+					return fmt.Errorf("session-id 不能为空")
+				}
+
+				if cached, ok := demoRT.GetSession(sid); ok {
+					_, _ = fmt.Fprintf(inv.Stdout, "events uses cached session: %s\n", sid)
+					return dumpSessionMessages(ctx, inv, cached, "events", int(eventsLimit), eventsRaw, strings.TrimSpace(eventsOut), strings.TrimSpace(eventsView))
+				}
+
+				tmpSession, err := client.ResumeSession(ctx, sid, &copilot.ResumeSessionConfig{
+					Model:               strings.TrimSpace(model),
+					ReasoningEffort:     strings.TrimSpace(reasoningEffort),
+					Streaming:           false,
+					OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+					DisableResume:       true,
+				})
+				if err != nil {
+					return fmt.Errorf("events resume session: %w", err)
+				}
+				defer func() {
+					if derr := tmpSession.Disconnect(); derr != nil {
+						_, _ = fmt.Fprintf(inv.Stderr, "warn: events disconnect failed: %v\n", derr)
+					}
+				}()
+				_, _ = fmt.Fprintf(inv.Stdout, "events resumed temporary session: %s\n", sid)
+				return dumpSessionMessages(ctx, inv, tmpSession, "events", int(eventsLimit), eventsRaw, strings.TrimSpace(eventsOut), strings.TrimSpace(eventsView))
+			})
+		},
+	}
+
 	acpTurnCmd := &redant.Command{
 		Use:      "acp-turn",
 		Short:    "运行一次 ACP 权限回合演示（显式命令入口）。",
@@ -344,6 +455,7 @@ func main() {
 	rootCmd.Children = []*redant.Command{
 		chatCmd,
 		resumeCmd,
+		eventsCmd,
 		listSessionsCmd,
 		lastSessionCmd,
 		deleteSessionCmd,
@@ -526,12 +638,18 @@ func sendPromptAndRender(ctx context.Context, inv *redant.Invocation, session *c
 		return fmt.Errorf("prompt 不能为空")
 	}
 
+	startedAt := time.Now()
 	_, _ = fmt.Fprintf(inv.Stdout, "session=%s\n", session.SessionID)
+	tracef(inv.Stdout, "send_prompt.start session=%s stream=%v prompt=%q", session.SessionID, stream, compactText(prompt, 200))
 
 	done := make(chan struct{}, 1)
 	errCh := make(chan error, 1)
+	var eventCount int64
 
 	unsubscribe := session.On(func(event copilot.SessionEvent) {
+		seq := atomic.AddInt64(&eventCount, 1)
+		tracef(inv.Stdout, "session.event #%d +%s type=%s summary=%s", seq, sinceText(startedAt), event.Type, summarizeSessionEvent(event))
+
 		switch event.Type {
 		case "assistant.message_delta", "assistant.reasoning_delta":
 			if stream && event.Data.DeltaContent != nil {
@@ -552,32 +670,43 @@ func sendPromptAndRender(ctx context.Context, inv *redant.Invocation, session *c
 				}
 			}
 		case "session.idle":
+			tracef(inv.Stdout, "session.idle observed after %s", sinceText(startedAt))
 			select {
 			case done <- struct{}{}:
 			default:
 			}
 		}
 	})
-	defer unsubscribe()
+	defer func() {
+		unsubscribe()
+		tracef(inv.Stdout, "send_prompt.unsubscribe session=%s events=%d elapsed=%s", session.SessionID, atomic.LoadInt64(&eventCount), sinceText(startedAt))
+	}()
 
+	tracef(inv.Stdout, "send_prompt.dispatch session=%s", session.SessionID)
 	if _, err := session.Send(ctx, copilot.MessageOptions{Prompt: prompt}); err != nil {
+		tracef(inv.Stdout, "send_prompt.dispatch_failed session=%s err=%v", session.SessionID, err)
 		return fmt.Errorf("send prompt: %w", err)
 	}
+	tracef(inv.Stdout, "send_prompt.dispatched session=%s", session.SessionID)
 
 	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
+	tracef(inv.Stdout, "send_prompt.wait_idle timeout=%s", (2 * time.Minute).String())
 
 	select {
 	case <-done:
+		tracef(inv.Stdout, "send_prompt.done session=%s elapsed=%s", session.SessionID, sinceText(startedAt))
 		return nil
 	case err := <-errCh:
+		tracef(inv.Stdout, "send_prompt.error session=%s err=%v elapsed=%s", session.SessionID, err, sinceText(startedAt))
 		return err
 	case <-waitCtx.Done():
+		tracef(inv.Stdout, "send_prompt.timeout session=%s elapsed=%s", session.SessionID, sinceText(startedAt))
 		return fmt.Errorf("wait session idle: %w", waitCtx.Err())
 	}
 }
 
-func runACPTurnDemo(ctx context.Context, prompt string, decision string) (acp.StopReason, []acp.SessionNotification, error) {
+func runACPTurnDemo(ctx context.Context, prompt, decision string) (acp.StopReason, []acp.SessionNotification, error) {
 	prompt = withDefault(strings.TrimSpace(prompt), "请执行一次需要权限确认的操作")
 	decision = strings.TrimSpace(strings.ToLower(decision))
 
@@ -695,10 +824,12 @@ func buildHooks(inv *redant.Invocation) *copilot.SessionHooks {
 	return &copilot.SessionHooks{
 		OnSessionStart: func(input copilot.SessionStartHookInput, invocation copilot.HookInvocation) (*copilot.SessionStartHookOutput, error) {
 			_, _ = fmt.Fprintf(inv.Stdout, "[hook] session start: source=%s session=%s\n", input.Source, invocation.SessionID)
+			tracef(inv.Stdout, "hook.session_start input=%s invocation=%s", compactText(mustJSON(input), 300), compactText(mustJSON(invocation), 300))
 			return nil, nil
 		},
 		OnSessionEnd: func(input copilot.SessionEndHookInput, invocation copilot.HookInvocation) (*copilot.SessionEndHookOutput, error) {
 			_, _ = fmt.Fprintf(inv.Stdout, "[hook] session end: reason=%s session=%s\n", input.Reason, invocation.SessionID)
+			tracef(inv.Stdout, "hook.session_end input=%s invocation=%s", compactText(mustJSON(input), 300), compactText(mustJSON(invocation), 300))
 			return nil, nil
 		},
 	}
@@ -716,8 +847,187 @@ func buildUserInputHandler(inv *redant.Invocation, answer string) copilot.UserIn
 	ans := withDefault(strings.TrimSpace(answer), "继续执行")
 	return func(request copilot.UserInputRequest, invocation copilot.UserInputInvocation) (copilot.UserInputResponse, error) {
 		_, _ = fmt.Fprintf(inv.Stdout, "[ask_user] session=%s question=%s\n", invocation.SessionID, request.Question)
+		tracef(inv.Stdout, "ask_user.request session=%s payload=%s", invocation.SessionID, compactText(mustJSON(request), 300))
+		tracef(inv.Stdout, "ask_user.response session=%s answer=%q", invocation.SessionID, ans)
 		return copilot.UserInputResponse{Answer: ans, WasFreeform: true}, nil
 	}
+}
+
+func summarizeSessionEvent(event copilot.SessionEvent) string {
+	parts := make([]string, 0, 6)
+	if event.Data.DeltaContent != nil {
+		parts = append(parts, "delta="+compactText(*event.Data.DeltaContent, 120))
+	}
+	if event.Data.Content != nil {
+		parts = append(parts, "content="+compactText(*event.Data.Content, 120))
+	}
+	if event.Data.Message != nil {
+		parts = append(parts, "message="+compactText(*event.Data.Message, 120))
+	}
+	raw := mustJSON(event.Data)
+	if strings.TrimSpace(raw) != "" && raw != "{}" {
+		parts = append(parts, "data="+compactText(raw, 280))
+	}
+	if len(parts) == 0 {
+		return "(no-known-fields)"
+	}
+	return strings.Join(parts, " | ")
+}
+
+func dumpSessionMessages(ctx context.Context, inv *redant.Invocation, session *copilot.Session, stage string, limit int, raw bool, outFile, view string) error {
+	if session == nil {
+		return fmt.Errorf("session is nil")
+	}
+	if inv == nil || inv.Stdout == nil {
+		return fmt.Errorf("invocation stdout is nil")
+	}
+
+	events, err := session.GetMessages(ctx)
+	if err != nil {
+		_, _ = fmt.Fprintf(inv.Stdout, "[events:%s] get messages failed: %v\n", stage, err)
+		return err
+	}
+
+	total := len(events)
+	start := 0
+	if limit > 0 && total > limit {
+		start = total - limit
+	}
+
+	_, _ = fmt.Fprintf(inv.Stdout, "[events:%s] session=%s total=%d showing=%d..%d\n", stage, strings.TrimSpace(session.SessionID), total, start+1, total)
+
+	shown := make([]copilot.SessionEvent, 0, total-start)
+	for i := start; i < total; i++ {
+		e := events[i]
+		shown = append(shown, e)
+		summary := summarizeSessionEvent(e)
+		_, _ = fmt.Fprintf(inv.Stdout, "[events:%s] #%d type=%s summary=%s\n", stage, i+1, strings.TrimSpace(string(e.Type)), summary)
+		if raw {
+			_, _ = fmt.Fprintf(inv.Stdout, "[events:%s] #%d data.raw=%s\n", stage, i+1, mustJSON(e.Data))
+		}
+	}
+
+	outFile = withDefault(strings.TrimSpace(outFile), "data.jsonl")
+	if err := appendEventsJSONL(outFile, stage, strings.TrimSpace(session.SessionID), start, shown); err != nil {
+		_, _ = fmt.Fprintf(inv.Stdout, "[events:%s] write jsonl failed: %v\n", stage, err)
+	} else {
+		_, _ = fmt.Fprintf(inv.Stdout, "[events:%s] jsonl appended: %s (%d events)\n", stage, outFile, len(shown))
+	}
+
+	renderEventsProcessView(inv.Stdout, stage, start, shown, view)
+	return nil
+}
+
+type sessionEventRecord struct {
+	CapturedAt        string                 `json:"captured_at"`
+	Stage             string                 `json:"stage"`
+	SessionID         string                 `json:"session_id"`
+	SessionEventIndex int                    `json:"session_event_index"`
+	Type              string                 `json:"type"`
+	Summary           string                 `json:"summary"`
+	Data              map[string]interface{} `json:"data"`
+}
+
+func appendEventsJSONL(path, stage, sessionID string, startIndex int, events []copilot.SessionEvent) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	enc := json.NewEncoder(f)
+	now := time.Now().Format(time.RFC3339Nano)
+	for i, e := range events {
+		record := sessionEventRecord{
+			CapturedAt:        now,
+			Stage:             stage,
+			SessionID:         sessionID,
+			SessionEventIndex: startIndex + i + 1,
+			Type:              strings.TrimSpace(string(e.Type)),
+			Summary:           summarizeSessionEvent(e),
+			Data:              eventDataMap(e.Data),
+		}
+		if err := enc.Encode(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func eventDataMap(v interface{}) map[string]interface{} {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return map[string]interface{}{"_marshal_error": err.Error(), "_value": fmt.Sprintf("%+v", v)}
+	}
+	out := map[string]interface{}{}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return map[string]interface{}{"_unmarshal_error": err.Error(), "_raw": string(b)}
+	}
+	return out
+}
+
+func renderEventsProcessView(w io.Writer, stage string, startIndex int, events []copilot.SessionEvent, view string) {
+	if w == nil || len(events) == 0 {
+		return
+	}
+	view = strings.ToLower(strings.TrimSpace(view))
+	if view == "" {
+		view = "timeline"
+	}
+	if view == "none" {
+		return
+	}
+
+	typeCounts := map[string]int{}
+	for _, e := range events {
+		typeCounts[strings.TrimSpace(string(e.Type))]++
+	}
+
+	keys := make([]string, 0, len(typeCounts))
+	for k := range typeCounts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	_, _ = fmt.Fprintf(w, "[events:%s:view] mode=%s total=%d\n", stage, view, len(events))
+	_, _ = fmt.Fprintf(w, "[events:%s:view] type-counts:", stage)
+	for _, k := range keys {
+		_, _ = fmt.Fprintf(w, " %s=%d", k, typeCounts[k])
+	}
+	_, _ = fmt.Fprintln(w)
+
+	if view == "summary" {
+		return
+	}
+
+	for i, e := range events {
+		idx := startIndex + i + 1
+		t := strings.TrimSpace(string(e.Type))
+		s := summarizeSessionEvent(e)
+		_, _ = fmt.Fprintf(w, "[events:%s:view] #%d %-28s %s\n", stage, idx, t, compactText(s, 220))
+	}
+}
+
+func mustJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%+v", v)
+	}
+	return string(b)
+}
+
+func tracef(w io.Writer, format string, args ...any) {
+	if w == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "[trace] "+format+"\n", args...)
+}
+
+func sinceText(startedAt time.Time) string {
+	if startedAt.IsZero() {
+		return "0s"
+	}
+	return time.Since(startedAt).Truncate(time.Millisecond).String()
 }
 
 func newEchoTool(inv *redant.Invocation) copilot.Tool {

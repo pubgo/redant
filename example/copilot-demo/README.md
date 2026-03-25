@@ -7,6 +7,7 @@
 - 连接与健康检查：`status`（包含 `Ping`、`GetStatus`、`GetAuthStatus`）
 - 新会话对话：`chat`
 - 恢复会话：`resume`
+- 只读查看会话事件：`events`
 - 会话管理：`sessions`、`last-session`、`delete-session`
 - 模型发现：`models`
 - 可视化控制台：`web`（集成 `cmds/webcmd`）
@@ -24,8 +25,20 @@
   - `go run example/copilot-demo/main.go status`
 - 新建会话并对话：
   - `go run example/copilot-demo/main.go chat --prompt "解释一下 redant 的命令分发"`
+- 使用 `chat` 继续指定会话（提供 `session-id` 时自动进入 resume 模式）：
+  - `go run example/copilot-demo/main.go chat --session-id <SESSION_ID> --prompt "继续"`
+  - `go run example/copilot-demo/main.go chat --session-id <SESSION_ID> --prompt "继续" --dump-events`
 - 恢复会话继续对话：
   - `go run example/copilot-demo/main.go resume --session-id <SESSION_ID> --prompt "继续"`
+  - `go run example/copilot-demo/main.go resume --session-id <SESSION_ID> --prompt "继续" --dump-events`
+  - `go run example/copilot-demo/main.go resume --session-id <SESSION_ID> --prompt "继续" --dump-events --events-limit 200 --events-raw`
+- 只读查看会话事件（不发送 prompt）：
+  - `go run example/copilot-demo/main.go events --session-id <SESSION_ID>`
+  - `go run example/copilot-demo/main.go events --session-id <SESSION_ID> --events-limit 200 --events-raw`
+  - `go run example/copilot-demo/main.go events --session-id <SESSION_ID> --events-out data.jsonl --events-view timeline`
+  - `go run example/copilot-demo/main.go events --session-id <SESSION_ID> --events-out data.jsonl --events-view summary`
+
+> 说明：`--events-out` 默认为 `data.jsonl`（JSONL 逐行记录），便于后续 grep/jq 分析；`--events-view` 用于控制终端展示样式：`timeline`（默认，适合回放全过程）/`summary`（仅统计）/`none`（只导出文件）。
 - 列出会话：
   - `go run example/copilot-demo/main.go sessions`
 - 补全会话摘要（恢复会话并抓最近消息）：
