@@ -36,6 +36,8 @@ var (
 	styleHint        = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	styleDescription = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 	styleRunning     = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+	styleStatusIdle  = lipgloss.NewStyle().Foreground(lipgloss.Color("114")).Bold(true)
+	styleStatusBusy  = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
 	styleSelectedRow = lipgloss.NewStyle().Background(lipgloss.Color("62")).Foreground(lipgloss.Color("230")).Bold(true)
 	styleBlockHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("110")).Bold(true)
 
@@ -163,6 +165,7 @@ type richlineModel struct {
 	outputOffset   int
 	outputFocus    bool
 	starterPinned  bool
+	runningCommand string
 }
 
 type runLineResultMsg struct {
@@ -212,6 +215,7 @@ func (m *richlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case runLineResultMsg:
 		m.running = false
+		m.runningCommand = ""
 		if strings.TrimSpace(msg.block.Title) != "" || len(msg.block.Lines) > 0 {
 			m.appendBlock(msg.block)
 			m.outputOffset = 0
@@ -236,7 +240,7 @@ func (m *richlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "ctrl+o":
-			m.outputFocus = !m.outputFocus
+			m.toggleOutputFocusWithNotice()
 			return m, nil
 		case "esc":
 			if m.outputFocus {
@@ -358,6 +362,7 @@ func (m *richlineModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 			m.running = true
+			m.runningCommand = line
 			m.outputFocus = false
 			return m, runLineCmd(m.ctx, m.root, line)
 		}
@@ -378,12 +383,27 @@ func (m *richlineModel) View() tea.View {
 	offset := clampOutputOffset(m.outputOffset, len(renderedLines), outputRows)
 	start, end := visibleOutputRange(len(renderedLines), outputRows, offset)
 
-	mode := "输入模式"
-	if m.outputFocus {
-		mode = "输出滚动"
+	statusText := "IDLE"
+	statusStyle := styleStatusIdle
+	if m.running {
+		statusText = "RUNNING"
+		statusStyle = styleStatusBusy
+	} else if m.outputFocus {
+		statusText = "OUTPUT_SCROLL"
+		statusStyle = styleStatusBusy
 	}
-	header := fmt.Sprintf("输出历史（%d 行，%d 块，显示 %d-%d，%s）", len(renderedLines), len(m.blocks), displayStart(start, end), end, mode)
+	status := statusStyle.Render(statusText)
+
+	focus := "INPUT"
+	if m.outputFocus {
+		focus = "OUTPUT"
+	}
+	header := fmt.Sprintf("richline · status=%s · focus=%s · blocks=%d · lines=%d", status, focus, len(m.blocks), len(renderedLines))
 	b.WriteString(styleHeader.Render(truncateDisplayWidth(header, contentWidth)))
+	b.WriteByte('\n')
+	b.WriteString(styleHeader.Render(truncateDisplayWidth(fmt.Sprintf("输出区域（%d-%d/%d）", displayStart(start, end), end, len(renderedLines)), contentWidth)))
+	b.WriteByte('\n')
+	b.WriteString(styleHint.Render(truncateDisplayWidth(fmt.Sprintf("滚动状态：offset=%d rows=%d", offset, outputRows), contentWidth)))
 	b.WriteByte('\n')
 
 	if len(renderedLines) == 0 {
@@ -428,14 +448,24 @@ func (m *richlineModel) View() tea.View {
 
 	if m.running {
 		b.WriteString("\n")
+		if cmd := strings.TrimSpace(m.runningCommand); cmd != "" {
+			b.WriteString(styleRunning.Render(truncateDisplayWidth("执行中: "+cmd, contentWidth)))
+			b.WriteByte('\n')
+		}
 		b.WriteString(styleRunning.Render(truncateDisplayWidth("执行中...", contentWidth)))
+		b.WriteByte('\n')
+		b.WriteString(styleHint.Render(truncateDisplayWidth("运行中暂不接收普通命令，请等待完成；可用 Ctrl+C 退出。", contentWidth)))
 		b.WriteByte('\n')
 	}
 
 	b.WriteByte('\n')
 	b.WriteString(m.input.View())
 	b.WriteByte('\n')
-	b.WriteString(styleHint.Render(truncateDisplayWidth("输出历史：PgUp/PgDn 翻页，Home/End 顶/底；Ctrl+O 或 /output 进入精细滚动；/help 查看 slash 命令", contentWidth)))
+	if m.outputFocus {
+		b.WriteString(styleHint.Render(truncateDisplayWidth("当前焦点=输出区：↑/↓ 单行滚动，PgUp/PgDn 翻页，Home/End 顶/底；Ctrl+O 或 /input 返回输入区。", contentWidth)))
+	} else {
+		b.WriteString(styleHint.Render(truncateDisplayWidth("当前焦点=输入区：可输入命令执行；Ctrl+O 或 /output 切换到输出滚动；/help 查看 slash 命令。", contentWidth)))
+	}
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	return v
@@ -490,6 +520,23 @@ func (m *richlineModel) handleSlashCommand(line string) (bool, tea.Cmd) {
 
 	m.normalizeOutputOffset()
 	return true, nil
+}
+
+func (m *richlineModel) toggleOutputFocusWithNotice() {
+	m.outputFocus = !m.outputFocus
+	if m.outputFocus {
+		m.appendBlock(outputBlock{Title: "focus", Lines: []string{
+			"已切换到输出滚动模式。",
+			"使用 ↑/↓ 单行滚动，PgUp/PgDn 翻页，Home/End 顶/底；Ctrl+O 可返回输入模式。",
+		}})
+	} else {
+		m.appendBlock(outputBlock{Title: "focus", Lines: []string{
+			"已切换到输入模式。",
+			"可继续输入命令执行；Ctrl+O 可再次进入输出滚动模式。",
+		}})
+	}
+	m.outputOffset = 0
+	m.normalizeOutputOffset()
 }
 
 func displayStart(start, end int) int {

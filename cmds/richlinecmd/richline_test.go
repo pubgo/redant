@@ -2,6 +2,7 @@ package richlinecmd
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -10,6 +11,12 @@ import (
 
 	"github.com/pubgo/redant"
 )
+
+var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string {
+	return ansiRegexp.ReplaceAllString(s, "")
+}
 
 func TestCollectCompletionItems_WithDescription(t *testing.T) {
 	root := buildTestRoot()
@@ -294,6 +301,33 @@ func TestHandleSlashCommand_ModeSwitch(t *testing.T) {
 	}
 }
 
+func TestCtrlO_ToggleFocusWithNoticeBlock(t *testing.T) {
+	root := buildTestRoot()
+	m := newRichlineModel(context.Background(), root, "richline> ", nil, "", false)
+	baseBlocks := len(m.blocks)
+
+	m.toggleOutputFocusWithNotice()
+	if !m.outputFocus {
+		t.Fatalf("expected outputFocus=true after first Ctrl+O")
+	}
+	if len(m.blocks) <= baseBlocks {
+		t.Fatalf("expected notice block appended after first Ctrl+O")
+	}
+	last := m.blocks[len(m.blocks)-1]
+	if last.Title != "focus" || !strings.Contains(strings.Join(last.Lines, "\n"), "输出滚动模式") {
+		t.Fatalf("expected output-focus notice block, got title=%q lines=%v", last.Title, last.Lines)
+	}
+
+	m.toggleOutputFocusWithNotice()
+	if m.outputFocus {
+		t.Fatalf("expected outputFocus=false after second Ctrl+O")
+	}
+	last = m.blocks[len(m.blocks)-1]
+	if last.Title != "focus" || !strings.Contains(strings.Join(last.Lines, "\n"), "输入模式") {
+		t.Fatalf("expected input-focus notice block, got title=%q lines=%v", last.Title, last.Lines)
+	}
+}
+
 func TestHandleSlashCommand_HelpAndUnknown(t *testing.T) {
 	root := buildTestRoot()
 	m := newRichlineModel(context.Background(), root, "richline> ", nil, "", false)
@@ -397,6 +431,62 @@ func TestStarterSuggestionsPinnedOnEmptyInput(t *testing.T) {
 	m = model.(*richlineModel)
 	if len(m.suggestions) == 0 {
 		t.Fatalf("expected starter suggestions kept after non-key message")
+	}
+}
+
+func TestView_ShowsStatusHeader(t *testing.T) {
+	root := buildTestRoot()
+	m := newRichlineModel(context.Background(), root, "richline> ", nil, "", false)
+	m.width = 100
+	m.height = 24
+
+	v := m.View()
+	content := stripANSI(v.Content)
+	if !strings.Contains(content, "status=IDLE") {
+		t.Fatalf("expected view contains status=IDLE, got: %s", content)
+	}
+}
+
+func TestView_ShowsRunningCommandHint(t *testing.T) {
+	root := buildTestRoot()
+	m := newRichlineModel(context.Background(), root, "richline> ", nil, "", false)
+	m.width = 120
+	m.height = 24
+	m.running = true
+	m.runningCommand = "commit --message hello"
+
+	v := m.View()
+	content := stripANSI(v.Content)
+	if !strings.Contains(content, "status=RUNNING") {
+		t.Fatalf("expected view contains status=RUNNING")
+	}
+	if !strings.Contains(content, "执行中: commit --message hello") {
+		t.Fatalf("expected running command hint in view")
+	}
+}
+
+func TestView_ShowsOutputFocusAndScrollStatus(t *testing.T) {
+	root := buildTestRoot()
+	m := newRichlineModel(context.Background(), root, "richline> ", nil, "", false)
+	m.width = 120
+	m.height = 24
+	m.outputFocus = true
+	m.outputOffset = 3
+	m.appendBlock(outputBlock{Title: "$ app commit", Lines: []string{"line1", "line2", "line3", "line4", "line5", "line6"}})
+
+	v := m.View()
+	content := stripANSI(v.Content)
+	if !strings.Contains(content, "status=OUTPUT_SCROLL") {
+		t.Fatalf("expected view contains status=OUTPUT_SCROLL")
+	}
+	if !strings.Contains(content, "focus=OUTPUT") {
+		t.Fatalf("expected view contains focus=OUTPUT")
+	}
+	if !strings.Contains(content, "滚动状态：offset=") {
+		t.Fatalf("expected view contains scroll state line")
+	}
+	if !strings.Contains(content, "当前焦点=输出区") {
+		t.Fatalf("expected output focus hint in view")
 	}
 }
 

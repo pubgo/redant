@@ -101,6 +101,21 @@ app webtty --addr 127.0.0.1:18081 --open=false
 
 `webtty` 提供最简本地 Web 终端能力（`WebSocket + PTY`），并支持文件上传/下载。详细接口与迭代路线见：[`docs/WEBTTY.md`](docs/WEBTTY.md)。
 
+### Richline 交互终端（可选挂载）
+
+若你的应用挂载了 `cmds/richlinecmd`，可通过以下方式进入交互终端：
+
+```text
+app richline
+```
+
+当前 richline 界面支持：
+
+- 状态栏：`IDLE / RUNNING / OUTPUT_SCROLL`
+- 焦点提示：`focus=INPUT / OUTPUT`
+- 输出区滚动状态：显示 `offset/rows`
+- 快捷切换：`Ctrl+O` 在输入区与输出滚动区之间切换，并给出显式切换提示
+
 ### MCP 集成
 
 ```text

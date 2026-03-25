@@ -77,6 +77,7 @@
 - 调整 `example/copilot-demo resume`：`prompt` 参数改为可选，默认使用“继续”。
 - 增强 `cmds/webttycmd` 上传体验：支持可配置并发上传、总进度统计，以及单文件取消/全部取消，提升大批量文件场景的可控性。
 - 增强 `cmds/webttycmd` 会话与下载能力：支持前端自动重连（指数退避）/手动重连，新增目录打包下载接口（`/download-zip`），并提供上传调度策略（FIFO/小文件优先/大文件优先）。
+- 增强 `cmds/richlinecmd` 终端提示体验：状态栏新增 `IDLE/RUNNING/OUTPUT_SCROLL`，显示 `focus=INPUT/OUTPUT` 与输出区滚动状态（`offset/rows`）；`Ctrl+O` 切换输入/输出焦点时追加显式提示块，便于识别当前交互模式。
 
 ## 文档
 
