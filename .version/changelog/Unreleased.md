@@ -21,6 +21,7 @@
 - 调整 `example/copilot-demo` 交互可见命令：`sessions` 标记为 `agent.command=true`，可在 `agentline` 中通过 `/sessions`（含 `--hydrate`）直接执行。
 - 新增 `cmds/agentlineapp/acp` 最小 ACP 适配层：提供 `AgentBridge`、`CallbackClient`、`PermissionBroker` 与 `session/update` 渲染映射，打通 prompt turn 与权限请求闭环。
 - 增强 `cmds/agentlineapp` ACP 交互能力：新增 `/permissions`、`/allow`、`/deny`、`/acp-demo` slash 命令，支持运行中权限审批与演示回合。
+- 增强 `cmds/agentlineapp` ACP 观测能力：新增 `/acp-events`、`/acp-events-summary`、`/acp-events-export [path]`，支持在交互中回看事件时间线、统计摘要并导出 JSONL（默认 `.local/data.jsonl`）。
 - 增强 `example/copilot-demo`：新增 `acp-turn` 显式命令入口，支持以 `allow/deny/cancel` 决策模拟 ACP `session/request_permission` 回合。
 - 调整 `example/copilot-demo chat`：当提供 `--session-id` 时自动按 resume 模式继续指定会话；未提供时保持创建新会话语义。
 - 增强 `example/copilot-demo chat/resume`：新增 `--dump-events` / `--events-limit` / `--events-raw`，可在 ResumeSession 与发送 Prompt 后通过 `GetMessages` 打印会话事件明细，便于排查多轮执行过程。

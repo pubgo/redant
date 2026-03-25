@@ -37,6 +37,7 @@ func (m *agentlineModel) appendACPSessionNotification(params acp.SessionNotifica
 	if m == nil {
 		return
 	}
+	m.recordACPEvent(params)
 	blocks := sessionBlocksFromACP(params)
 	if len(blocks) == 0 {
 		return

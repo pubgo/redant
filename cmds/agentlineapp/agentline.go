@@ -273,6 +273,8 @@ type agentlineModel struct {
 	initialArgv      []string
 	agentOnlyMode    bool
 	permissionBroker *agentacp.PermissionBroker
+	acpEventSeq      int64
+	acpEventEntries  []acpEventEntry
 }
 
 type runResultMsg struct {
@@ -1349,6 +1351,8 @@ func isAllowedWhileRunning(line string) bool {
 	}
 	switch strings.ToLower(strings.TrimSpace(parts[0])) {
 	case "permissions", "perm", "allow", "deny", "cancel", "stop":
+		return true
+	case "acp-events", "acp-events-summary", "acp-events-export":
 		return true
 	default:
 		return false

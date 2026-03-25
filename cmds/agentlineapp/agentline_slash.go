@@ -76,6 +76,46 @@ var slashBuiltins = []slashBuiltin{
 		},
 	},
 	{
+		Name:        "acp-events",
+		Description: "查看 ACP 事件时间线（/acp-events [N]）",
+		Handler: func(m *agentlineModel, _, _, argText string) tea.Cmd {
+			limit := parsePositiveIntOrDefault(argText, 40)
+			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/acp-events", Lines: m.acpEventsTimelineLines(limit)})
+			m.outputOffset = 0
+			return nil
+		},
+	},
+	{
+		Name:        "acp-events-summary",
+		Description: "查看 ACP 事件统计摘要",
+		Handler: func(m *agentlineModel, _, _, _ string) tea.Cmd {
+			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/acp-events-summary", Lines: m.acpEventsSummaryLines()})
+			m.outputOffset = 0
+			return nil
+		},
+	},
+	{
+		Name:        "acp-events-export",
+		Description: "导出 ACP 事件为 JSONL（默认 .local/data.jsonl）",
+		Handler: func(m *agentlineModel, _, _, argText string) tea.Cmd {
+			path := strings.TrimSpace(argText)
+			if path == "" {
+				path = ".local/data.jsonl"
+			}
+			n, err := m.exportACPEventsJSONL(path)
+			if err != nil {
+				m.appendBlock(sessionBlock{Kind: blockKindError, Title: "/acp-events-export", Lines: []string{err.Error()}})
+				return nil
+			}
+			if n == 0 {
+				m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/acp-events-export", Lines: []string{"暂无 ACP 事件可导出。"}})
+				return nil
+			}
+			m.appendBlock(sessionBlock{Kind: blockKindSystem, Title: "/acp-events-export", Lines: []string{fmt.Sprintf("已导出 %d 条事件到 %s", n, path)}})
+			return nil
+		},
+	},
+	{
 		Name:        "output",
 		Aliases:     []string{"o", "out"},
 		Description: "进入输出滚动模式",
@@ -443,6 +483,9 @@ func slashHelpLines(root *redant.Command, agentOnly bool) []string {
 		"  /<command ...>: 直接执行命令（例如 /commit --message hi）",
 		"  /run <command...>: 执行命令并输出 tool/command/result",
 		"  /acp-demo [prompt]: 启动 ACP 权限回合演示",
+		"  /acp-events [N]: 查看 ACP 事件时间线（默认最近 40 条）",
+		"  /acp-events-summary: 查看 ACP 事件统计摘要",
+		"  /acp-events-export [path]: 导出 ACP 事件到 JSONL（默认 .local/data.jsonl）",
 		"  /permissions: 查看待处理权限请求",
 		"  /allow [request-id] [option-id|index]: 同意权限请求",
 		"  /deny [request-id] [option-id|index]: 拒绝权限请求",
