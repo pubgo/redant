@@ -899,6 +899,20 @@ func collectSlashCompletionItems(root *redant.Command, input string, agentOnly b
 		return nil
 	}
 
+	firstName := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(first, "/")))
+	if firstName == "chat" {
+		chatPrefix := ""
+		if len(fields) > 1 {
+			chatPrefix = strings.TrimSpace(strings.Join(fields[1:], " "))
+		}
+
+		if len(fields) == 1 && len(trimmedRight) == len(input) {
+			return collectSlashNameSuggestions(root, agentOnly, firstName)
+		}
+
+		return collectChatCommandItems(root, agentOnly, chatPrefix)
+	}
+
 	if len(fields) > 1 || len(trimmedRight) < len(input) {
 		probeTokens := append([]string{strings.TrimPrefix(first, "/")}, fields[1:]...)
 		probeLine := strings.TrimSpace(strings.Join(probeTokens, " "))
@@ -931,21 +945,55 @@ func collectSlashCompletionItems(root *redant.Command, input string, agentOnly b
 	return collectSlashNameSuggestions(root, agentOnly, strings.TrimPrefix(first, "/"))
 }
 
+func collectChatCommandItems(root *redant.Command, agentOnly bool, prefix string) []completionItem {
+	prefix = strings.TrimSpace(prefix)
+	cmdItems := collectCommandSlashItems(root, agentOnly, prefix)
+	if len(cmdItems) == 0 {
+		return nil
+	}
+
+	out := make([]completionItem, 0, len(cmdItems))
+	for _, item := range cmdItems {
+		insert := strings.TrimSpace(item.Insert)
+		insert = strings.TrimPrefix(insert, "/")
+		if insert == "" {
+			continue
+		}
+		desc := item.Description
+		if strings.TrimSpace(desc) == "" {
+			desc = "绑定聊天命令"
+		} else {
+			desc = "绑定聊天命令 · " + desc
+		}
+		out = append(out, completionItem{Insert: "/chat " + insert, Description: desc})
+	}
+
+	return uniqueCompletionItems(out)
+}
+
 func collectSlashNameSuggestions(root *redant.Command, agentOnly bool, prefix string) []completionItem {
 	prefix = strings.TrimSpace(prefix)
 	out := make([]completionItem, 0, len(slashCommands)+8)
+	matchedByPrefix := false
 	addCandidate := func(name, desc string) {
 		candidate := "/" + strings.TrimSpace(name)
 		if candidate == "/" {
 			return
 		}
 		if prefix == "" || strings.HasPrefix(strings.TrimPrefix(candidate, "/"), prefix) {
+			matchedByPrefix = true
 			out = append(out, completionItem{Insert: candidate, Description: desc})
 		}
 	}
 
 	for _, sc := range slashCommands {
 		addCandidate(sc.Name, sc.Description)
+	}
+
+	if prefix != "" && !matchedByPrefix {
+		for _, guessed := range suggestClosestSlashNames(prefix, 3) {
+			out = append(out, completionItem{Insert: "/" + guessed, Description: "你可能想输入这个命令"})
+		}
 	}
 
 	out = append(out, collectCommandSlashItems(root, agentOnly, prefix)...)

@@ -3,6 +3,7 @@ package agentlineapp
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -302,19 +303,143 @@ func (m *agentlineModel) handleSlashInput(line string) (bool, tea.Cmd) {
 		return true, m.startCommandRun(cmdText)
 	}
 
-	m.appendBlock(sessionBlock{Kind: blockKindError, Title: raw, Lines: []string{
+	lines := []string{
 		fmt.Sprintf("未知 slash 命令: %s", cmd),
 		"可尝试 /run <command...>，或直接使用 /<command ...> 形式。",
 		"输入 /help 查看可用命令。",
-	}})
+	}
+	if guessed := suggestClosestSlashNames(cmd, 3); len(guessed) > 0 {
+		lines = append(lines, "你可能想输入："+formatSlashGuessList(guessed))
+	}
+
+	m.appendBlock(sessionBlock{Kind: blockKindError, Title: raw, Lines: lines})
 	m.normalizeOutputOffset()
 	return true, nil
+}
+
+func suggestClosestSlashNames(input string, limit int) []string {
+	input = strings.ToLower(strings.TrimSpace(input))
+	if input == "" || limit <= 0 {
+		return nil
+	}
+
+	type scored struct {
+		name  string
+		score int
+	}
+
+	scores := make([]scored, 0, len(slashCommands))
+	seen := map[string]struct{}{}
+	for _, sc := range slashCommands {
+		name := strings.ToLower(strings.TrimSpace(sc.Name))
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+
+		d := damerauLevenshteinDistance(input, name)
+		if d <= 2 {
+			scores = append(scores, scored{name: name, score: d})
+		}
+	}
+
+	if len(scores) == 0 {
+		return nil
+	}
+
+	sort.Slice(scores, func(i, j int) bool {
+		if scores[i].score != scores[j].score {
+			return scores[i].score < scores[j].score
+		}
+		return scores[i].name < scores[j].name
+	})
+
+	if len(scores) > limit {
+		scores = scores[:limit]
+	}
+
+	out := make([]string, 0, len(scores))
+	for _, item := range scores {
+		out = append(out, item.name)
+	}
+	return out
+}
+
+func formatSlashGuessList(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		parts = append(parts, "/"+name)
+	}
+	return strings.Join(parts, "、")
+}
+
+func damerauLevenshteinDistance(a, b string) int {
+	ra := []rune(a)
+	rb := []rune(b)
+	la, lb := len(ra), len(rb)
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+
+	dp := make([][]int, la+1)
+	for i := 0; i <= la; i++ {
+		dp[i] = make([]int, lb+1)
+		dp[i][0] = i
+	}
+	for j := 0; j <= lb; j++ {
+		dp[0][j] = j
+	}
+
+	for i := 1; i <= la; i++ {
+		for j := 1; j <= lb; j++ {
+			cost := 0
+			if ra[i-1] != rb[j-1] {
+				cost = 1
+			}
+
+			deletion := dp[i-1][j] + 1
+			insertion := dp[i][j-1] + 1
+			substitution := dp[i-1][j-1] + cost
+
+			best := deletion
+			if insertion < best {
+				best = insertion
+			}
+			if substitution < best {
+				best = substitution
+			}
+
+			if i > 1 && j > 1 && ra[i-1] == rb[j-2] && ra[i-2] == rb[j-1] {
+				transposition := dp[i-2][j-2] + 1
+				if transposition < best {
+					best = transposition
+				}
+			}
+
+			dp[i][j] = best
+		}
+	}
+
+	return dp[la][lb]
 }
 
 func slashHelpLines(root *redant.Command, agentOnly bool) []string {
 	lines := []string{
 		"slash commands:",
-		"  /chat <command ...>: 绑定聊天粘性模式（后续普通输入自动补全命令前缀）",
+		"  /chat <command ...>: 绑定聊天粘性模式（保留已输入参数，后续普通输入作为 prompt 多轮复用）",
 		"  /<command ...>: 直接执行命令（例如 /commit --message hi）",
 		"  /run <command...>: 执行命令并输出 tool/command/result",
 		"  /acp-demo [prompt]: 启动 ACP 权限回合演示",

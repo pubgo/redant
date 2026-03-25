@@ -83,6 +83,28 @@ func TestCollectSlashCompletionItems_CommandFlags(t *testing.T) {
 	}
 }
 
+func TestCollectSlashCompletionItems_ChatSuggestsCommands(t *testing.T) {
+	root := buildTestRoot()
+
+	items := collectSlashCompletionItems(root, "/chat ", false)
+	if _, ok := findCompletion(items, "/chat commit"); !ok {
+		t.Fatalf("expected '/chat commit' suggestion when typing '/chat '")
+	}
+
+	items = collectSlashCompletionItems(root, "/chat com", false)
+	if _, ok := findCompletion(items, "/chat commit"); !ok {
+		t.Fatalf("expected '/chat commit' suggestion when typing '/chat com'")
+	}
+}
+
+func TestCollectSlashCompletionItems_TypoSuggestsChat(t *testing.T) {
+	root := buildTestRoot()
+	items := collectSlashCompletionItems(root, "/caht", false)
+	if _, ok := findCompletion(items, "/chat"); !ok {
+		t.Fatalf("expected typo '/caht' to suggest '/chat'")
+	}
+}
+
 func TestHandleSlashInput_ModeSwitch(t *testing.T) {
 	root := buildTestRoot()
 	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
@@ -508,6 +530,25 @@ func TestHandleSlashInput_HistoryInvalidArg(t *testing.T) {
 	}
 }
 
+func TestHandleSlashInput_UnknownCommandSuggestsClosest(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+
+	handled, cmd := m.handleSlashInput("/caht")
+	if !handled || cmd != nil {
+		t.Fatalf("expected unknown slash handled without cmd, handled=%v cmd=%v", handled, cmd)
+	}
+
+	last := m.blocks[len(m.blocks)-1]
+	if last.Kind != blockKindError {
+		t.Fatalf("expected error block, got %s", last.Kind)
+	}
+	joined := strings.Join(last.Lines, "\n")
+	if !strings.Contains(joined, "你可能想输入") || !strings.Contains(joined, "/chat") {
+		t.Fatalf("expected closest command suggestion '/chat', got: %s", joined)
+	}
+}
+
 func TestRenderOutputLines_FoldDetails(t *testing.T) {
 	m := &agentlineModel{
 		foldDetails: true,
@@ -589,6 +630,44 @@ func TestEnterPlainTextInChatStickyModeRunsCommand(t *testing.T) {
 	}
 	if !m.running {
 		t.Fatalf("expected running=true in chat sticky mode")
+	}
+}
+
+func TestEnterCommandLikeInputInChatModeRunsStickyCommand(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+
+	m.input.SetValue("/chat commit")
+	model, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = model.(*agentlineModel)
+	if cmd != nil {
+		t.Fatalf("expected no async cmd while entering chat sticky mode")
+	}
+
+	m.input.SetValue("commit --message hi")
+	model, cmd = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = model.(*agentlineModel)
+	if cmd == nil {
+		t.Fatalf("expected async cmd in chat sticky mode even for command-like text")
+	}
+	if !m.running {
+		t.Fatalf("expected running=true in chat sticky mode")
+	}
+}
+
+func TestView_ShowsChatModeHintLine(t *testing.T) {
+	root := buildTestRoot()
+	m := newAgentlineModel(context.Background(), root, "agent> ", nil, "", false, nil)
+	m.width = 100
+	m.height = 24
+	m.bindStickyInvocation(&stickyInvocation{BaseArgs: []string{"commit"}, PromptFlag: "--prompt"})
+
+	v := m.View()
+	if !strings.Contains(v.Content, "当前为聊天模式") {
+		t.Fatalf("expected view to contain chat mode hint line")
+	}
+	if !strings.Contains(v.Content, "chat=commit --prompt <text>") {
+		t.Fatalf("expected view to contain chat binding line")
 	}
 }
 

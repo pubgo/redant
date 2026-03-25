@@ -137,6 +137,16 @@ func (m *agentlineModel) sessionContextLine() string {
 	return fmt.Sprintf("cwd=%s · git=%s", displayPath(m.sessionCWD), displayGitBranch(m.sessionGitBranch, m.sessionGitDirty))
 }
 
+func (m *agentlineModel) chatBindingLine() string {
+	if m == nil || !m.isChatMode() || m.stickyInvocation == nil {
+		return ""
+	}
+
+	parts := append([]string(nil), m.stickyInvocation.BaseArgs...)
+	parts = append(parts, m.stickyInvocation.PromptFlag, "<text>")
+	return fmt.Sprintf("chat=%s", strings.Join(parts, " "))
+}
+
 func displayPath(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {

@@ -32,6 +32,9 @@ func (m *agentlineModel) View() tea.View {
 	header := fmt.Sprintf("agentline · status=%s · mode=%s · focus=%s · blocks=%d · lines=%d", status, mode, focus, len(m.blocks), len(renderedOutput))
 	lines = append(lines, styleHeader.Render(truncateDisplayWidth(header, contentWidth)))
 	lines = append(lines, styleHint.Render(truncateDisplayWidth(m.sessionContextLine(), contentWidth)))
+	if binding := strings.TrimSpace(m.chatBindingLine()); binding != "" {
+		lines = append(lines, styleHint.Render(truncateDisplayWidth(binding, contentWidth)))
+	}
 
 	outputTitle := fmt.Sprintf("输出区域（%d-%d/%d）", displayStart(outputStart, outputEnd), outputEnd, len(renderedOutput))
 	lines = append(lines, styleHeader.Render(truncateDisplayWidth(outputTitle, contentWidth)))
@@ -110,6 +113,9 @@ func (m *agentlineModel) View() tea.View {
 	historyRegionEnd := len(lines) - 1
 
 	lines = append(lines, styleHint.Render(truncateDisplayWidth("命令：/run /history /cancel /fold /unfold；支持直接鼠标拖拽选择复制。", contentWidth)))
+	if m.isChatMode() {
+		lines = append(lines, styleHint.Render(truncateDisplayWidth("当前为聊天模式：普通输入会作为已绑定命令的 prompt；可继续使用 slash 命令（如 /run、/history），/unbind 可退出。", contentWidth)))
+	}
 	inputRegionEnd := len(lines) - 1
 
 	v := tea.NewView(strings.Join(lines, "\n"))
