@@ -30,16 +30,20 @@ const (
 )
 
 var (
-	stylePrompt      = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-	styleInputText   = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	styleHeader      = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-	styleHint        = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	styleDescription = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-	styleRunning     = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
-	styleStatusIdle  = lipgloss.NewStyle().Foreground(lipgloss.Color("114")).Bold(true)
-	styleStatusBusy  = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
-	styleSelectedRow = lipgloss.NewStyle().Background(lipgloss.Color("62")).Foreground(lipgloss.Color("230")).Bold(true)
-	styleBlockHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("110")).Bold(true)
+	stylePrompt       = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	styleInputText    = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	styleHeader       = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	styleHint         = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	styleHeaderOutput = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	styleHeaderInput  = lipgloss.NewStyle().Foreground(lipgloss.Color("141")).Bold(true)
+	styleHintOutput   = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	styleHintInput    = lipgloss.NewStyle().Foreground(lipgloss.Color("110"))
+	styleDescription  = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	styleRunning      = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+	styleStatusIdle   = lipgloss.NewStyle().Foreground(lipgloss.Color("114")).Bold(true)
+	styleStatusBusy   = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+	styleSelectedRow  = lipgloss.NewStyle().Background(lipgloss.Color("62")).Foreground(lipgloss.Color("230")).Bold(true)
+	styleBlockHeader  = lipgloss.NewStyle().Foreground(lipgloss.Color("110")).Bold(true)
 
 	styleKindCommand = lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)
 	styleKindFlag    = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
@@ -401,9 +405,9 @@ func (m *richlineModel) View() tea.View {
 	header := fmt.Sprintf("richline · status=%s · focus=%s · blocks=%d · lines=%d", status, focus, len(m.blocks), len(renderedLines))
 	b.WriteString(styleHeader.Render(truncateDisplayWidth(header, contentWidth)))
 	b.WriteByte('\n')
-	b.WriteString(styleHeader.Render(truncateDisplayWidth(fmt.Sprintf("输出区域（%d-%d/%d）", displayStart(start, end), end, len(renderedLines)), contentWidth)))
+	b.WriteString(styleHeaderOutput.Render(truncateDisplayWidth(fmt.Sprintf("输出区域（%d-%d/%d）", displayStart(start, end), end, len(renderedLines)), contentWidth)))
 	b.WriteByte('\n')
-	b.WriteString(styleHint.Render(truncateDisplayWidth(fmt.Sprintf("滚动状态：offset=%d rows=%d", offset, outputRows), contentWidth)))
+	b.WriteString(styleHintOutput.Render(truncateDisplayWidth(fmt.Sprintf("滚动状态：offset=%d rows=%d", offset, outputRows), contentWidth)))
 	b.WriteByte('\n')
 
 	if len(renderedLines) == 0 {
@@ -458,13 +462,15 @@ func (m *richlineModel) View() tea.View {
 		b.WriteByte('\n')
 	}
 
+	b.WriteString("\n")
+	b.WriteString(styleHeaderInput.Render(truncateDisplayWidth(fmt.Sprintf("输入区域（focus=%s）", focus), contentWidth)))
 	b.WriteByte('\n')
 	b.WriteString(m.input.View())
 	b.WriteByte('\n')
 	if m.outputFocus {
-		b.WriteString(styleHint.Render(truncateDisplayWidth("当前焦点=输出区：↑/↓ 单行滚动，PgUp/PgDn 翻页，Home/End 顶/底；Ctrl+O 或 /input 返回输入区。", contentWidth)))
+		b.WriteString(styleHintInput.Render(truncateDisplayWidth("当前焦点=输出区：↑/↓ 单行滚动，PgUp/PgDn 翻页，Home/End 顶/底；Ctrl+O 或 /input 返回输入区。", contentWidth)))
 	} else {
-		b.WriteString(styleHint.Render(truncateDisplayWidth("当前焦点=输入区：可输入命令执行；Ctrl+O 或 /output 切换到输出滚动；/help 查看 slash 命令。", contentWidth)))
+		b.WriteString(styleHintInput.Render(truncateDisplayWidth("当前焦点=输入区：可输入命令执行；Ctrl+O 或 /output 切换到输出滚动；/help 查看 slash 命令。", contentWidth)))
 	}
 	v := tea.NewView(b.String())
 	v.AltScreen = true
@@ -601,9 +607,12 @@ func (m *richlineModel) outputRows() int {
 }
 
 func (m *richlineModel) baseOccupiedRows(withSuggestionFrame bool) int {
-	rows := 3 // 输出头部 + 输入框前空行 + 输入框
+	rows := 7 // 状态头 + 输出标题 + 输出滚动状态 + 输入前空行 + 输入标题 + 输入框 + 输入提示
 	if m.running {
-		rows += 2 // 运行态：空行 + 提示
+		rows += 3 // 运行态：空行 + 执行中 + 提示
+		if strings.TrimSpace(m.runningCommand) != "" {
+			rows += 1 // 运行命令行
+		}
 	}
 	if withSuggestionFrame {
 		rows += 3 // 候选块：空行 + 标题 + 提示
@@ -679,25 +688,50 @@ func collectSlashCompletionItems(input string) []completionItem {
 	}
 
 	prefix := strings.TrimPrefix(first, "/")
-	out := make([]completionItem, 0, len(slashCommands)*2)
-	addCandidate := func(name, desc string) {
-		cand := "/" + strings.TrimSpace(name)
-		if cand == "/" {
-			return
-		}
-		if prefix == "" || strings.HasPrefix(strings.TrimPrefix(cand, "/"), prefix) {
-			out = append(out, completionItem{Insert: cand, Description: "slash · " + desc, Kind: completionKindCommand})
-		}
-	}
+	out := make([]completionItem, 0, len(slashCommands))
 
 	for _, cmd := range slashCommands {
-		addCandidate(cmd.Name, cmd.Description)
-		for _, alias := range cmd.Aliases {
-			addCandidate(alias, fmt.Sprintf("%s（%s 的别名）", cmd.Description, cmd.Name))
+		name := strings.TrimSpace(cmd.Name)
+		if name == "" {
+			continue
 		}
+		if !slashCommandMatchesPrefix(cmd, prefix) {
+			continue
+		}
+		desc := "slash · " + strings.TrimSpace(cmd.Description)
+		if len(cmd.Aliases) > 0 {
+			aliases := make([]string, 0, len(cmd.Aliases))
+			for _, alias := range cmd.Aliases {
+				alias = strings.TrimSpace(alias)
+				if alias == "" {
+					continue
+				}
+				aliases = append(aliases, "/"+alias)
+			}
+			if len(aliases) > 0 {
+				desc = desc + "（别名: " + strings.Join(aliases, " ") + "）"
+			}
+		}
+		out = append(out, completionItem{Insert: "/" + name, Description: desc, Kind: completionKindCommand})
 	}
 
 	return uniqueCompletionItems(out)
+}
+
+func slashCommandMatchesPrefix(cmd slashCommand, prefix string) bool {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return true
+	}
+	if strings.HasPrefix(strings.TrimSpace(cmd.Name), prefix) {
+		return true
+	}
+	for _, alias := range cmd.Aliases {
+		if strings.HasPrefix(strings.TrimSpace(alias), prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func collectStarterCompletionItems(root *redant.Command) []completionItem {

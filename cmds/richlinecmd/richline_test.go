@@ -120,7 +120,7 @@ func TestSuggestionRows(t *testing.T) {
 	}{
 		{name: "default when window unknown", total: 30, h: 0, want: 10},
 		{name: "bounded by default rows", total: 18, h: 40, want: 10},
-		{name: "reserve output area", total: 30, h: 14, want: 2},
+		{name: "reserve output area", total: 30, h: 14, want: 1},
 	}
 
 	for _, tt := range tests {
@@ -362,10 +362,27 @@ func TestCollectSlashCompletionItems(t *testing.T) {
 	if _, ok := findCompletion(items, "/output"); !ok {
 		t.Fatalf("expected /output in slash suggestions")
 	}
+	if _, ok := findCompletion(items, "/o"); ok {
+		t.Fatalf("expected alias /o hidden from slash suggestions")
+	}
 
 	items = collectSlashCompletionItems("/o")
 	if _, ok := findCompletion(items, "/output"); !ok {
 		t.Fatalf("expected /output for prefix /o")
+	}
+	if _, ok := findCompletion(items, "/o"); ok {
+		t.Fatalf("expected alias /o hidden for prefix /o")
+	}
+
+	items = collectSlashCompletionItems("/q")
+	if _, ok := findCompletion(items, "/quit"); !ok {
+		t.Fatalf("expected /quit for prefix /q")
+	}
+	if _, ok := findCompletion(items, "/q"); ok {
+		t.Fatalf("expected alias /q hidden for prefix /q")
+	}
+	if _, ok := findCompletion(items, "/exit"); ok {
+		t.Fatalf("expected alias /exit hidden for prefix /q")
 	}
 
 	items = collectSlashCompletionItems("/output now")
@@ -487,6 +504,31 @@ func TestView_ShowsOutputFocusAndScrollStatus(t *testing.T) {
 	}
 	if !strings.Contains(content, "当前焦点=输出区") {
 		t.Fatalf("expected output focus hint in view")
+	}
+	if !strings.Contains(content, "输入区域（focus=OUTPUT）") {
+		t.Fatalf("expected input section header contains focus=OUTPUT")
+	}
+}
+
+func TestView_InputAreaRemainsVisibleWithLargeOutput(t *testing.T) {
+	root := buildTestRoot()
+	m := newRichlineModel(context.Background(), root, "richline> ", nil, "", false)
+	m.width = 100
+	m.height = 14
+
+	lines := make([]string, 0, 120)
+	for i := 0; i < 120; i++ {
+		lines = append(lines, "line")
+	}
+	m.appendBlock(outputBlock{Title: "$ app commit", Lines: lines})
+
+	v := m.View()
+	content := stripANSI(v.Content)
+	if !strings.Contains(content, "输入区域（focus=INPUT）") {
+		t.Fatalf("expected input section header remains visible")
+	}
+	if !strings.Contains(content, "richline>") {
+		t.Fatalf("expected input prompt remains visible")
 	}
 }
 
