@@ -9,14 +9,12 @@ import (
 	"time"
 
 	"github.com/pubgo/redant"
-	agentlineapp "github.com/pubgo/redant/cmds/agentlineapp"
 	"github.com/pubgo/redant/cmds/completioncmd"
 	"github.com/pubgo/redant/cmds/mcpcmd"
 	"github.com/pubgo/redant/cmds/readlinecmd"
 	"github.com/pubgo/redant/cmds/richlinecmd"
 	"github.com/pubgo/redant/cmds/webcmd"
 	"github.com/pubgo/redant/cmds/webttycmd"
-	agentlinemodule "github.com/pubgo/redant/pkg/agentline"
 )
 
 // mkdir -p ~/.zsh/completions
@@ -77,12 +75,10 @@ func main() {
 	}}
 
 	commitCmd := &redant.Command{
-		Use:   "commit",
-		Short: "Commit changes.",
-		Long:  "Commit changes with advanced options and typed values.",
-		Metadata: map[string]string{
-			agentlinemodule.CommandMetaAgentCommand: "true",
-		},
+		Use:      "commit",
+		Short:    "Commit changes.",
+		Long:     "Commit changes with advanced options and typed values.",
+		Metadata: map[string]string{},
 		Options: redant.OptionSet{
 			{
 				Flag:        "message",
@@ -219,12 +215,10 @@ func main() {
 		Services: []string{"api", "worker"},
 	}}
 	releaseShipCmd := &redant.Command{
-		Use:   "release ship",
-		Short: "Ship a release with rollout controls.",
-		Long:  "Ship release with enum, enum-array, duration, struct, regexp and integer options.",
-		Metadata: map[string]string{
-			agentlinemodule.CommandMetaAgentCommand: "true",
-		},
+		Use:      "release ship",
+		Short:    "Ship a release with rollout controls.",
+		Long:     "Ship release with enum, enum-array, duration, struct, regexp and integer options.",
+		Metadata: map[string]string{},
 		Options: redant.OptionSet{
 			{Flag: "channel", Description: "Release channel.", Value: redant.EnumOf(&releaseChannel, "alpha", "beta", "stable"), Default: "beta"},
 			{Flag: "regions", Description: "Target regions.", Value: redant.EnumArrayOf(&releaseRegions, "cn", "us", "eu", "ap")},
@@ -346,12 +340,10 @@ func main() {
 		profileContent string
 	)
 	profileCmd := &redant.Command{
-		Use:   "profile",
-		Short: "Profile parser playground.",
-		Long:  "Playground command for args formats (query/form/json/positional).",
-		Metadata: map[string]string{
-			agentlinemodule.CommandMetaAgentCommand: "true",
-		},
+		Use:      "profile",
+		Short:    "Profile parser playground.",
+		Long:     "Playground command for args formats (query/form/json/positional).",
+		Metadata: map[string]string{},
 		Args: redant.ArgSet{
 			{Name: "name", Required: true, Description: "Profile name.", Value: redant.StringOf(&profileName)},
 			{Name: "content", Required: false, Description: "Profile content.", Value: redant.StringOf(&profileContent)},
@@ -376,14 +368,6 @@ func main() {
 		webcmd.New(),
 		webttycmd.New(),
 	)
-
-	rootCmd.Handler = func(ctx context.Context, inv *redant.Invocation) error {
-		return agentlineapp.Run(ctx, rootCmd, &agentlineapp.RuntimeOptions{
-			Prompt: "agent> ",
-			Stdin:  inv.Stdin,
-			Stdout: inv.Stdout,
-		})
-	}
 
 	err := rootCmd.Invoke().WithOS().Run()
 	if err != nil {
