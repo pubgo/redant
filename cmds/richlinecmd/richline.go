@@ -778,7 +778,7 @@ func collectTopLevelSlashCommandItems(root *redant.Command, prefix string) []com
 			}
 		}
 		out = append(out, completionItem{Insert: "/" + name, Description: "command · " + desc, Kind: completionKindCommand})
-}
+	}
 
 	return out
 }
