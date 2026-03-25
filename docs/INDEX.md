@@ -28,6 +28,8 @@ flowchart TD
 11. [`MCP.md`](MCP.md)：MCP 子命令、工具映射规则、输入输出协议与排查建议。
 12. [`WEBTTY.md`](WEBTTY.md)：最简 WebTTY 能力、接口约定与分阶段开发路线。
 
+> 说明：为保持主仓聚焦，`agentline` 与 `copilot-demo` 相关模块/示例已迁移到独立项目维护；本索引仅覆盖 `redant` 主仓当前内容。
+
 ## 维护约定
 
 - 新增模块时：先更新 `DESIGN.md`，再补充对应示例文档。

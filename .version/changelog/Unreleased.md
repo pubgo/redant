@@ -55,6 +55,7 @@
 
 ## 变更
 
+- 仓库瘦身：将 `cmds/agentlineapp`、`pkg/agentline`、`example/copilot-demo`（及依赖该能力的示例）迁移到独立项目维护，`redant` 主仓聚焦 CLI 框架核心能力。
 - `internal/mcpserver` 的 MCP 协议处理切换为基于 `github.com/modelcontextprotocol/go-sdk`，移除自实现报文编解码，复用官方 Server/Transport 能力简化维护。
 - MCP `serverInfo.name` 改为从根命令名动态推导（为空时回退 `redant-mcp`），使对外标识与 CLI 应用名一致。
 - MCP `tools/call` 在保留文本 `Content` 的同时，新增 `StructuredContent`（`ok/stdout/stderr/error/combined`）并声明 `OutputSchema`，便于上层程序化消费。
@@ -79,6 +80,7 @@
 
 ## 文档
 
+- 更新 `README.md` 与 `docs/INDEX.md`：补充仓库范围说明，明确 `agentline` / `copilot-demo` 已迁移到独立项目维护。
 - 补充 `README.md`、`docs/USAGE_AT_A_GLANCE.md` 与 `docs/DESIGN.md`：新增隐藏内部标志 `--args` 的用途、示例与 `RawArgs` 交互说明。
 - 补充 `README.md`、`docs/DESIGN.md` 与 `docs/INDEX.md`：新增 MCP 集成入口、模块职责与阅读路径。
 - 补充 `README.md`、`docs/USAGE_AT_A_GLANCE.md`、`docs/DESIGN.md` 与 `docs/INDEX.md`：新增 Web 控制台说明、调用过程展示约定与参数顺序语义。
