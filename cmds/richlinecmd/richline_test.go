@@ -395,6 +395,28 @@ func TestCollectSlashCompletionItems(t *testing.T) {
 	}
 }
 
+func TestCollectSlashCompletionItems_CommandFlagsArgsAndEnum(t *testing.T) {
+	root := buildTestRoot()
+
+	items := collectSlashCompletionItems(root, "/commit ")
+	if _, ok := findCompletion(items, "--message"); !ok {
+		t.Fatalf("expected --message in /commit flag suggestions")
+	}
+	if _, ok := findCompletion(items, "<target>"); !ok {
+		t.Fatalf("expected <target> in /commit arg suggestions")
+	}
+
+	items = collectSlashCompletionItems(root, "/commit --m")
+	if _, ok := findCompletion(items, "--message"); !ok {
+		t.Fatalf("expected --message in /commit --m suggestions")
+	}
+
+	items = collectSlashCompletionItems(root, "/commit --format ")
+	if _, ok := findCompletion(items, "json"); !ok {
+		t.Fatalf("expected enum value json in /commit --format suggestions")
+	}
+}
+
 func TestHandleSlashCommand_CommandAsSlash(t *testing.T) {
 	root := buildTestRoot()
 	m := newRichlineModel(context.Background(), root, "richline> ", nil, "", false)

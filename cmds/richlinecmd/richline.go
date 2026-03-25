@@ -693,12 +693,26 @@ func collectSlashCompletionItems(root *redant.Command, input string) []completio
 	if !strings.HasPrefix(first, "/") {
 		return nil
 	}
+	firstName := strings.TrimSpace(strings.TrimPrefix(first, "/"))
 
+	// /<command ...>：在 slash 模式下也提示业务命令的 flags/args/enum。
 	if len(fields) > 1 || len(trimmedRight) < len(input) {
-		return nil
+		if isBuiltinSlashName(firstName) {
+			return nil
+		}
+		probeTokens := append([]string{firstName}, fields[1:]...)
+		probeLine := strings.TrimSpace(strings.Join(probeTokens, " "))
+		if probeLine == "" {
+			return nil
+		}
+		if len(trimmedRight) < len(input) {
+			probeLine += " "
+		}
+		items := collectCompletionItems(root, probeLine)
+		return uniqueCompletionItems(items)
 	}
 
-	prefix := strings.TrimPrefix(first, "/")
+	prefix := firstName
 	out := make([]completionItem, 0, len(slashCommands))
 
 	for _, cmd := range slashCommands {
@@ -731,6 +745,24 @@ func collectSlashCompletionItems(root *redant.Command, input string) []completio
 	out = append(out, cmdItems...)
 
 	return uniqueCompletionItems(out)
+}
+
+func isBuiltinSlashName(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return false
+	}
+	for _, sc := range slashCommands {
+		if strings.ToLower(strings.TrimSpace(sc.Name)) == name {
+			return true
+		}
+		for _, alias := range sc.Aliases {
+			if strings.ToLower(strings.TrimSpace(alias)) == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func collectTopLevelSlashCommandItems(root *redant.Command, prefix string) []completionItem {
