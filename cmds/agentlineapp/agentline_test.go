@@ -97,6 +97,27 @@ func TestCollectSlashCompletionItems_ChatSuggestsCommands(t *testing.T) {
 	}
 }
 
+func TestCollectSlashCompletionItems_ChatCommandFlags(t *testing.T) {
+	root := buildTestRoot()
+
+	items := collectSlashCompletionItems(root, "/chat commit ", false)
+	if _, ok := findCompletion(items, "--message"); !ok {
+		t.Fatalf("expected --message in '/chat commit ' flag suggestions")
+	}
+
+	items = collectSlashCompletionItems(root, "/chat commit --m", false)
+	if _, ok := findCompletion(items, "--message"); !ok {
+		t.Fatalf("expected --message in '/chat commit --m' flag suggestions")
+	}
+}
+
+func TestApplySelectedCompletion_ChatDoesNotDuplicatePrefix(t *testing.T) {
+	got := applySelectedCompletion("/chat ", "/chat commit ")
+	if got != "/chat commit " {
+		t.Fatalf("expected '/chat commit ', got %q", got)
+	}
+}
+
 func TestCollectSlashCompletionItems_TypoSuggestsChat(t *testing.T) {
 	root := buildTestRoot()
 	items := collectSlashCompletionItems(root, "/caht", false)

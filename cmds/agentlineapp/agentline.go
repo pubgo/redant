@@ -902,12 +902,32 @@ func collectSlashCompletionItems(root *redant.Command, input string, agentOnly b
 	firstName := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(first, "/")))
 	if firstName == "chat" {
 		chatPrefix := ""
+		chatTokens := []string{}
 		if len(fields) > 1 {
-			chatPrefix = strings.TrimSpace(strings.Join(fields[1:], " "))
+			chatTokens = append(chatTokens, fields[1:]...)
+			chatPrefix = strings.TrimSpace(strings.Join(chatTokens, " "))
 		}
 
 		if len(fields) == 1 && len(trimmedRight) == len(input) {
 			return collectSlashNameSuggestions(root, agentOnly, firstName)
+		}
+
+		if len(chatTokens) > 0 {
+			cmd, ok := resolveCommandLikeInput(root, strings.Join(chatTokens, " "), false)
+			if ok && cmd != nil {
+				if len(chatTokens) == 1 && len(trimmedRight) < len(input) {
+					return collectCommandFlagItems(cmd, "")
+				}
+
+				last := chatTokens[len(chatTokens)-1]
+				if strings.HasPrefix(last, "-") {
+					return collectCommandFlagItems(cmd, last)
+				}
+
+				if len(trimmedRight) < len(input) {
+					return collectCommandFlagItems(cmd, "")
+				}
+			}
 		}
 
 		return collectChatCommandItems(root, agentOnly, chatPrefix)
@@ -1099,6 +1119,12 @@ func applySelectedCompletion(input, selected string) string {
 		return selected + " "
 	}
 	if len(trimmedRight) < len(input) {
+		if strings.HasPrefix(selected, "/") {
+			if strings.HasSuffix(selected, " ") {
+				return selected
+			}
+			return selected + " "
+		}
 		if strings.HasSuffix(selected, " ") {
 			return trimmedRight + " " + selected
 		}
