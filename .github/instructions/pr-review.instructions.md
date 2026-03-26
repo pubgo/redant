@@ -19,6 +19,10 @@ description: Use when handling pull request review, code review feedback, or PR 
 - 审查模式下仅输出分析与建议，不直接修改仓库文件。
 - 若用户明确切换为“请直接修复/落地修改”，先确认一次再进入实现模式。
 - 结论必须证据优先：给出文件路径、符号、上下文片段（必要时附行号）。
+- 默认使用全量审查（full-review）；仅在用户明确指定时切换增量审查（incremental-review）。
+- Round 0 必须输出“模块覆盖矩阵”（模块 / 文件数 / 状态 / 证据）。
+- 每模块至少 1 条证据；高风险模块至少 2 条证据。
+- 存在未检查模块时，禁止输出 Round 4 最终结论。
 
 ## 审查意见格式（必须）
 
@@ -46,6 +50,12 @@ description: Use when handling pull request review, code review feedback, or PR 
    - 统计：按严重等级统计问题数量
    - 风险：当前最大技术/业务风险
    - 决策：`Approve / Request changes / Comment`（可附中文注释：批准 / 需要修改 / 仅评论）
+4. 门禁自检（Round 4 必须）
+   - `modules_total` / `modules_checked` / `missing_modules`
+   - `categories_total` / `categories_checked`
+   - `unresolved_blockers` / `unresolved_majors`
+
+> 最终结论前必须满足：`modules_total == modules_checked`，且全分类清单完整。
 
 > 推荐在统计中使用严重程度分桶（🔴/🟠/🟡/🟢/🔵），便于轮次横向比较与汇总。
 

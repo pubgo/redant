@@ -33,6 +33,8 @@ user-invocable: true
 ## 默认自动运行策略（零输入）
 
 - 无需用户提供 PR 编号、轮次或指标。
+- 默认审查模式为 `full-review`：覆盖整个 PR 变更涉及的所有模块。
+- 仅当用户明确指定“只审本次增量/仅看最新提交”时，才切换为 `incremental-review`。
 - 默认自动执行 Round 0~4 全流程，并在 Round 4 后输出最终结论。
 - 默认审查指标为“全量指标”：正确性 + 安全 + 性能 + 可维护性 + 兼容性 + 测试覆盖 + 文档一致性。
 - 若用户提供了额外约束（如只看某模块/某轮次），再在自动全量基础上收敛范围。
@@ -73,6 +75,14 @@ user-invocable: true
 - 最小必填字段：分类 / 模块 / 等级 / 问题 / 原因 / 修改意见。
 - 分类格式必须为：`[分类代码] 分类名称`。
 
+## 防遗漏硬门禁（必须）
+
+- Round 0 必须输出“模块覆盖矩阵”：模块名 / 变更文件数 / 审查状态（已检查/未检查）/ 证据。
+- 每个模块至少提供 1 条证据；高风险模块（command/args/env_preload/web/webtty/webui/mcp/completion）至少 2 条证据。
+- 模块若结论为“无问题”，仍需给出“低风险依据”（如测试覆盖、边界防护、输入校验）。
+- 只要存在“未检查模块”，禁止进入 Round 4。
+- Round 4 前必须满足：`modules_total == modules_checked`，否则仅允许输出“未完成审查 + 所缺清单”。
+
 ## 每轮输出模板
 
 - 轮次：
@@ -84,6 +94,18 @@ user-invocable: true
 - 下一轮所需输入：
 
 在 Round 4（最终结论）输出中，必须追加“全分类勾选清单（26 类）”，并为每类标注：`已检查 / N/A`（必要时附一句证据）。
+
+### Round 4 门禁自检（必须追加）
+
+- `modules_total`：
+- `modules_checked`：
+- `missing_modules`：
+- `categories_total`：
+- `categories_checked`：
+- `unresolved_blockers`：
+- `unresolved_majors`：
+
+若 `modules_total != modules_checked`，禁止输出最终审查结论（Approve/Request changes/Comment），仅允许输出“未完成审查 + 所缺清单”。
 
 默认情况下“下一轮所需输入”应为“无”；仅在阻塞时列出缺失项。
 

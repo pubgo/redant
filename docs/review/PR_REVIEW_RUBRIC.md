@@ -5,6 +5,8 @@
 ## 默认运行模式（零输入自动全量）
 
 - 当用户未提供任何参数时，默认自动识别“当前分支对应 PR”。
+- 默认审查模式为 `full-review`（全量覆盖整个 PR 变更模块），而不是仅看最新提交。
+- 仅在用户明确指定“只看增量/仅看最新提交”时，切换为 `incremental-review`。
 - 默认自动执行完整轮次：Round 0 -> Round 1 -> Round 2 -> Round 3 -> Round 4。
 - 默认覆盖：
 	- 变更涉及的所有模块（代码、测试、文档）。
@@ -38,6 +40,8 @@
 
 - 给出文件级影响面清单。
 - 给出“高风险路径”列表（最多 5 条）。
+- 给出“模块覆盖矩阵”：模块 / 变更文件数 / 状态（已检查/未检查）/ 证据。
+- 若存在“未检查模块”，禁止进入 Round 4。
 
 ### Round 1：正确性与边界
 
@@ -51,6 +55,8 @@
 
 - 每个高风险路径至少给出 1 条证据。
 - 标记阻断问题（Blocker）与非阻断问题（Major / Minor / Nit）。
+- 每个模块至少提供 1 条证据；高风险模块（command/args/env_preload/web/webtty/webui/mcp/completion）至少 2 条证据。
+- 若模块结论为“无问题”，必须提供低风险依据（如测试覆盖、边界保护、输入校验）。
 
 ### Round 2：测试覆盖与可验证性
 
@@ -89,6 +95,10 @@
 
 - 给出最终建议：`Approve` / `Request changes` / `Comment`。
 - 给出 3 行内“合入条件摘要”。
+- 必须先通过以下硬门禁再给最终建议：
+	- `modules_total == modules_checked`
+	- 全分类清单完整（`已检查 / N/A` 均有标注）
+	- 未决 Blocker / Major 已显式统计
 
 ## 分轮与分类映射（覆盖 26 类）
 
@@ -164,6 +174,18 @@
 - 问题分级：Blocker / Major / Minor / Nit
 - 未决问题：
 - 下一轮输入要求：
+
+Round 4 追加“门禁自检”字段（必须）：
+
+- `modules_total`：
+- `modules_checked`：
+- `missing_modules`：
+- `categories_total`：
+- `categories_checked`：
+- `unresolved_blockers`：
+- `unresolved_majors`：
+
+若 `modules_total != modules_checked`，仅允许输出“未完成审查 + 所缺清单”，禁止给出最终结论。
 
 > 自动模式下，若无阻塞项，“下一轮输入要求”应为“无”。
 
