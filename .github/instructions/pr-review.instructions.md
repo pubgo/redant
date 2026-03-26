@@ -45,7 +45,7 @@ description: Use when handling pull request review, code review feedback, or PR 
 3. Review Conclusion（必须）
    - 统计：按严重等级统计问题数量
    - 风险：当前最大技术/业务风险
-   - 决策：`✅ 批准 / ⚠️ 需要修改 / ❌ 拒绝`
+   - 决策：`Approve / Request changes / Comment`（可附中文注释：批准 / 需要修改 / 仅评论）
 
 > 推荐在统计中使用严重程度分桶（🔴/🟠/🟡/🟢/🔵），便于轮次横向比较与汇总。
 
@@ -53,5 +53,5 @@ description: Use when handling pull request review, code review feedback, or PR 
 
 - 默认发布到 GitHub PR 评论；仅当用户明确要求“不发布评论/仅聊天输出”时跳过发布。
 - 行级评论优先；无法定位行号时再使用普通评论并说明原因。
-- 发布前去重，建议唯一键：`path + line + 分类 + 模块 + 等级 + 问题摘要`。
+- 发布前必须去重，唯一键：`path + line + 分类 + 模块 + 等级 + 问题摘要`。
 - 保持与 `docs/review/PR_COMMENT_TEMPLATE.md` 的字段一致：分类 / 模块 / 等级 / 问题 / 原因 / 修改意见。

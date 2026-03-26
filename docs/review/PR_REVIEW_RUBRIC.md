@@ -50,7 +50,7 @@
 通过门槛：
 
 - 每个高风险路径至少给出 1 条证据。
-- 标记阻断问题（Blocker）与建议问题（Suggestion）。
+- 标记阻断问题（Blocker）与非阻断问题（Major / Minor / Nit）。
 
 ### Round 2：测试覆盖与可验证性
 
