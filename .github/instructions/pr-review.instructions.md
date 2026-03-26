@@ -23,6 +23,8 @@ description: Use when handling pull request review, code review feedback, or PR 
 ## 审查意见格式（必须）
 
 - 每条问题必须带 `[分类]` 前缀（如 `[LOGI]`、`[SEC]`、`[PERF]`）。
+- 若无法准确归类，优先使用最接近分类，或使用 `[PRAC]` / `[LOGI]` 兜底。
+- 严禁输出不带分类标签的审查建议。
 - 一条评论只描述一个问题，避免把多个问题揉在一起。
 - 优先提供“最小可执行修复建议”。
 
@@ -44,6 +46,8 @@ description: Use when handling pull request review, code review feedback, or PR 
    - 统计：按严重等级统计问题数量
    - 风险：当前最大技术/业务风险
    - 决策：`✅ 批准 / ⚠️ 需要修改 / ❌ 拒绝`
+
+> 推荐在统计中使用严重程度分桶（🔴/🟠/🟡/🟢/🔵），便于轮次横向比较与汇总。
 
 ## 发布到 GitHub PR 评论时
 
