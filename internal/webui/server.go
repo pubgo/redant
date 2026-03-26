@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/coder/websocket"
@@ -342,7 +343,7 @@ func (a *App) handleRunWS(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if err != nil {
-				if errors.Is(err, io.EOF) {
+				if isExpectedPTYReadClose(err) {
 					readErrCh <- nil
 				} else {
 					readErrCh <- err
@@ -403,17 +404,19 @@ func (a *App) handleRunWS(w http.ResponseWriter, r *http.Request) {
 				extraErr = errors.Join(extraErr, err)
 			}
 		case err := <-runErrCh:
-			closePTS()
 			if !readPumpDone {
 				select {
 				case readErr := <-readErrCh:
+					readPumpDone = true
 					if readErr != nil && websocket.CloseStatus(readErr) == -1 && !errors.Is(readErr, context.Canceled) {
 						extraErr = errors.Join(extraErr, readErr)
 					}
 				case <-time.After(300 * time.Millisecond):
+					closePTS()
 					closePTMX()
 				}
 			}
+			closePTS()
 			closePTMX()
 			joinedErr := errors.Join(err, extraErr)
 			timedOut := errors.Is(err, context.DeadlineExceeded) || errors.Is(runCtx.Err(), context.DeadlineExceeded)
@@ -538,7 +541,7 @@ func (a *App) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if err != nil {
-				if errors.Is(err, io.EOF) {
+				if isExpectedPTYReadClose(err) {
 					readErrCh <- nil
 				} else {
 					readErrCh <- err
@@ -960,6 +963,16 @@ func setPTYSize(f *os.File, cols, rows int) error {
 	}
 
 	return pty.Setsize(f, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+}
+
+func isExpectedPTYReadClose(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	return errors.Is(err, io.EOF) ||
+		errors.Is(err, os.ErrClosed) ||
+		errors.Is(err, syscall.EIO)
 }
 
 func writePTYInput(ptmx, pts *os.File, processPID int, data string) error {

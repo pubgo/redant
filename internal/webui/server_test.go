@@ -8,8 +8,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -516,6 +518,26 @@ func TestTerminalWSEndpointStartAndClose(t *testing.T) {
 
 	if err := wsjson.Write(ctx, conn, wsRunMessage{Type: "close"}); err != nil {
 		t.Fatalf("write close message: %v", err)
+	}
+}
+
+func TestIsExpectedPTYReadClose(t *testing.T) {
+	t.Parallel()
+
+	if !isExpectedPTYReadClose(io.EOF) {
+		t.Fatalf("expected io.EOF to be treated as expected close")
+	}
+
+	if !isExpectedPTYReadClose(os.ErrClosed) {
+		t.Fatalf("expected os.ErrClosed to be treated as expected close")
+	}
+
+	if !isExpectedPTYReadClose(syscall.EIO) {
+		t.Fatalf("expected syscall.EIO to be treated as expected close")
+	}
+
+	if isExpectedPTYReadClose(io.ErrUnexpectedEOF) {
+		t.Fatalf("unexpected EOF should not be treated as expected close")
 	}
 }
 
