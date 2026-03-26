@@ -1,32 +1,24 @@
 # Redant 文档索引
 
-本文档用于建立全仓库文档之间的逻辑关系，建议按“总览 → 设计 → 评估 → 变更 → 示例”顺序阅读。
+本文档作为文档导航首页。详细分类请优先使用：[`DOCS_CATALOG.md`](DOCS_CATALOG.md)。
 
-## 文档关系图
+## 文档分层图
 
 ```mermaid
 flowchart TD
-    A[README 总览] --> B[设计文档]
-    B --> C[评估报告]
-    C --> D[变更日志]
-    B --> E[参数解析示例]
-    D --> B
+    A[导航首页 INDEX] --> B[分类目录 DOCS_CATALOG]
+    B --> C[快速上手]
+    B --> D[架构与质量]
+    B --> E[PR 审查体系]
+    B --> F[发布与变更]
 ```
 
-## 阅读路径
+## 推荐入口
 
-1. [`../README.md`](../README.md)：项目总体介绍、能力边界、快速开始。
-2. [`USAGE_AT_A_GLANCE.md`](USAGE_AT_A_GLANCE.md)：子命令命名、参数形态与标志（Flag）规范速览。
-3. [`DESIGN.md`](DESIGN.md)：核心模型、解析流程、状态机、扩展点。
-4. [`EVALUATION.md`](EVALUATION.md)：当前质量评估、风险、优化建议。
-5. [`../.version/changelog/README.md`](../.version/changelog/README.md)：版本增量变化，便于追踪设计演进。
-6. [`../example/args-test/README.md`](../example/args-test/README.md)：参数解析实操样例。
-7. [`../internal/pretty/README.md`](../internal/pretty/README.md)：内部样式库维护说明（依赖迁移与维护边界）。
-8. [`CHANGELOG_LLM_PROMPT.md`](CHANGELOG_LLM_PROMPT.md)：基于 LLM 自动维护 changelog 的提示词模板。
-9. [`../README.md#mcp-集成`](../README.md#mcp-集成)：MCP 工具暴露与命令挂载入口。
-10. [`../README.md#web-调试界面web-子命令`](../README.md#web-%E8%B0%83%E8%AF%95%E7%95%8C%E9%9D%A2web-%E5%AD%90%E5%91%BD%E4%BB%A4)：Web 控制台使用与调用过程展示说明。
-11. [`MCP.md`](MCP.md)：MCP 子命令、工具映射规则、输入输出协议与排查建议。
-12. [`WEBTTY.md`](WEBTTY.md)：最简 WebTTY 能力、接口约定与分阶段开发路线。
+1. [`DOCS_CATALOG.md`](DOCS_CATALOG.md)：按主题聚合后的单一入口（推荐）。
+2. [`USAGE_AT_A_GLANCE.md`](USAGE_AT_A_GLANCE.md)：新同学快速建立 CLI 使用心智模型。
+3. [`review/PR_REVIEW_RUBRIC.md`](review/PR_REVIEW_RUBRIC.md)：PR 审查流程基线与轮次规则。
+4. [`DESIGN.md`](DESIGN.md)：涉及实现变更时优先查阅。
 
 > 说明：为保持主仓聚焦，`agentline` 与 `copilot-demo` 相关模块/示例已迁移到独立项目维护；本索引仅覆盖 `redant` 主仓当前内容。
 

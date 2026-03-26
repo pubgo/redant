@@ -1,0 +1,54 @@
+# GitHub Copilot Code Review Configuration
+# Documentation: https://docs.github.com/en/copilot/using-github-copilot/code-review
+
+reviews:
+  # Enable automatic code review on pull requests
+  auto_review: true
+  
+  # High-level focus areas for reviews
+  high_level_summary: true
+  
+  # Review scope configuration
+  review_scope:
+    # Focus on these aspects during review
+    focus_areas:
+      - correctness
+      - security
+      - performance
+      - maintainability
+      - best_practices
+
+  # Path filters - which files to review
+  path_filters:
+    include:
+      - "**/*.go"
+      - "**/*.java"
+      - "**/*.py"
+      - "**/*.js"
+      - "**/*.ts"
+      - "**/*.jsx"
+      - "**/*.tsx"
+      - "**/*.rs"
+      - "**/*.c"
+      - "**/*.cpp"
+      - "**/*.cs"
+      - "**/*.rb"
+      - "**/*.php"
+      - "**/*.swift"
+      - "**/*.kt"
+      - "**/*.scala"
+    exclude:
+      - "**/*.test.*"
+      - "**/*.spec.*"
+      - "**/test/**"
+      - "**/tests/**"
+      - "**/__tests__/**"
+      - "**/node_modules/**"
+      - "**/vendor/**"
+      - "**/dist/**"
+      - "**/build/**"
+      - "**/*.min.js"
+      - "**/*.generated.*"
+
+  # Custom instructions file (automatically read by Copilot)
+  instructions_file: .github/copilot-instructions.md
