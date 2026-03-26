@@ -51,6 +51,7 @@ description: Use when handling pull request review, code review feedback, or PR 
 
 ## 发布到 GitHub PR 评论时
 
+- 默认发布到 GitHub PR 评论；仅当用户明确要求“不发布评论/仅聊天输出”时跳过发布。
 - 行级评论优先；无法定位行号时再使用普通评论并说明原因。
 - 发布前去重，建议唯一键：`path + line + 分类 + 模块 + 等级 + 问题摘要`。
 - 保持与 `docs/review/PR_COMMENT_TEMPLATE.md` 的字段一致：分类 / 模块 / 等级 / 问题 / 原因 / 修改意见。
