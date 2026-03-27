@@ -18,7 +18,14 @@ tasks:
   test:
     desc: "go test"
     cmds:
-      - go test -short -race -v ./... -cover
+      - |
+        pkgs=$(go list -json ./... | awk '
+          /^\}/ { if (pkg != "" && has_test == 1) print pkg; pkg = ""; has_test = 0; next }
+          /"ImportPath":/ { gsub(/[",]/, "", $2); pkg = $2 }
+          /"TestGoFiles": \[/ { has_test = 1 }
+          /"XTestGoFiles": \[/ { has_test = 1 }
+        ')
+        go test -short -race -v -cover $pkgs
 
   lint:
     desc: "golangci-lint"

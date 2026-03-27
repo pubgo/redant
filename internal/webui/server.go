@@ -407,7 +407,6 @@ func (a *App) handleRunWS(w http.ResponseWriter, r *http.Request) {
 			if !readPumpDone {
 				select {
 				case readErr := <-readErrCh:
-					readPumpDone = true
 					if readErr != nil && websocket.CloseStatus(readErr) == -1 && !errors.Is(readErr, context.Canceled) {
 						extraErr = errors.Join(extraErr, readErr)
 					}
