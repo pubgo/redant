@@ -1,0 +1,43 @@
+# https://taskfile.dev
+
+version: "3"
+
+dotenv: [".env"]
+
+tasks:
+  default:
+    desc: "default task"
+    cmds:
+      - task -a
+
+  vet:
+    desc: "go vet"
+    cmds:
+      - go vet ./...
+
+  test:
+    desc: "go test"
+    cmds:
+      - |
+        pkgs=$(go list -json ./... | awk '
+          /^\}/ { if (pkg != "" && has_test == 1) print pkg; pkg = ""; has_test = 0; next }
+          /"ImportPath":/ { gsub(/[",]/, "", $2); pkg = $2 }
+          /"TestGoFiles": \[/ { has_test = 1 }
+          /"XTestGoFiles": \[/ { has_test = 1 }
+        ')
+        go test -short -race -v -cover $pkgs
+
+  lint:
+    desc: "golangci-lint"
+    cmds:
+      - golangci-lint run --verbose ./...
+
+  pr:current:
+    desc: "get PR of current branch"
+    cmds:
+      - bash scripts/get-current-pr.sh
+
+  pr:ensure-draft:
+    desc: "get current branch PR or create draft if missing"
+    cmds:
+      - bash scripts/get-current-pr.sh --ensure-draft --base main

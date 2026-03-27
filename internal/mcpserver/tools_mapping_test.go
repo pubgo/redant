@@ -1,0 +1,529 @@
+package mcpserver
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/pubgo/redant"
+)
+
+func TestCollectToolsCommandToToolDefComprehensive(t *testing.T) {
+	var (
+		verbose   bool
+		parentVal string
+		runVal    string
+		target    string
+	)
+
+	root := &redant.Command{
+		Use: "app",
+		Options: redant.OptionSet{
+			{Flag: "verbose", Value: redant.BoolOf(&verbose), Description: "enable verbose output"},
+			{Flag: "internal", Value: redant.StringOf(new(string)), Hidden: true},
+		},
+	}
+
+	group := &redant.Command{
+		Use:   "group",
+		Short: "group command",
+		Options: redant.OptionSet{
+			{Flag: "parent-flag", Value: redant.StringOf(&parentVal), Description: "inherited from parent"},
+		},
+	}
+
+	run := &redant.Command{
+		Use:   "run",
+		Short: "run short",
+		Long:  "run long description",
+		Args: redant.ArgSet{
+			{Name: "target", Required: true, Value: redant.StringOf(&target), Description: "target name"},
+		},
+		Options: redant.OptionSet{
+			{Flag: "run-flag", Value: redant.StringOf(&runVal), Description: "child flag"},
+			{Flag: "hidden-child", Value: redant.StringOf(new(string)), Hidden: true},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	}
+
+	hidden := &redant.Command{
+		Use:    "hidden",
+		Hidden: true,
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			return nil
+		},
+	}
+
+	echo := &redant.Command{
+		Use:     "echo",
+		Short:   "echo short",
+		Aliases: []string{"e"},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			return nil
+		},
+	}
+
+	group.Children = append(group.Children, run, hidden)
+	root.Children = append(root.Children, group, echo)
+
+	tools := collectTools(root)
+	if len(tools) != 2 {
+		t.Fatalf("tools len = %d, want 2", len(tools))
+	}
+
+	runTool := mustFindToolByName(t, tools, "group.run")
+	if runTool.Description != "run short\n\nrun long description" {
+		t.Fatalf("run tool description = %q", runTool.Description)
+	}
+
+	if got := runTool.PathTokens; !reflect.DeepEqual(got, []string{"group", "run"}) {
+		t.Fatalf("run tool path tokens = %#v", got)
+	}
+
+	flagsSchema, ok := runTool.InputSchema["properties"].(map[string]any)["flags"].(map[string]any)
+	if !ok {
+		t.Fatalf("run tool flags schema missing")
+	}
+	flagProps, ok := flagsSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("run tool flags properties missing")
+	}
+
+	for _, want := range []string{"verbose", "parent-flag", "run-flag"} {
+		if _, exists := flagProps[want]; !exists {
+			t.Fatalf("missing expected flag %q in schema", want)
+		}
+	}
+	for _, notWant := range []string{"internal", "hidden-child", "help", "list-commands", "list-flags", "args"} {
+		if _, exists := flagProps[notWant]; exists {
+			t.Fatalf("unexpected flag %q in schema", notWant)
+		}
+	}
+
+	argsSchema, ok := runTool.InputSchema["properties"].(map[string]any)["args"].(map[string]any)
+	if !ok {
+		t.Fatalf("run tool args schema missing")
+	}
+	required, ok := argsSchema["required"].([]string)
+	if !ok || len(required) != 1 || required[0] != "target" {
+		t.Fatalf("args required = %#v, want [target]", argsSchema["required"])
+	}
+
+	echoTool := mustFindToolByName(t, tools, "echo")
+	if got := echoTool.PathTokens; !reflect.DeepEqual(got, []string{"echo"}) {
+		t.Fatalf("echo tool path tokens = %#v", got)
+	}
+	if _, exists := echoTool.InputSchema["properties"].(map[string]any)["args"]; !exists {
+		t.Fatalf("echo tool args schema missing")
+	}
+}
+
+func TestBuildArgvDeterministicAndInheritedFlags(t *testing.T) {
+	var (
+		verbose   bool
+		parentVal string
+		runVal    string
+		target    string
+	)
+
+	root := &redant.Command{
+		Use: "app",
+		Options: redant.OptionSet{
+			{Flag: "verbose", Value: redant.BoolOf(&verbose)},
+		},
+	}
+	group := &redant.Command{
+		Use: "group",
+		Options: redant.OptionSet{
+			{Flag: "parent-flag", Value: redant.StringOf(&parentVal)},
+		},
+	}
+	run := &redant.Command{
+		Use: "run",
+		Args: redant.ArgSet{
+			{Name: "target", Required: true, Value: redant.StringOf(&target)},
+		},
+		Options: redant.OptionSet{
+			{Flag: "run-flag", Value: redant.StringOf(&runVal)},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	}
+	group.Children = append(group.Children, run)
+	root.Children = append(root.Children, group)
+
+	runTool := mustFindToolByName(t, collectTools(root), "group.run")
+	argv, err := buildArgv(runTool, map[string]any{
+		"flags": map[string]any{
+			"run-flag":    "rv",
+			"parent-flag": "pv",
+			"verbose":     true,
+		},
+		"args": map[string]any{"target": "svc"},
+	})
+	if err != nil {
+		t.Fatalf("buildArgv error: %v", err)
+	}
+
+	want := []string{"group", "run", "--parent-flag", "pv", "--run-flag", "rv", "--verbose", "svc"}
+	if !reflect.DeepEqual(argv, want) {
+		t.Fatalf("argv = %#v, want %#v", argv, want)
+	}
+}
+
+func TestBuildArgvRejectsUnknownFlag(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "echo",
+		Args: redant.ArgSet{
+			{Name: "message", Value: redant.StringOf(new(string))},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+
+	echoTool := mustFindToolByName(t, collectTools(root), "echo")
+	_, err := buildArgv(echoTool, map[string]any{
+		"flags": map[string]any{"not-exists": "x"},
+	})
+	if err == nil {
+		t.Fatalf("expected unknown flag error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCallToolWithInheritedFlags(t *testing.T) {
+	var (
+		parentVal string
+		runVal    string
+		target    string
+	)
+
+	root := &redant.Command{Use: "app"}
+	group := &redant.Command{
+		Use: "group",
+		Options: redant.OptionSet{
+			{Flag: "parent-flag", Value: redant.StringOf(&parentVal)},
+		},
+	}
+	run := &redant.Command{
+		Use: "run",
+		Args: redant.ArgSet{
+			{Name: "target", Required: true, Value: redant.StringOf(&target)},
+		},
+		Options: redant.OptionSet{
+			{Flag: "run-flag", Value: redant.StringOf(&runVal)},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			_, _ = fmt.Fprintf(inv.Stdout, "parent=%s run=%s target=%s", parentVal, runVal, target)
+			return nil
+		},
+	}
+	group.Children = append(group.Children, run)
+	root.Children = append(root.Children, group)
+
+	s := New(root)
+	result, err := s.callTool(context.Background(), toolsCallParams{
+		Name: "group.run",
+		Arguments: map[string]any{
+			"flags": map[string]any{
+				"parent-flag": "pv",
+				"run-flag":    "rv",
+			},
+			"args": map[string]any{"target": "svc"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("callTool error: %v", err)
+	}
+
+	structured, ok := result["structuredContent"].(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent missing: %#v", result)
+	}
+	stdout, _ := structured["stdout"].(string)
+	if !strings.Contains(stdout, "parent=pv run=rv target=svc") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestBuildFlagsSchemaComplexTypesAndRequiredRules(t *testing.T) {
+	var (
+		count  int64
+		ratio  float64
+		enable bool
+		items  []string
+		mode   string
+		tags   []string
+		token  string
+		port   string
+	)
+
+	schema := buildFlagsSchema(redant.OptionSet{
+		{Flag: "count", Value: redant.Int64Of(&count), Required: true},
+		{Flag: "ratio", Value: redant.Float64Of(&ratio)},
+		{Flag: "enable", Value: redant.BoolOf(&enable)},
+		{Flag: "items", Value: redant.StringArrayOf(&items)},
+		{Flag: "mode", Value: redant.EnumOf(&mode, "fast", "slow")},
+		{Flag: "tags", Value: redant.EnumArrayOf(&tags, "a", "b")},
+		{Flag: "token", Value: redant.StringOf(&token), Required: true, Envs: []string{"TOKEN"}},
+		{Flag: "port", Value: redant.StringOf(&port), Required: true, Default: "8080"},
+	})
+
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("flags properties missing")
+	}
+
+	assertSchemaType(t, props["count"], "integer")
+	assertSchemaType(t, props["ratio"], "number")
+	assertSchemaType(t, props["enable"], "boolean")
+	assertSchemaType(t, props["items"], "array")
+	assertSchemaType(t, props["mode"], "string")
+	assertSchemaType(t, props["tags"], "array")
+
+	modeSchema := props["mode"].(map[string]any)
+	modeEnum, ok := modeSchema["enum"].([]string)
+	if !ok || !reflect.DeepEqual(modeEnum, []string{"fast", "slow"}) {
+		t.Fatalf("mode enum = %#v", modeSchema["enum"])
+	}
+
+	tagsItems := props["tags"].(map[string]any)["items"].(map[string]any)
+	tagsEnum, ok := tagsItems["enum"].([]string)
+	if !ok || !reflect.DeepEqual(tagsEnum, []string{"a", "b"}) {
+		t.Fatalf("tags enum = %#v", tagsItems["enum"])
+	}
+
+	tokenSchema := props["token"].(map[string]any)
+	xenv, ok := tokenSchema["x-env"].([]string)
+	if !ok || !reflect.DeepEqual(xenv, []string{"TOKEN"}) {
+		t.Fatalf("token x-env = %#v", tokenSchema["x-env"])
+	}
+
+	portSchema := props["port"].(map[string]any)
+	if got, _ := portSchema["default"].(string); got != "8080" {
+		t.Fatalf("port default = %q", got)
+	}
+
+	required, ok := schema["required"].([]string)
+	if !ok {
+		t.Fatalf("required missing")
+	}
+	if !reflect.DeepEqual(required, []string{"count"}) {
+		t.Fatalf("required = %#v, want [count]", required)
+	}
+}
+
+func TestBuildArgsSchemaUnnamedAndDefault(t *testing.T) {
+	var (
+		first string
+		mode  string
+	)
+
+	schema := buildArgsSchema(redant.ArgSet{
+		{Name: "", Required: true, Value: redant.StringOf(&first), Description: "first positional"},
+		{Name: "mode", Required: true, Default: "auto", Value: redant.StringOf(&mode)},
+	})
+
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("args properties missing")
+	}
+
+	arg1, ok := props["arg1"].(map[string]any)
+	if !ok {
+		t.Fatalf("arg1 schema missing")
+	}
+	if got, _ := arg1["description"].(string); got != "first positional" {
+		t.Fatalf("arg1 description = %q", got)
+	}
+
+	modeSchema, ok := props["mode"].(map[string]any)
+	if !ok {
+		t.Fatalf("mode schema missing")
+	}
+	if got, _ := modeSchema["default"].(string); got != "auto" {
+		t.Fatalf("mode default = %q", got)
+	}
+
+	required, ok := schema["required"].([]string)
+	if !ok {
+		t.Fatalf("required missing")
+	}
+	if !reflect.DeepEqual(required, []string{"arg1"}) {
+		t.Fatalf("required = %#v, want [arg1]", required)
+	}
+}
+
+func TestBuildArgvArrayFlagAndNoArgSetArgs(t *testing.T) {
+	var tags []string
+
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "scan",
+		Options: redant.OptionSet{
+			{Flag: "tags", Value: redant.StringArrayOf(&tags)},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+
+	tool := mustFindToolByName(t, collectTools(root), "scan")
+	argv, err := buildArgv(tool, map[string]any{
+		"flags": map[string]any{"tags": []any{"x", "y"}},
+		"args":  []any{"p1", "p2"},
+	})
+	if err != nil {
+		t.Fatalf("buildArgv error: %v", err)
+	}
+
+	want := []string{"scan", "--tags", "x", "--tags", "y", "p1", "p2"}
+	if !reflect.DeepEqual(argv, want) {
+		t.Fatalf("argv = %#v, want %#v", argv, want)
+	}
+}
+
+func TestBuildArgvMissingRequiredArg(t *testing.T) {
+	var target string
+
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "run",
+		Args: redant.ArgSet{
+			{Name: "target", Required: true, Value: redant.StringOf(&target)},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+
+	tool := mustFindToolByName(t, collectTools(root), "run")
+	_, err := buildArgv(tool, map[string]any{
+		"args": map[string]any{},
+	})
+	if err == nil {
+		t.Fatalf("expected missing required arg error, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing required arg") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildFlagsSchemaStructGeneric(t *testing.T) {
+	type payload struct {
+		Name string `json:"name" yaml:"name"`
+		Port int    `json:"port" yaml:"port"`
+	}
+
+	var cfg payload
+	schema := buildFlagsSchema(redant.OptionSet{
+		{Flag: "config", Value: &redant.Struct[payload]{Value: cfg}, Description: "service config"},
+	})
+
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("flags properties missing")
+	}
+
+	configSchema, ok := props["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("config schema missing")
+	}
+	if got, _ := configSchema["type"].(string); got != "object" {
+		t.Fatalf("config type = %q, want object", got)
+	}
+	if ap, _ := configSchema["additionalProperties"].(bool); !ap {
+		t.Fatalf("config additionalProperties = %#v, want true", configSchema["additionalProperties"])
+	}
+	if xvt, _ := configSchema["x-redant-value-type"].(string); !strings.HasPrefix(xvt, "struct[") {
+		t.Fatalf("x-redant-value-type = %q, want prefix struct[", xvt)
+	}
+}
+
+func TestBuildArgvSupportsStructFlagAndArg(t *testing.T) {
+	type payload struct {
+		Name string `json:"name" yaml:"name"`
+		Port int    `json:"port" yaml:"port"`
+	}
+
+	var (
+		argCfg  payload
+		flagCfg payload
+	)
+
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "apply",
+		Args: redant.ArgSet{
+			{Name: "config", Required: true, Value: &redant.Struct[payload]{Value: argCfg}},
+		},
+		Options: redant.OptionSet{
+			{Flag: "meta", Value: &redant.Struct[payload]{Value: flagCfg}},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+
+	tool := mustFindToolByName(t, collectTools(root), "apply")
+	argv, err := buildArgv(tool, map[string]any{
+		"flags": map[string]any{
+			"meta": map[string]any{"name": "svc", "port": 9000},
+		},
+		"args": map[string]any{
+			"config": map[string]any{"name": "api", "port": 8080},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildArgv error: %v", err)
+	}
+
+	if len(argv) != 4 {
+		t.Fatalf("argv len = %d, want 4, argv=%#v", len(argv), argv)
+	}
+	if argv[0] != "apply" || argv[1] != "--meta" {
+		t.Fatalf("argv prefix = %#v, want [apply --meta ...]", argv[:2])
+	}
+
+	assertJSONStringObjectContains(t, argv[2], map[string]any{"name": "svc", "port": float64(9000)})
+	assertJSONStringObjectContains(t, argv[3], map[string]any{"name": "api", "port": float64(8080)})
+}
+
+func assertJSONStringObjectContains(t *testing.T, raw string, want map[string]any) {
+	t.Helper()
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("expected JSON object string, got %q (err: %v)", raw, err)
+	}
+
+	for k, v := range want {
+		gv, ok := got[k]
+		if !ok {
+			t.Fatalf("json key %q missing in %q", k, raw)
+		}
+		if !reflect.DeepEqual(gv, v) {
+			t.Fatalf("json key %q value = %#v, want %#v", k, gv, v)
+		}
+	}
+}
+
+func assertSchemaType(t *testing.T, raw any, want string) {
+	t.Helper()
+	schema, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("schema is not object: %#v", raw)
+	}
+	if got, _ := schema["type"].(string); got != want {
+		t.Fatalf("schema type = %q, want %q", got, want)
+	}
+}
+
+func mustFindToolByName(t *testing.T, tools []toolDef, name string) toolDef {
+	t.Helper()
+	for _, td := range tools {
+		if td.Name == name {
+			return td
+		}
+	}
+	t.Fatalf("tool %q not found in %#v", name, tools)
+	return toolDef{}
+}

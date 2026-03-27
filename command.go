@@ -43,6 +43,10 @@ type Command struct {
 	// If set, the value is used as the deprecation message.
 	Deprecated string `json:"deprecated,omitempty"`
 
+	// Metadata stores extensible command annotations for higher-level behaviors
+	// (for example: mode=agent, agent.command=true).
+	Metadata map[string]string `json:"metadata,omitempty"`
+
 	// RawArgs determines whether the command should receive unparsed arguments.
 	// No flags are parsed when set, and the command is responsible for parsing
 	// its own flags.
@@ -69,6 +73,30 @@ func ascendingSortFn[T cmp.Ordered](a, b T) int {
 	return 1
 }
 
+func appendMissingGlobalOptions(base, globals OptionSet) OptionSet {
+	existing := make(map[string]struct{}, len(base))
+	for _, opt := range base {
+		if opt.Flag == "" {
+			continue
+		}
+		existing[opt.Flag] = struct{}{}
+	}
+
+	for _, opt := range globals {
+		if opt.Flag == "" {
+			base = append(base, opt)
+			continue
+		}
+		if _, ok := existing[opt.Flag]; ok {
+			continue
+		}
+		base = append(base, opt)
+		existing[opt.Flag] = struct{}{}
+	}
+
+	return base
+}
+
 // init performs initialization and linting on the command and all its children.
 func (c *Command) init() error {
 	if c.Use == "" {
@@ -79,7 +107,7 @@ func (c *Command) init() error {
 	// Add global flags to the root command only
 	if c.parent == nil {
 		globalFlags := GlobalFlags()
-		c.Options = append(c.Options, globalFlags...)
+		c.Options = appendMissingGlobalOptions(c.Options, globalFlags)
 	}
 
 	for i := range c.Options {
@@ -121,6 +149,30 @@ func (c *Command) init() error {
 // Name returns the first word in the Use string.
 func (c *Command) Name() string {
 	return strings.Split(c.Use, " ")[0]
+}
+
+// Meta returns the metadata value for key. Key lookup is case-insensitive.
+func (c *Command) Meta(key string) string {
+	if c == nil || len(c.Metadata) == 0 {
+		return ""
+	}
+
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+
+	if v, ok := c.Metadata[key]; ok {
+		return strings.TrimSpace(v)
+	}
+
+	for k, v := range c.Metadata {
+		if strings.EqualFold(strings.TrimSpace(k), key) {
+			return strings.TrimSpace(v)
+		}
+	}
+
+	return ""
 }
 
 // FullName returns the full invocation name of the command,
@@ -720,6 +772,23 @@ func (inv *Invocation) run(state *runState) error {
 		inv.Args = parsedArgs[state.commandDepth:]
 	}
 
+	if inv.Flags != nil {
+		if internalArgsFlag := inv.Flags.Lookup(internalArgsOverrideFlag); internalArgsFlag != nil && internalArgsFlag.Changed {
+			var overriddenArgs []string
+			switch v := internalArgsFlag.Value.(type) {
+			case *StringArray:
+				overriddenArgs = append(overriddenArgs, (*v)...)
+			default:
+				parsed, err := readAsCSV(internalArgsFlag.Value.String())
+				if err != nil {
+					return fmt.Errorf("reading %q override values: %w", internalArgsOverrideFlag, err)
+				}
+				overriddenArgs = append(overriddenArgs, parsed...)
+			}
+			inv.Args = append([]string(nil), overriddenArgs...)
+		}
+	}
+
 	// Parse args and set values to Arg.Value if Args are defined
 	// Skip args parsing and validation if help was requested
 	if len(inv.Command.Args) > 0 && !isHelpRequested && !errors.Is(state.flagParseErr, pflag.ErrHelp) {
@@ -991,6 +1060,16 @@ func parseAndSetArgs(argsDef ArgSet, args []string) error {
 //
 //nolint:revive
 func (inv *Invocation) Run() (err error) {
+	restoreEnv, preloadErr := preloadEnvFromArgs(inv.Args)
+	if preloadErr != nil {
+		return fmt.Errorf("preloading environment variables: %w", preloadErr)
+	}
+	defer func() {
+		if restoreEnv != nil {
+			err = errors.Join(err, restoreEnv())
+		}
+	}()
+
 	for _, child := range inv.Command.Children {
 		child.parent = inv.Command
 	}

@@ -42,7 +42,7 @@
 1. 明确变更动机（兼容性、性能、可维护性）。
 2. 评估是否影响 `help.go` 现有输出。
 3. 完成代码改动后执行格式化与测试。
-4. 更新 `docs/CHANGELOG.md` 记录变更。
+4. 更新 `.version/changelog/Unreleased.md` 记录变更。
 
 ## 6. 验证建议
 

@@ -1,0 +1,1331 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>redant web command</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+</head>
+
+<body class="h-screen overflow-hidden bg-slate-950 text-slate-100" x-data="webApp()" x-init="init()">
+    <div class="flex h-full">
+        <aside class="shrink-0 border-r border-slate-800 bg-slate-900/70 flex flex-col transition-all duration-200"
+            :class="sidebarCollapsed ? 'w-14' : 'w-[360px]'">
+            <div class="p-3 border-b border-slate-800">
+                <div class="flex items-center justify-between gap-2">
+                    <h1 class="text-sm font-semibold tracking-wide text-slate-200"
+                        x-text="sidebarCollapsed ? 'CMD' : 'Command 列表'"></h1>
+                    <button type="button"
+                        class="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-700 text-slate-300 hover:bg-slate-800"
+                        @click="toggleSidebar" :title="sidebarCollapsed ? '展开左侧菜单' : '收起左侧菜单'">
+                        <span class="inline-block text-sm leading-none transition-transform duration-200"
+                            :class="sidebarCollapsed ? 'rotate-180' : ''">❮</span>
+                    </button>
+                </div>
+
+                <div x-show="!sidebarCollapsed" class="mt-2">
+                    <p class="text-xs text-slate-400">可搜索命令名、别名、描述、Use</p>
+                    <div class="mt-3">
+                        <input type="text" x-model.trim="query" placeholder="搜索 command..."
+                            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                    </div>
+                    <div class="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+                        <button type="button" class="rounded border border-slate-700 px-2 py-0.5 hover:bg-slate-800"
+                            @click="expandAllNodes">全部展开</button>
+                        <button type="button" class="rounded border border-slate-700 px-2 py-0.5 hover:bg-slate-800"
+                            @click="collapseAllNodes">全部折叠</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="overflow-auto flex-1" x-show="!sidebarCollapsed">
+                <template x-if="commandTreeRows.length === 0">
+                    <div class="p-4 text-sm text-slate-400">没有匹配的命令</div>
+                </template>
+
+                <template x-for="row in commandTreeRows" :key="row.key">
+                    <div class="border-b border-slate-800"
+                        :class="row.isCommand && selected && selected.id === row.command.id ? 'bg-blue-950/40 border-l-2 border-l-blue-500' : (row.isCommand ? 'hover:bg-slate-800/60' : 'hover:bg-slate-800/30')">
+                        <div class="flex items-start justify-between gap-2 px-2 py-2"
+                            :style="'padding-left:' + (8 + row.depth * 16) + 'px'">
+                            <div class="flex items-start gap-2 min-w-0 flex-1">
+                                <button type="button" class="mt-0.5 w-4 text-[10px] text-slate-400 hover:text-slate-200"
+                                    @click.stop="toggleNode(row.key)" x-show="row.hasChildren"
+                                    x-text="row.expanded ? '▾' : '▸'"></button>
+                                <span class="mt-0.5 w-4 text-[10px] text-transparent" x-show="!row.hasChildren">·</span>
+
+                                <span class="mt-0.5 w-4 text-[11px]"
+                                    :class="row.isCommand ? 'text-blue-300' : 'text-amber-300'"
+                                    x-text="row.isCommand ? '⌘' : '📁'"></span>
+
+                                <button type="button" class="text-left min-w-0 flex-1" @click="onTreeRowClick(row)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <div class="font-mono text-xs truncate"
+                                            :class="row.isCommand ? 'text-blue-300' : 'text-slate-200'"
+                                            x-text="row.label"></div>
+                                        <span x-show="row.isCommand"
+                                            class="rounded border border-blue-800/60 bg-blue-900/30 px-1.5 py-0.5 text-[9px] tracking-wide text-blue-200">CMD</span>
+                                    </div>
+                                    <div class="text-[11px] text-slate-400 mt-1 truncate" x-text="row.secondary"></div>
+                                </button>
+                            </div>
+                            <div class="text-[10px] text-slate-500" x-show="row.isCommand"
+                                x-text="(row.command.flags?.length || 0) + 'F / ' + (row.command.args?.length || 0) + 'A'">
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+        </aside>
+
+        <main class="flex-1 overflow-auto p-5 space-y-4">
+            <template x-if="!selected">
+                <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-6 text-slate-400">请选择左侧命令</div>
+            </template>
+
+            <template x-if="selected">
+                <div class="space-y-4">
+                    <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                        <div class="flex items-start justify-between gap-4">
+                            <div>
+                                <h2 class="text-base font-semibold" x-text="selected.id"></h2>
+                                <p class="text-xs text-slate-400 mt-1" x-text="selected.description || '(无描述)'"></p>
+                            </div>
+                            <div class="text-right text-xs text-slate-400 space-y-1">
+                                <div><span class="text-slate-500">Use:</span> <span class="font-mono"
+                                        x-text="selected.use"></span></div>
+                                <div><span class="text-slate-500">Path:</span> <span class="font-mono"
+                                        x-text="(selected.path || []).join(' ')"></span></div>
+                                <div x-show="selected.rawArgs"><span
+                                        class="inline-flex rounded bg-amber-900/40 px-2 py-0.5 text-amber-300">RawArgs</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-3 text-xs text-slate-400" x-show="(selected.aliases || []).length > 0">
+                            Aliases:
+                            <span class="font-mono text-slate-200" x-text="(selected.aliases || []).join(', ')"></span>
+                        </div>
+                        <div class="mt-2 text-xs text-amber-300" x-show="selected.deprecated">Deprecated: <span
+                                x-text="selected.deprecated"></span></div>
+                    </section>
+
+                    <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-semibold">Flags</h3>
+                            <div class="text-xs text-slate-500" x-text="(selected.flags?.length || 0) + ' items'"></div>
+                        </div>
+
+                        <template x-if="(selected.flags || []).length === 0">
+                            <div class="mt-3 text-sm text-slate-400">该命令没有 flags</div>
+                        </template>
+
+                        <div class="mt-3 grid grid-cols-1 gap-3" x-show="(selected.flags || []).length > 0">
+                            <template x-for="flag in selected.flags" :key="flag.name">
+                                <div class="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div>
+                                            <div class="text-sm font-medium font-mono text-sky-300">--<span
+                                                    x-text="flag.name"></span>
+                                                <span class="text-slate-400" x-show="flag.shorthand">(-<span
+                                                        x-text="flag.shorthand"></span>)</span>
+                                            </div>
+                                            <div class="mt-1 text-xs text-slate-400">
+                                                <span>type: <span class="text-slate-200"
+                                                        x-text="flag.type"></span></span>
+                                                <span class="ml-3" x-show="flag.required">required</span>
+                                                <span class="ml-3" x-show="flag.default !== ''">default: <span
+                                                        class="text-slate-200" x-text="flag.default"></span></span>
+                                                <span class="ml-3" x-show="isStructType(flag.type)">json object</span>
+                                            </div>
+                                            <div class="mt-1 text-xs text-slate-400"
+                                                x-show="(flag.envs || []).length > 0">env: <span
+                                                    class="font-mono text-slate-200"
+                                                    x-text="flag.envs.join(', ')"></span></div>
+                                            <div class="mt-2 text-xs text-slate-300"
+                                                x-text="flag.description || '(无描述)'"></div>
+                                            <div class="mt-2 flex flex-wrap gap-1" x-show="enumValues(flag).length > 0">
+                                                <template x-for="val in enumValues(flag)"
+                                                    :key="flag.name + '-enum-' + val">
+                                                    <span
+                                                        class="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-emerald-300"
+                                                        x-text="val"></span>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-3">
+                                        <template x-if="flag.type === 'bool'">
+                                            <label class="inline-flex items-center gap-2 text-xs text-slate-200">
+                                                <input type="checkbox" class="rounded border-slate-600 bg-slate-950"
+                                                    x-model="flagInputs[flag.name]"
+                                                    @change="flagTouched[flag.name] = true" />
+                                                启用
+                                            </label>
+                                        </template>
+
+                                        <template x-if="flag.type !== 'bool'">
+                                            <div>
+                                                <template x-if="isEnumArrayType(flag.type)">
+                                                    <div class="grid grid-cols-2 gap-2">
+                                                        <template x-for="val in enumValues(flag)"
+                                                            :key="flag.name + '-pick-' + val">
+                                                            <label
+                                                                class="inline-flex items-center gap-2 rounded border border-slate-700 bg-slate-900/50 px-2 py-1 text-xs text-slate-200">
+                                                                <input type="checkbox"
+                                                                    class="rounded border-slate-600 bg-slate-950"
+                                                                    :value="val" x-model="flagInputs[flag.name]"
+                                                                    @change="flagTouched[flag.name] = true" />
+                                                                <span x-text="val"></span>
+                                                            </label>
+                                                        </template>
+                                                    </div>
+                                                </template>
+
+                                                <template
+                                                    x-if="!isEnumArrayType(flag.type) && enumValues(flag).length > 0">
+                                                    <select
+                                                        class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                                                        x-model="flagInputs[flag.name]"
+                                                        @change="flagTouched[flag.name] = true">
+                                                        <option value="">(请选择)</option>
+                                                        <template x-for="val in enumValues(flag)" :key="val">
+                                                            <option :value="val" x-text="val"></option>
+                                                        </template>
+                                                    </select>
+                                                </template>
+
+                                                <template
+                                                    x-if="!isEnumArrayType(flag.type) && enumValues(flag).length === 0 && isStructType(flag.type)">
+                                                    <div class="space-y-2">
+                                                        <div class="flex items-center gap-2">
+                                                            <button type="button"
+                                                                class="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+                                                                @click="applyObjectTemplate('flag', flag.name, flag.type); flagTouched[flag.name] = true">
+                                                                模板
+                                                            </button>
+                                                            <button type="button"
+                                                                class="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+                                                                @click="formatObjectInput('flag', flag.name)">
+                                                                格式化 JSON
+                                                            </button>
+                                                        </div>
+                                                        <textarea rows="4"
+                                                            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-mono outline-none focus:border-blue-500"
+                                                            :placeholder="objectPlaceholder(flag.type)"
+                                                            x-model="flagInputs[flag.name]"
+                                                            @input="flagTouched[flag.name] = true; clearObjectError('flag', flag.name)"></textarea>
+                                                        <p class="text-[11px] text-rose-300"
+                                                            x-show="hasObjectError('flag', flag.name)"
+                                                            x-text="getObjectError('flag', flag.name)"></p>
+                                                    </div>
+                                                </template>
+
+                                                <template
+                                                    x-if="!isEnumArrayType(flag.type) && enumValues(flag).length === 0 && !isStructType(flag.type)">
+                                                    <input type="text"
+                                                        class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                                                        :placeholder="isArrayType(flag.type) ? 'a,b,c' : ''"
+                                                        x-model="flagInputs[flag.name]"
+                                                        @input="flagTouched[flag.name] = true" />
+                                                </template>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </section>
+
+                    <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-semibold">Args</h3>
+                            <div class="text-xs text-slate-500" x-text="(selected.args?.length || 0) + ' items'"></div>
+                        </div>
+
+                        <template x-if="(selected.args || []).length === 0">
+                            <div class="mt-3 text-sm text-slate-400">该命令没有显式 args（可通过 rawArgs 传递）</div>
+                        </template>
+
+                        <div class="mt-3 grid grid-cols-1 gap-3" x-show="(selected.args || []).length > 0">
+                            <template x-for="arg in selected.args" :key="arg.name">
+                                <div class="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                                    <div class="text-sm font-medium font-mono text-indigo-300" x-text="arg.name"></div>
+                                    <div class="mt-1 text-xs text-slate-400">
+                                        <span>type: <span class="text-slate-200" x-text="arg.type"></span></span>
+                                        <span class="ml-3" x-show="arg.required">required</span>
+                                        <span class="ml-3" x-show="arg.default !== ''">default: <span
+                                                class="text-slate-200" x-text="arg.default"></span></span>
+                                        <span class="ml-3" x-show="isStructType(arg.type)">json object</span>
+                                    </div>
+                                    <div class="mt-2 text-xs text-slate-300" x-text="arg.description || '(无描述)'"></div>
+                                    <div class="mt-2 flex flex-wrap gap-1" x-show="enumValues(arg).length > 0">
+                                        <template x-for="val in enumValues(arg)" :key="arg.name + '-enum-' + val">
+                                            <span
+                                                class="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-emerald-300"
+                                                x-text="val"></span>
+                                        </template>
+                                    </div>
+
+                                    <div class="mt-3">
+                                        <template x-if="isEnumArrayType(arg.type)">
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <template x-for="val in enumValues(arg)"
+                                                    :key="arg.name + '-pick-' + val">
+                                                    <label
+                                                        class="inline-flex items-center gap-2 rounded border border-slate-700 bg-slate-900/50 px-2 py-1 text-xs text-slate-200">
+                                                        <input type="checkbox"
+                                                            class="rounded border-slate-600 bg-slate-950" :value="val"
+                                                            x-model="argInputs[arg.name]" />
+                                                        <span x-text="val"></span>
+                                                    </label>
+                                                </template>
+                                            </div>
+                                        </template>
+
+                                        <template x-if="!isEnumArrayType(arg.type) && enumValues(arg).length > 0">
+                                            <select
+                                                class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                                                x-model="argInputs[arg.name]">
+                                                <option value="">(请选择)</option>
+                                                <template x-for="val in enumValues(arg)"
+                                                    :key="arg.name + '-option-' + val">
+                                                    <option :value="val" x-text="val"></option>
+                                                </template>
+                                            </select>
+                                        </template>
+
+                                        <template
+                                            x-if="!isEnumArrayType(arg.type) && enumValues(arg).length === 0 && isStructType(arg.type)">
+                                            <div class="space-y-2">
+                                                <div class="flex items-center gap-2">
+                                                    <button type="button"
+                                                        class="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+                                                        @click="applyObjectTemplate('arg', arg.name, arg.type)">
+                                                        模板
+                                                    </button>
+                                                    <button type="button"
+                                                        class="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-800"
+                                                        @click="formatObjectInput('arg', arg.name)">
+                                                        格式化 JSON
+                                                    </button>
+                                                </div>
+                                                <textarea rows="4"
+                                                    class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-mono outline-none focus:border-blue-500"
+                                                    :placeholder="objectPlaceholder(arg.type)"
+                                                    x-model="argInputs[arg.name]"
+                                                    @input="clearObjectError('arg', arg.name)"></textarea>
+                                                <p class="text-[11px] text-rose-300"
+                                                    x-show="hasObjectError('arg', arg.name)"
+                                                    x-text="getObjectError('arg', arg.name)"></p>
+                                            </div>
+                                        </template>
+                                        <template
+                                            x-if="!isEnumArrayType(arg.type) && enumValues(arg).length === 0 && !isStructType(arg.type)">
+                                            <input type="text"
+                                                class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                                                :placeholder="isArrayType(arg.type) ? 'a,b,c' : ''"
+                                                x-model="argInputs[arg.name]" />
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </section>
+
+                    <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
+                        <div class="flex items-center justify-between gap-3">
+                            <h3 class="text-sm font-semibold">一次性运行（HTTP）</h3>
+                            <button
+                                class="rounded-lg bg-blue-600 hover:bg-blue-500 px-4 py-2 text-sm font-medium disabled:opacity-50"
+                                :disabled="running || interactiveRunning" @click="runCommand">
+                                <span x-show="!running">运行</span>
+                                <span x-show="running">执行中...</span>
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                            <div class="space-y-1">
+                                <div class="text-xs text-slate-400">STDIN（仅一次性运行生效）</div>
+                                <textarea rows="4"
+                                    class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-mono outline-none focus:border-blue-500"
+                                    placeholder="可选：一次性输入内容" x-model="stdinInput"></textarea>
+                            </div>
+                            <div class="space-y-1">
+                                <div class="text-xs text-slate-400">超时（秒，仅一次性运行生效）</div>
+                                <input type="number" min="1" max="600"
+                                    class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                                    x-model.number="timeoutSeconds" />
+                                <div class="text-[11px] text-slate-500">默认 30 秒，最大 600 秒</div>
+                            </div>
+                        </div>
+
+                        <div class="text-xs text-slate-400">会展示 curl 风格请求与完整 CLI 调用过程</div>
+                    </section>
+
+                    <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
+                        <div class="flex items-center justify-between gap-3">
+                            <h3 class="text-sm font-semibold">可交互运行（WebSocket + PTY）</h3>
+                            <div class="flex items-center gap-2">
+                                <button
+                                    class="rounded-lg bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-sm font-medium disabled:opacity-50"
+                                    :disabled="running || interactiveRunning" @click="runInteractiveCommand">
+                                    交互运行
+                                </button>
+                                <button
+                                    class="rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-800 disabled:opacity-50"
+                                    :disabled="!interactiveRunning" @click="stopInteractiveCommand">
+                                    停止交互
+                                </button>
+                            </div>
+                        </div>
+                        <div class="text-xs text-slate-400">交互模式会复用终端会话；不使用上方 STDIN/超时参数。</div>
+                    </section>
+
+                    <div x-show="terminalFullscreen" x-transition.opacity.duration.150ms
+                        class="fixed inset-0 z-[70] bg-black/60 backdrop-blur-[1px]" @click="exitTerminalFullscreen">
+                    </div>
+
+                    <section x-ref="terminalPanel"
+                        class="rounded-xl border border-slate-800 bg-slate-900/50 p-4 transition-all duration-200"
+                        :class="terminalFullscreen ? 'fixed inset-4 z-[80] bg-slate-950 border-slate-700 shadow-2xl ring-1 ring-slate-700/80 flex flex-col' : ''"
+                        @keydown.escape.window="exitTerminalFullscreen">
+                        <div class="flex items-center justify-between gap-3">
+                            <h3 class="text-sm font-semibold">交互终端（WebSocket + PTY）</h3>
+                            <button type="button"
+                                class="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                                @click="toggleTerminalFullscreen" x-text="terminalFullscreen ? '退出全屏' : '全屏'">
+                            </button>
+                        </div>
+                        <div class="mt-2 text-xs text-slate-400">点击“交互运行”后，可直接在终端中输入；支持 q / Ctrl+C / Ctrl+D；按 ESC 可退出全屏。
+                        </div>
+                        <div class="mt-3 rounded-lg border border-slate-800 bg-black/40 p-2" @click="focusTerminal"
+                            :class="terminalFullscreen ? 'flex-1 min-h-0' : ''">
+                            <div x-ref="terminal" class="w-full" :class="terminalFullscreen ? 'h-full' : 'h-72'"></div>
+                        </div>
+                    </section>
+
+                    <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                        <h3 class="text-sm font-semibold">调用过程</h3>
+                        <pre class="mt-3 whitespace-pre-wrap break-words rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-200"
+                            x-text="invokeView"></pre>
+                    </section>
+
+                    <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                        <h3 class="text-sm font-semibold">执行结果</h3>
+                        <pre class="mt-3 whitespace-pre-wrap break-words rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-200"
+                            x-text="resultView"></pre>
+                    </section>
+                </div>
+            </template>
+        </main>
+    </div>
+
+    <script>
+        function webApp() {
+            return {
+                commands: [],
+                commandTree: [],
+                expandedNodes: {},
+                sidebarCollapsed: false,
+                query: '',
+                selected: null,
+                flagInputs: {},
+                argInputs: {},
+                flagTouched: {},
+                objectErrors: {},
+                stdinInput: '',
+                timeoutSeconds: 30,
+                invokeView: '(暂无)',
+                resultView: '(暂无)',
+                running: false,
+                interactiveRunning: false,
+                ws: null,
+                term: null,
+                fitAddon: null,
+                termDataDisposable: null,
+                termKeyHandlerInstalled: false,
+                terminalFullscreen: false,
+                resizeObserver: null,
+                windowResizeHandler: null,
+                resizeAnimationFrame: 0,
+
+                get commandTreeRows() {
+                    const q = this.query.toLowerCase().trim();
+                    const rows = [];
+
+                    const visit = (node, depth) => {
+                        if (q && !this.treeNodeMatchesQuery(node, q)) {
+                            return;
+                        }
+
+                        const hasChildren = (node.children || []).length > 0;
+                        const expanded = q ? true : !!this.expandedNodes[node.key];
+                        const isCommand = !!node.command;
+                        const secondary = isCommand
+                            ? (node.command.short || node.command.description || node.command.id || '(无描述)')
+                            : ((node.children || []).length + ' 个子命令');
+
+                        rows.push({
+                            key: node.key,
+                            label: node.label,
+                            depth,
+                            hasChildren,
+                            expanded,
+                            isCommand,
+                            command: node.command,
+                            secondary,
+                        });
+
+                        if (hasChildren && expanded) {
+                            (node.children || []).forEach((child) => visit(child, depth + 1));
+                        }
+                    };
+
+                    (this.commandTree || []).forEach((node) => visit(node, 0));
+                    return rows;
+                },
+
+                commandSearchText(cmd) {
+                    return [
+                        cmd.id,
+                        cmd.name,
+                        cmd.use,
+                        cmd.short,
+                        cmd.long,
+                        cmd.description,
+                        (cmd.aliases || []).join(' '),
+                    ].join(' ').toLowerCase();
+                },
+
+                commandMatchesQuery(cmd, q) {
+                    if (!q) return true;
+                    return this.commandSearchText(cmd).includes(q);
+                },
+
+                treeNodeMatchesQuery(node, q) {
+                    if (!q) return true;
+
+                    if (node.command && this.commandMatchesQuery(node.command, q)) {
+                        return true;
+                    }
+
+                    return (node.children || []).some((child) => this.treeNodeMatchesQuery(child, q));
+                },
+
+                buildCommandTree(commands) {
+                    const root = { key: '__root__', label: '', children: [], childMap: Object.create(null), command: null };
+
+                    (commands || []).forEach((cmd) => {
+                        const tokens = Array.isArray(cmd.path) && cmd.path.length > 0
+                            ? cmd.path
+                            : String(cmd.id || '').split(' ').filter(Boolean);
+                        if (tokens.length === 0) return;
+
+                        let cur = root;
+                        for (let i = 0; i < tokens.length; i++) {
+                            const token = String(tokens[i] || '').trim();
+                            if (!token) continue;
+
+                            const key = tokens.slice(0, i + 1).join(' ');
+                            if (!cur.childMap[key]) {
+                                cur.childMap[key] = {
+                                    key,
+                                    label: token,
+                                    children: [],
+                                    childMap: Object.create(null),
+                                    command: null,
+                                };
+                                cur.children.push(cur.childMap[key]);
+                            }
+                            cur = cur.childMap[key];
+                        }
+
+                        cur.command = cmd;
+                    });
+
+                    const sortTree = (nodes) => {
+                        nodes.sort((a, b) => a.label.localeCompare(b.label));
+                        nodes.forEach((node) => sortTree(node.children));
+                    };
+
+                    sortTree(root.children);
+
+                    const normalize = (nodes) => {
+                        return nodes.map((node) => ({
+                            key: node.key,
+                            label: node.label,
+                            command: node.command,
+                            children: normalize(node.children),
+                        }));
+                    };
+
+                    return normalize(root.children);
+                },
+
+                resetTreeExpansion() {
+                    const next = {};
+                    (this.commandTree || []).forEach((node) => {
+                        next[node.key] = true;
+                    });
+                    this.expandedNodes = next;
+                },
+
+                expandAllNodes() {
+                    const next = {};
+                    const walk = (node) => {
+                        next[node.key] = true;
+                        (node.children || []).forEach((child) => walk(child));
+                    };
+                    (this.commandTree || []).forEach((node) => walk(node));
+                    this.expandedNodes = next;
+                },
+
+                collapseAllNodes() {
+                    const next = {};
+                    const walk = (node) => {
+                        next[node.key] = false;
+                        (node.children || []).forEach((child) => walk(child));
+                    };
+                    (this.commandTree || []).forEach((node) => walk(node));
+                    this.expandedNodes = next;
+                },
+
+                toggleSidebar() {
+                    this.sidebarCollapsed = !this.sidebarCollapsed;
+                    if (!this.sidebarCollapsed && this.selected) {
+                        this.$nextTick(() => this.expandToCommand(this.selected));
+                    }
+                },
+
+                toggleNode(key) {
+                    if (!key) return;
+                    this.expandedNodes[key] = !this.expandedNodes[key];
+                },
+
+                onTreeRowClick(row) {
+                    if (!row) return;
+
+                    if (row.isCommand && row.command) {
+                        this.selectCommand(row.command.id);
+                        return;
+                    }
+
+                    if (row.hasChildren) {
+                        this.toggleNode(row.key);
+                    }
+                },
+
+                expandToCommand(cmd) {
+                    if (!cmd) return;
+                    const tokens = Array.isArray(cmd.path) ? cmd.path : [];
+                    for (let i = 0; i < tokens.length; i++) {
+                        const key = tokens.slice(0, i + 1).join(' ');
+                        if (!key) continue;
+                        this.expandedNodes[key] = true;
+                    }
+                },
+
+                normalizeEnumValue(value) {
+                    let v = String(value == null ? '' : value).trim();
+                    v = v.replace(/\\\|/g, '|');
+                    v = v.replace(/^[\\|,;\[\](){}"'`\s]+/, '').replace(/[\\|,;\[\](){}"'`\s]+$/, '');
+                    return v.trim();
+                },
+
+                enumValues(metaOrType) {
+                    const meta = (typeof metaOrType === 'object' && metaOrType !== null) ? metaOrType : null;
+                    const type = meta ? (meta.type || '') : String(metaOrType || '');
+
+                    let values = [];
+                    if (meta && Array.isArray(meta.enumValues) && meta.enumValues.length > 0) {
+                        values = meta.enumValues;
+                    } else {
+                        const m = type.match(/^enum(?:-array)?\[(.*)\]$/);
+                        if (!m) return [];
+                        const inner = m[1] || '';
+                        values = inner.includes('\\|') ? inner.split('\\|') : inner.split('|');
+                    }
+
+                    const seen = new Set();
+                    const out = [];
+                    values.forEach((raw) => {
+                        const v = this.normalizeEnumValue(raw);
+                        if (!v || seen.has(v)) return;
+                        seen.add(v);
+                        out.push(v);
+                    });
+                    return out;
+                },
+
+                isArrayType(type) {
+                    return type === 'string-array' || this.isEnumArrayType(type);
+                },
+
+                isEnumArrayType(type) {
+                    return (type || '').startsWith('enum-array[');
+                },
+
+                isStructType(type) {
+                    const t = (type || '');
+                    return t.startsWith('struct[') || t === 'object' || t.startsWith('object[');
+                },
+
+                initDefaultValue(type, raw) {
+                    if (this.isEnumArrayType(type)) {
+                        if (raw === undefined || raw === null || raw === '') return [];
+                        if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
+                        return String(raw).split(',').map((x) => x.trim()).filter(Boolean);
+                    }
+
+                    if (raw === undefined || raw === null || raw === '') return '';
+                    if (type === 'bool') return String(raw).toLowerCase() === 'true';
+
+                    if (this.isStructType(type)) {
+                        if (typeof raw === 'string') {
+                            try {
+                                return JSON.stringify(JSON.parse(raw), null, 2);
+                            } catch (_) {
+                                return String(raw);
+                            }
+                        }
+                        try {
+                            return JSON.stringify(raw, null, 2);
+                        } catch (_) {
+                            return String(raw);
+                        }
+                    }
+
+                    return String(raw);
+                },
+
+                async init() {
+                    try {
+                        const resp = await fetch('/api/commands');
+                        const data = await resp.json();
+                        this.commands = data.commands || [];
+                        this.commandTree = this.buildCommandTree(this.commands);
+                        this.resetTreeExpansion();
+                        if (this.commands.length > 0) {
+                            this.selectCommand(this.commands[0].id);
+                        }
+                    } catch (e) {
+                        this.resultView = String(e);
+                    }
+                },
+
+                selectCommand(id) {
+                    this.selected = this.commands.find((c) => c.id === id) || null;
+                    this.flagInputs = {};
+                    this.argInputs = {};
+                    this.flagTouched = {};
+                    this.objectErrors = {};
+
+                    if (!this.selected) return;
+                    this.expandToCommand(this.selected);
+
+                    (this.selected.flags || []).forEach((flag) => {
+                        this.flagInputs[flag.name] = this.initDefaultValue(flag.type, flag.default);
+                        if (this.isEnumArrayType(flag.type) && !Array.isArray(this.flagInputs[flag.name])) {
+                            this.flagInputs[flag.name] = [];
+                        }
+                        this.flagTouched[flag.name] = false;
+                    });
+
+                    (this.selected.args || []).forEach((arg) => {
+                        this.argInputs[arg.name] = this.initDefaultValue(arg.type, arg.default);
+                        if (this.isEnumArrayType(arg.type) && !Array.isArray(this.argInputs[arg.name])) {
+                            this.argInputs[arg.name] = [];
+                        }
+                    });
+                },
+
+                parseTypedValue(type, value) {
+                    if (this.isEnumArrayType(type)) {
+                        const arr = Array.isArray(value)
+                            ? value.map((x) => String(x).trim()).filter(Boolean)
+                            : String(value == null ? '' : value).split(',').map((x) => x.trim()).filter(Boolean);
+                        return arr.length > 0 ? arr : null;
+                    }
+
+                    const v = value == null ? '' : String(value).trim();
+                    if (v === '') return null;
+
+                    if (this.isArrayType(type)) {
+                        return v.split(',').map((x) => x.trim()).filter(Boolean);
+                    }
+
+                    if (this.isStructType(type)) {
+                        try {
+                            return JSON.parse(v);
+                        } catch (_) {
+                            return v;
+                        }
+                    }
+
+                    return v;
+                },
+
+                buildCommandPayload() {
+                    if (!this.selected) return null;
+
+                    const flags = {};
+                    const args = {};
+                    const rawArgs = [];
+
+                    (this.selected.flags || []).forEach((flag) => {
+                        const current = this.flagInputs[flag.name];
+
+                        if (flag.type === 'bool') {
+                            if (this.flagTouched[flag.name]) {
+                                flags[flag.name] = !!current;
+                            }
+                            return;
+                        }
+
+                        const parsed = this.parseTypedValue(flag.type, current);
+                        if (parsed !== null) {
+                            flags[flag.name] = parsed;
+                        }
+                    });
+
+                    (this.selected.args || []).forEach((arg) => {
+                        const parsed = this.parseTypedValue(arg.type, this.argInputs[arg.name]);
+                        if (parsed !== null) {
+                            args[arg.name] = parsed;
+                            rawArgs.push(this.toRawArgString(parsed));
+                        }
+                    });
+
+                    return {
+                        command: this.selected.id,
+                        flags,
+                        args,
+                        rawArgs,
+                    };
+                },
+
+                buildRunPayload() {
+                    const base = this.buildCommandPayload();
+                    if (!base) return null;
+
+                    return {
+                        ...base,
+                        stdin: String(this.stdinInput || ''),
+                        timeoutSeconds: Number(this.timeoutSeconds) > 0 ? Number(this.timeoutSeconds) : 0,
+                    };
+                },
+
+                formatPayloadTrace(payload) {
+                    if (!payload) return '';
+
+                    const lines = [];
+                    const argKeys = Object.keys(payload.args || {});
+                    if (argKeys.length > 0) {
+                        const pairs = argKeys.map((k) => `${k}=${this.toRawArgString(payload.args[k])}`);
+                        lines.push(`# args: ${pairs.join(', ')}`);
+                    }
+
+                    if (Array.isArray(payload.rawArgs) && payload.rawArgs.length > 0) {
+                        lines.push(`# rawArgs: [${payload.rawArgs.join(', ')}]`);
+                    }
+
+                    return lines.length > 0 ? ('\n' + lines.join('\n')) : '';
+                },
+
+                toRawArgString(value) {
+                    if (value === null || value === undefined) return '';
+                    if (Array.isArray(value)) {
+                        return value.map((x) => String(x)).join(',');
+                    }
+                    if (typeof value === 'object') {
+                        try {
+                            return JSON.stringify(value);
+                        } catch (_) {
+                            return String(value);
+                        }
+                    }
+                    return String(value);
+                },
+
+                shellQuote(token) {
+                    const s = String(token == null ? '' : token);
+                    if (s === '') return "''";
+                    if (/^[A-Za-z0-9_./:=-]+$/.test(s)) return s;
+                    return "'" + s.replace(/'/g, "'\\''") + "'";
+                },
+
+                formatCliMultiline(program, argv, fallbackInvocation) {
+                    if (!Array.isArray(argv) || argv.length === 0) {
+                        return '$ ' + (fallbackInvocation || '(cli) ...');
+                    }
+
+                    const bin = String(program || 'main').trim() || 'main';
+                    const pathLen = Array.isArray(this.selected?.path) ? this.selected.path.length : 1;
+                    const headCount = Math.max(1, Math.min(pathLen, argv.length));
+
+                    const head = [bin, ...argv.slice(0, headCount).map((t) => this.shellQuote(t))].join(' ');
+                    const lines = [];
+
+                    if (headCount < argv.length) {
+                        lines.push(head + ' \\');
+                    } else {
+                        lines.push(head);
+                    }
+
+                    for (let i = headCount; i < argv.length; i++) {
+                        const cur = argv[i];
+                        const isFlag = typeof cur === 'string' && cur.startsWith('--');
+
+                        if (isFlag && i + 1 < argv.length) {
+                            const next = argv[i + 1];
+                            const nextIsFlag = typeof next === 'string' && next.startsWith('--');
+                            if (!nextIsFlag) {
+                                const end = (i + 2 < argv.length) ? ' \\' : '';
+                                lines.push('  ' + this.shellQuote(cur) + ' ' + this.shellQuote(next) + end);
+                                i++;
+                                continue;
+                            }
+                        }
+
+                        const end = (i + 1 < argv.length) ? ' \\' : '';
+                        lines.push('  ' + this.shellQuote(cur) + end);
+                    }
+
+                    return '$ ' + lines.join('\n');
+                },
+
+                objectErrorKey(scope, name) {
+                    return scope + ':' + name;
+                },
+
+                setObjectError(scope, name, message) {
+                    this.objectErrors[this.objectErrorKey(scope, name)] = message;
+                },
+
+                clearObjectError(scope, name) {
+                    delete this.objectErrors[this.objectErrorKey(scope, name)];
+                },
+
+                hasObjectError(scope, name) {
+                    return !!this.objectErrors[this.objectErrorKey(scope, name)];
+                },
+
+                getObjectError(scope, name) {
+                    return this.objectErrors[this.objectErrorKey(scope, name)] || '';
+                },
+
+                objectPlaceholder(type) {
+                    if (this.isStructType(type)) {
+                        return '{\n  "key": "value"\n}';
+                    }
+                    return '';
+                },
+
+                getInputStore(scope) {
+                    return scope === 'flag' ? this.flagInputs : this.argInputs;
+                },
+
+                applyObjectTemplate(scope, name, type) {
+                    const store = this.getInputStore(scope);
+                    const current = String(store[name] || '').trim();
+                    if (current !== '') {
+                        return;
+                    }
+                    store[name] = this.objectPlaceholder(type);
+                    this.clearObjectError(scope, name);
+                },
+
+                formatObjectInput(scope, name) {
+                    const store = this.getInputStore(scope);
+                    const raw = String(store[name] || '').trim();
+                    if (raw === '') {
+                        this.clearObjectError(scope, name);
+                        return;
+                    }
+
+                    try {
+                        const parsed = JSON.parse(raw);
+                        store[name] = JSON.stringify(parsed, null, 2);
+                        this.clearObjectError(scope, name);
+                    } catch (e) {
+                        this.setObjectError(scope, name, 'JSON 格式错误：' + String(e.message || e));
+                    }
+                },
+
+                validateObjectInputs() {
+                    this.objectErrors = {};
+                    if (!this.selected) return true;
+
+                    const validateGroup = (scope, defs, store) => {
+                        (defs || []).forEach((item) => {
+                            if (!this.isStructType(item.type)) return;
+                            const raw = String(store[item.name] || '').trim();
+                            if (raw === '') return;
+                            try {
+                                JSON.parse(raw);
+                            } catch (e) {
+                                this.setObjectError(scope, item.name, 'JSON 格式错误：' + String(e.message || e));
+                            }
+                        });
+                    };
+
+                    validateGroup('flag', this.selected.flags, this.flagInputs);
+                    validateGroup('arg', this.selected.args, this.argInputs);
+
+                    return Object.keys(this.objectErrors).length === 0;
+                },
+
+                websocketURL(path) {
+                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    return proto + '//' + location.host + path;
+                },
+
+                sendTerminalInput(data) {
+                    if (!data) return;
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        this.ws.send(JSON.stringify({ type: 'stdin', data }));
+                    }
+                },
+
+                focusTerminal() {
+                    if (this.term) {
+                        this.term.focus();
+                    }
+                },
+
+                applyTerminalFullscreenState(enabled) {
+                    this.terminalFullscreen = !!enabled;
+                    const overflowValue = this.terminalFullscreen ? 'hidden' : '';
+                    document.body.style.overflow = overflowValue;
+                    document.documentElement.style.overflow = overflowValue;
+
+                    this.$nextTick(() => {
+                        this.scheduleTerminalResize();
+                        this.focusTerminal();
+                    });
+                },
+
+                toggleTerminalFullscreen() {
+                    this.applyTerminalFullscreenState(!this.terminalFullscreen);
+                },
+
+                exitTerminalFullscreen() {
+                    if (!this.terminalFullscreen) return;
+                    this.applyTerminalFullscreenState(false);
+                },
+
+                ensureTerminal() {
+                    if (typeof Terminal === 'undefined') {
+                        throw new Error('xterm.js 未加载完成');
+                    }
+
+                    if (!this.term) {
+                        this.term = new Terminal({
+                            cursorBlink: true,
+                            convertEol: false,
+                            fontSize: 13,
+                            theme: {
+                                background: '#020617',
+                                foreground: '#e2e8f0',
+                            },
+                        });
+                    }
+
+                    if (!this.fitAddon && typeof FitAddon !== 'undefined' && FitAddon && typeof FitAddon.FitAddon === 'function') {
+                        this.fitAddon = new FitAddon.FitAddon();
+                        this.term.loadAddon(this.fitAddon);
+                    }
+
+                    if (this.$refs.terminal && !this.term.element) {
+                        this.term.open(this.$refs.terminal);
+                        this.fitTerminal(false);
+                    }
+
+                    if (!this.termKeyHandlerInstalled) {
+                        this.term.attachCustomKeyEventHandler((event) => {
+                            if (!this.term) return true;
+
+                            const key = String(event.key || '').toLowerCase();
+                            const hasCtrlOnly = event.ctrlKey && !event.metaKey && !event.altKey;
+
+                            if (hasCtrlOnly) {
+                                if (key === 'c') {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    if (this.term.hasSelection()) {
+                                        this.term.clearSelection();
+                                    }
+                                    this.sendTerminalInput('\u0003');
+                                    return false;
+                                }
+                                if (key === 'd') {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    this.sendTerminalInput('\u0004');
+                                    return false;
+                                }
+                                if (key === 'z') {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    this.sendTerminalInput('\u001a');
+                                    return false;
+                                }
+                            }
+
+                            return true;
+                        });
+                        this.termKeyHandlerInstalled = true;
+                    }
+
+                    this.bindTerminalResizeHandlers();
+
+                    if (!this.termDataDisposable) {
+                        this.termDataDisposable = this.term.onData((data) => {
+                            this.sendTerminalInput(data);
+                        });
+                    }
+                },
+
+                fitTerminal(shouldSyncResize) {
+                    if (!this.term || !this.$refs.terminal) return;
+
+                    if (this.fitAddon && typeof this.fitAddon.fit === 'function') {
+                        this.fitAddon.fit();
+                    }
+
+                    if (shouldSyncResize) {
+                        this.sendTerminalResize();
+                    }
+                },
+
+                sendTerminalResize() {
+                    if (!this.term || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+                    const rows = this.term.rows > 0 ? this.term.rows : 24;
+                    const cols = this.term.cols > 0 ? this.term.cols : 80;
+                    this.ws.send(JSON.stringify({ type: 'resize', rows, cols }));
+                },
+
+                scheduleTerminalResize() {
+                    if (this.resizeAnimationFrame) {
+                        cancelAnimationFrame(this.resizeAnimationFrame);
+                    }
+
+                    this.resizeAnimationFrame = requestAnimationFrame(() => {
+                        this.resizeAnimationFrame = 0;
+                        this.fitTerminal(true);
+                    });
+                },
+
+                bindTerminalResizeHandlers() {
+                    if (!this.windowResizeHandler) {
+                        this.windowResizeHandler = () => this.scheduleTerminalResize();
+                        window.addEventListener('resize', this.windowResizeHandler);
+                    }
+
+                    if (!this.resizeObserver && typeof ResizeObserver !== 'undefined' && this.$refs.terminal) {
+                        this.resizeObserver = new ResizeObserver(() => this.scheduleTerminalResize());
+                        this.resizeObserver.observe(this.$refs.terminal);
+                    }
+                },
+
+                unbindTerminalResizeHandlers() {
+                    if (this.resizeObserver) {
+                        this.resizeObserver.disconnect();
+                        this.resizeObserver = null;
+                    }
+
+                    if (this.windowResizeHandler) {
+                        window.removeEventListener('resize', this.windowResizeHandler);
+                        this.windowResizeHandler = null;
+                    }
+
+                    if (this.resizeAnimationFrame) {
+                        cancelAnimationFrame(this.resizeAnimationFrame);
+                        this.resizeAnimationFrame = 0;
+                    }
+                },
+
+                stopInteractiveCommand() {
+                    if (this.ws) {
+                        try {
+                            if (this.ws.readyState === WebSocket.OPEN) {
+                                this.ws.send(JSON.stringify({ type: 'close' }));
+                            }
+                            this.ws.close();
+                        } catch (_) {
+                            // ignore close errors
+                        }
+                    }
+                    this.ws = null;
+                    this.interactiveRunning = false;
+                    this.unbindTerminalResizeHandlers();
+                },
+
+                async runInteractiveCommand() {
+                    if (!this.validateObjectInputs()) {
+                        this.resultView = '对象类型参数存在无效 JSON，请先修正。';
+                        return;
+                    }
+
+                    const payload = this.buildCommandPayload();
+                    if (!payload) return;
+
+                    this.ensureTerminal();
+
+                    const trace = this.formatPayloadTrace(payload);
+                    const wsURL = this.websocketURL('/api/terminal/ws');
+
+                    const setInvokeDraft = (msgType) => {
+                        const header =
+                            "# websocket " + wsURL + "\\n" +
+                            "# send: " + JSON.stringify({ type: msgType, request: payload });
+                        this.invokeView = header + '\n\n$ (interactive cli) ...' + trace;
+                    };
+
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        setInvokeDraft('exec');
+                        this.ws.send(JSON.stringify({ type: 'exec', request: payload }));
+                        this.resultView = '命令已发送到交互终端...';
+                        this.term.focus();
+                        return;
+                    }
+
+                    this.stopInteractiveCommand();
+                    this.term.clear();
+                    this.term.write('[connecting...]\r\n');
+                    setInvokeDraft('start');
+                    this.resultView = '交互终端连接中...';
+
+                    const ws = new WebSocket(wsURL);
+                    this.ws = ws;
+                    this.interactiveRunning = true;
+
+                    ws.onopen = () => {
+                        this.fitTerminal(false);
+                        const rows = this.term && this.term.rows > 0 ? this.term.rows : 24;
+                        const cols = this.term && this.term.cols > 0 ? this.term.cols : 80;
+                        ws.send(JSON.stringify({
+                            type: 'start',
+                            request: payload,
+                            rows,
+                            cols,
+                        }));
+                        this.term.focus();
+                    };
+
+                    ws.onmessage = (event) => {
+                        let msg;
+                        try {
+                            msg = JSON.parse(event.data);
+                        } catch (_) {
+                            return;
+                        }
+
+                        if (msg.type === 'started') {
+                            this.resultView = '交互终端已连接';
+                            const shell = String(msg.program || '').trim();
+                            const cwd = String(msg.workingDir || '').trim();
+                            const extras = [];
+                            if (shell) extras.push('shell=' + shell);
+                            if (cwd) extras.push('cwd=' + cwd);
+                            const suffix = extras.length > 0 ? (' ' + extras.join(' ')) : '';
+                            this.term.write('[terminal connected' + suffix + ']\r\n');
+                            this.scheduleTerminalResize();
+                            return;
+                        }
+
+                        if (msg.type === 'invocation') {
+                            const cli = this.formatCliMultiline(msg.program, msg.argv, msg.invocation);
+                            const header =
+                                "# websocket " + wsURL + "\\n" +
+                                "# send: " + JSON.stringify({ type: 'exec', request: payload });
+                            this.invokeView = header + '\n\n' + cli + trace;
+                            this.resultView = '命令正在交互终端执行...';
+                            return;
+                        }
+
+                        if (msg.type === 'output') {
+                            this.term.write(String(msg.data || ''));
+                            return;
+                        }
+
+                        if (msg.type === 'error') {
+                            this.term.write('\r\n[server error] ' + String(msg.error || 'unknown') + '\r\n');
+                            return;
+                        }
+
+                        if (msg.type === 'exit') {
+                            this.interactiveRunning = false;
+                            const statusText = msg.ok ? '0' : '1';
+                            this.term.write('\r\n[exit ' + statusText + ']\r\n');
+                            if (msg.error) {
+                                this.term.write(String(msg.error) + '\r\n');
+                                this.resultView = String(msg.error);
+                            } else {
+                                this.resultView = '交互会话已结束';
+                            }
+                        }
+                    };
+
+                    ws.onerror = () => {
+                        this.resultView = 'WebSocket 连接异常';
+                    };
+
+                    ws.onclose = () => {
+                        if (this.ws === ws) {
+                            this.ws = null;
+                        }
+                        this.interactiveRunning = false;
+                        this.unbindTerminalResizeHandlers();
+                    };
+                },
+
+                async runCommand() {
+                    if (!this.validateObjectInputs()) {
+                        this.resultView = '对象类型参数存在无效 JSON，请先修正。';
+                        return;
+                    }
+
+                    const payload = this.buildRunPayload();
+                    if (!payload) return;
+
+                    const trace = this.formatPayloadTrace(payload);
+
+                    const curlLike =
+                        "curl -sS -X POST " + location.origin + "/api/run \\\n  -H 'Content-Type: application/json' \\\n  -d '" + JSON.stringify(payload) + "'";
+
+                    this.invokeView = curlLike + '\n\n$ (cli) ...' + trace;
+                    this.running = true;
+                    this.resultView = '执行中...';
+
+                    try {
+                        const resp = await fetch('/api/run', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload),
+                        });
+
+                        const data = await resp.json();
+                        const cli = this.formatCliMultiline(data.program, data.argv, data.invocation);
+                        this.invokeView = curlLike + '\n\n' + cli + trace;
+                        this.resultView = data.combined || '(empty)';
+                    } catch (e) {
+                        this.resultView = String(e);
+                    } finally {
+                        this.running = false;
+                    }
+                },
+            };
+        }
+    </script>
+</body>
+
+</html>

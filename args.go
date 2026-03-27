@@ -63,6 +63,8 @@ import (
 
 // ArgValidator is a function that validates an argument.
 
+const internalArgsOverrideFlag = "args"
+
 type ArgSet []Arg
 
 type Arg struct {
@@ -267,6 +269,23 @@ func GlobalFlags() OptionSet {
 			Flag:        "list-flags",
 			Description: "List all flags.",
 			Value:       BoolOf(new(bool)),
+		},
+		{
+			Flag:        "env",
+			Shorthand:   "e",
+			Description: "Set environment variables (format: KEY=VALUE). Supports repeat and CSV.",
+			Value:       StringArrayOf(new([]string)),
+		},
+		{
+			Flag:        "env-file",
+			Description: "Load environment variables from file(s). Supports repeat and CSV.",
+			Value:       StringArrayOf(new([]string)),
+		},
+		{
+			Flag:        internalArgsOverrideFlag,
+			Description: "Internal: override parsed args using repeated/CSV values.",
+			Value:       StringArrayOf(new([]string)),
+			Hidden:      true,
 		},
 	}
 }

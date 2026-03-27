@@ -5,6 +5,15 @@
 - 本文件是仓库级 always-on 指引，适用于整个 `redant` 工作区。
 - 不再额外创建 `AGENTS.md`，避免两套同类指引并存。
 
+## 代码审查模式入口
+
+- 当任务是 PR 审查 / review comment 处理 / 审查结论整理时，优先进入审查模式并遵循：
+	- `.github/instructions/pr-review.instructions.md`
+	- `.github/instructions/pr-review-golang.instructions.md`
+	- `.github/instructions/pr-review-javascript.instructions.md`
+	- `.github/instructions/pr-review-shell.instructions.md`
+- 审查模式下输出要求以审查规则文件为准（分类标签、证据链、Review Conclusion、评论模板与去重规则）。
+
 ## 技术栈与目标
 
 - 语言：Go（见 `go.mod`，当前 `go 1.23`）。
@@ -43,7 +52,7 @@
 
 - 文档入口：`docs/INDEX.md`。
 - 涉及架构或流程变化时，先更新 `docs/DESIGN.md`，再补示例/说明文档。
-- 行为变更需同步 `docs/CHANGELOG.md`，必要时更新 `docs/EVALUATION.md`。
+- 行为变更需同步 `.version/changelog/Unreleased.md`，必要时更新 `docs/EVALUATION.md`。
 - 文档默认使用中文，流程图优先 Mermaid。
 
 ## 实施原则（对 AI 代理）
