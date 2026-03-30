@@ -162,3 +162,27 @@ commit := &redant.Command{
 repo.Children = append(repo.Children, commit)
 root.Children = append(root.Children, repo)
 ```
+
+## 8) 交互式命令（StreamHandler）
+
+当命令需要“结构化流式输出”时，可使用 `StreamHandler`：
+
+```go
+chat := &redant.Command{
+    Use: "chat",
+    StreamHandler: func(ctx context.Context, stream *redant.InvocationStream) error {
+        if err := stream.Control("phase:init"); err != nil {
+            return err
+        }
+        if err := stream.Output("hello"); err != nil {
+            return err
+        }
+        return stream.EndRound("done")
+    },
+}
+```
+
+说明：
+
+- 响应输出通过 `out := inv.ResponseStream()` 消费；`Run()` 结束后响应流自动关闭。
+- 现有 `Handler` 与 `Middleware` 仍可继续使用，兼容不变。

@@ -232,3 +232,26 @@ sequenceDiagram
 - 同级：[`MCP.md`](MCP.md) 提供 MCP 子命令、Schema 与调用协议说明。
 - 同级：[`WEBTTY.md`](WEBTTY.md) 提供 WebTTY 能力说明与分阶段迭代路线。
 - 下游：[`../example/args-test/README.md`](../example/args-test/README.md) 提供参数解析落地示例。
+
+## 9. 交互式命令与流式处理
+
+为兼容传统一次性命令执行，同时支持类 RPC 的结构化响应流输出，Redant 新增了流式处理能力。
+
+```mermaid
+flowchart LR
+    A[Invocation.Run] --> B{命令是否定义 StreamHandler}
+    B -- 是 --> C[AdaptStreamHandler]
+    B -- 否 --> D[Legacy Handler]
+    C --> E[InvocationStream]
+    E --> F[Send 结构化事件]
+    F --> G[内部创建 ResponseStream 输出事件]
+    G --> H[Run 结束自动 close]
+```
+
+设计要点：
+
+1. 保留 `HandlerFunc` 与 `MiddlewareFunc`，不破坏现有执行链。
+2. 新增 `StreamHandlerFunc`，由适配层转换为 `HandlerFunc` 后进入中间件链。
+3. 响应事件通过 `Invocation.ResponseStream()` 消费，事件模型为 `StreamMessage{jsonrpc,id,method,type,data,error,meta}`。
+
+详见：[`INTERACTIVE_STREAMING.md`](INTERACTIVE_STREAMING.md)。

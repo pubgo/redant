@@ -60,8 +60,17 @@ type Command struct {
 
 	// Middleware is called before the Handler.
 	// Use Chain() to combine multiple middlewares.
-	Middleware MiddlewareFunc
-	Handler    HandlerFunc
+	Middleware    MiddlewareFunc
+	Handler       HandlerFunc
+	StreamHandler StreamHandlerFunc
+
+	// ResponseTypes declares the possible streaming response event types/methods
+	// emitted by StreamHandler.
+	ResponseTypes []StreamResponseType
+
+	// ResponseBuffer controls internal stream response channel buffer size.
+	// If <= 0, a default value is used.
+	ResponseBuffer int
 }
 
 func ascendingSortFn[T cmp.Ordered](a, b T) int {
@@ -272,6 +281,8 @@ type Invocation struct {
 	Stderr io.Writer
 	Stdin  io.Reader
 
+	responseStream chan StreamMessage
+
 	// Annotations is a map of arbitrary annotations to attach to the invocation.
 	Annotations map[string]any
 
@@ -327,6 +338,39 @@ func (inv *Invocation) WithTestParsedFlags(
 	return inv.with(func(i *Invocation) {
 		i.Flags = parsedFlags
 	})
+}
+
+// ResponseStream returns the invocation response stream channel.
+//
+// The stream is internally owned by Invocation and is closed automatically when
+// StreamHandler execution finishes.
+func (inv *Invocation) ResponseStream() <-chan StreamMessage {
+	return inv.ensureResponseStream(inv.responseBufferSize())
+}
+
+func (inv *Invocation) responseBufferSize() int {
+	if inv == nil || inv.Command == nil || inv.Command.ResponseBuffer <= 0 {
+		return defaultStreamResponseBuffer
+	}
+	return inv.Command.ResponseBuffer
+}
+
+func (inv *Invocation) ensureResponseStream(buffer int) chan StreamMessage {
+	if inv.responseStream != nil {
+		return inv.responseStream
+	}
+	if buffer <= 0 {
+		buffer = defaultStreamResponseBuffer
+	}
+	inv.responseStream = make(chan StreamMessage, buffer)
+	return inv.responseStream
+}
+
+func (inv *Invocation) closeResponseStream() {
+	if inv.responseStream == nil {
+		return
+	}
+	close(inv.responseStream)
 }
 
 func (inv *Invocation) Context() context.Context {
@@ -855,11 +899,16 @@ func (inv *Invocation) run(state *runState) error {
 		}
 	}
 
-	if inv.Command.Handler == nil || errors.Is(state.flagParseErr, pflag.ErrHelp) {
+	handler := inv.Command.Handler
+	if inv.Command.StreamHandler != nil {
+		handler = AdaptStreamHandler(inv.Command.StreamHandler)
+	}
+
+	if handler == nil || errors.Is(state.flagParseErr, pflag.ErrHelp) {
 		return DefaultHelpFn()(ctx, inv)
 	}
 
-	err := mw(inv.Command.Handler)(ctx, inv)
+	err := mw(handler)(ctx, inv)
 	if err != nil {
 		return &RunCommandError{
 			Cmd: inv.Command,

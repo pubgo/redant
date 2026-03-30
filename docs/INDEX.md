@@ -19,6 +19,7 @@ flowchart TD
 2. [`USAGE_AT_A_GLANCE.md`](USAGE_AT_A_GLANCE.md)：新同学快速建立 CLI 使用心智模型。
 3. [`review/PR_REVIEW_RUBRIC.md`](review/PR_REVIEW_RUBRIC.md)：PR 审查流程基线与轮次规则。
 4. [`DESIGN.md`](DESIGN.md)：涉及实现变更时优先查阅。
+5. [`INTERACTIVE_STREAMING.md`](INTERACTIVE_STREAMING.md)：交互式命令与结构化响应流设计。
 
 > 说明：为保持主仓聚焦，`agentline` 与 `copilot-demo` 相关模块/示例已迁移到独立项目维护；本索引仅覆盖 `redant` 主仓当前内容。
 
