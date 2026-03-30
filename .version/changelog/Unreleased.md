@@ -7,85 +7,17 @@
 
 ## 新增
 
-- 新增隐藏全局标志 `--args`：支持以重复参数或 CSV 形式覆盖命令位置参数，用于在需要时通过 flag 直接注入/替代 `args`。
-- 新增 MCP 能力：提供 `cmds/mcpcmd` 与 `internal/mcpserver`，支持将命令树映射为 MCP Tools，并通过 `mcp serve --transport stdio` 对外服务。
-- 新增 Web 控制台能力：提供 `cmds/webcmd` 与 `internal/webui`，支持可视化选择命令、填写 flags/args、执行并查看调用过程与结果。
-- 新增 `cmds/readlinecmd`：基于 `github.com/chzyer/readline` 提供多轮交互 REPL，支持命令/子命令、flag、参数与枚举值补全；`example/fastcommit` 已接入该命令。
-- 新增 `cmds/richlinecmd`：基于 `github.com/charmbracelet/bubbletea`（对比 `tcell` 后选型）实现独立交互命令，提供竖向补全候选列表与描述信息展示，且不影响现有 `readlinecmd`。
-- 新增 `cmds/agentlineapp`（阶段一 MVP）：提供 Agent CLI 风格会话块视图（`system/user/assistant/tool/command/result`）、状态栏与输出滚动；支持 `/ask`、`/plan`、`/run` 等 slash 命令，并接入 `example/fastcommit` 便于体验。
-- 增强 `cmds/richlinecmd` 候选可读性：补全列表新增类型标签（`CMD/FLAG/ARG/ENUM`）与总数/区间信息，并按 `CMD → FLAG → ARG → ENUM` 分组排序；大结果集支持窗口滚动显示与 `PgUp/PgDn/Home/End` 快捷定位；同时为标签、描述、选中项与提示信息提供颜色分层展示。
-- 新增 `example/copilot-demo`：集成 `github.com/github/copilot-sdk/go`，提供新会话/恢复会话、会话管理、模型查询、状态检查、自定义 tool、hooks、ask_user 与流式输出示例，并支持通过 `agentline` 以 slash command 执行 `chat`、`resume`。
-- 增强 `example/copilot-demo`：集成 `cmds/webcmd`，支持通过 `copilot-demo web` 启动可视化命令执行页面。
-- 增强 `example/copilot-demo sessions`：新增 `--hydrate` / `--hydrate-timeout` / `--hydrate-max-events`，可在会话列表元信息缺失时尝试恢复会话并补充最近 assistant 摘要与消息统计。
-- 增强 `cmds/agentlineapp`：新增 `--resume-session-id` / `--resume-prompt`，可在启动交互模式时自动执行 `resume` 并附着到指定会话。
-- 调整 `example/copilot-demo` 交互可见命令：`sessions` 标记为 `agent.command=true`，可在 `agentline` 中通过 `/sessions`（含 `--hydrate`）直接执行。
-- 新增 `cmds/agentlineapp/acp` 最小 ACP 适配层：提供 `AgentBridge`、`CallbackClient`、`PermissionBroker` 与 `session/update` 渲染映射，打通 prompt turn 与权限请求闭环。
-- 增强 `cmds/agentlineapp` ACP 交互能力：新增 `/permissions`、`/allow`、`/deny`、`/acp-demo` slash 命令，支持运行中权限审批与演示回合。
-- 增强 `cmds/agentlineapp` ACP 观测能力：新增 `/acp-events`、`/acp-events-summary`、`/acp-events-export [path]`，支持在交互中回看事件时间线、统计摘要并导出 JSONL（默认 `.local/data.jsonl`）。
-- 新增 `cmds/agentlineapp` 双向交互协议（`agentline.interaction.v1`）：命令可通过 Invocation 注解获取桥接对象并执行 `Emit/Ask`；交互端新增 `/questions`、`/reply`、`/skip` 处理运行中问答回路。
-- 增强 `example/copilot-demo`：新增 `acp-turn` 显式命令入口，支持以 `allow/deny/cancel` 决策模拟 ACP `session/request_permission` 回合。
-- 调整 `example/copilot-demo chat`：当提供 `--session-id` 时自动按 resume 模式继续指定会话；未提供时保持创建新会话语义。
-- 增强 `example/copilot-demo chat/resume`：新增 `--dump-events` / `--events-limit` / `--events-raw`，可在 ResumeSession 与发送 Prompt 后通过 `GetMessages` 打印会话事件明细，便于排查多轮执行过程。
-- 新增 `example/copilot-demo events` 只读命令：支持通过 `--session-id` 查看 `GetMessages` 事件明细（可配合 `--events-limit` / `--events-raw`），且不发送 Prompt。
-- 增强 `example/copilot-demo` 事件观测：新增 `--events-out`（默认 `data.jsonl` JSONL 导出）与 `--events-view`（`timeline/summary/none`），支持“可归档 + 可回放”的会话过程查看方式。
-- 增强 `example/copilot-demo` 与 `cmds/agentlineapp` 协议联动：新增 `interactive-demo` 命令示例，演示命令侧通过 `agentline.interaction.v1` 进行 `Emit/Ask` 双向交互，并可配合 `/questions`、`/reply`、`/skip` 完成问答闭环。
+- 暂无
 
 ## 修复
 
-- 修复根命令重复初始化场景下的全局标志重复注入问题，避免在 web 执行路径触发 `completion flag redefined: env` panic。
-- 修复 Web 控制台 `enum-array` 交互异常（选择一个值时误全选）。
-- 修复 Web 控制台中 args 映射丢失问题：当命名 `args` 缺失时回退使用 `rawArgs`，保证调用链路参数完整。
-- 修复 `internal/webui/server_test.go` 中 `resp.Body.Close()` 返回值未检查导致的 `task lint` 失败。
-- 修复 Web 控制台交互终端快捷键不生效问题：拦截并转发 `Ctrl+C/Ctrl+D/Ctrl+Z` 控制字符，避免浏览器默认快捷键吞掉输入，支持更稳定地中断 `top` 等交互程序。
-- 修复 Web 控制台后端控制字符处理：收到 `Ctrl+C/Ctrl+Z` 时优先向 PTY 前台进程组发送 `SIGINT/SIGTSTP`，并在信号路径不可用时回退为原始字节写入，提升交互程序中断可靠性。
-- 修复 Web 控制台 PTY 信号目标选择：控制字符信号路径改为基于 slave PTY (`pts`) 获取前台进程组，避免在 master PTY (`ptmx`) 场景下信号不生效。
-- 增加 Web 控制台终端控制键后端诊断日志（环境变量 `REDANT_WEB_TTY_DEBUG=1`）：可观察控制键接收、信号路径结果与回退写入路径，便于排查 `Ctrl+C` 等问题。
-- 修复 Web 控制台 `Ctrl+C` 信号兜底路径：当 `TIOCGPGRP` 返回 `inappropriate ioctl for device` 时，回退为向 shell 独立进程组发送信号，避免仅原始字节写入导致中断失效。
-- 修复 `cmds/readlinecmd` 的 TAB 自动补全文本拼接异常：补全回调改为按 `chzyer/readline` 协议返回“候选后缀”而非完整词，避免出现 `proproject` 等重复拼接。
-- 修复 `cmds/readlinecmd` 在多轮执行后退出时报 `close /dev/stdin: file already closed`：子命令执行改为传入不可关闭的只读 `stdin` 包装，避免循环内子调用提前关闭外层标准输入。
-- 修复 `cmds/richlinecmd` 在窄窗口/长候选描述场景下偶发的重绘残影（如补全标题重复显示）：对日志、候选与提示行按终端宽度截断，避免自动换行导致的行数估算偏差。
-- 优化 `cmds/richlinecmd` 输出管理：启用 Alt Screen 隔离交互界面，规范化命令输出中的 `\r` 回车覆盖序列，并将日志改为按终端宽度换行展示，减少“覆盖命令行/输出截断”现象。
-- 增强 `cmds/richlinecmd` 大输出场景体验：新增独立输出视窗（可滚动浏览历史输出），支持 `Ctrl+O` 切换输出滚动模式并使用 `↑/↓/PgUp/PgDn/Home/End` 导航，避免仅显示尾部导致历史内容不可见。
-- 调整 `cmds/richlinecmd` 输出呈现为“按命令分块”的历史视图：每次执行对应一个输出块，输入区始终固定在底部；在无候选列表时可直接通过 `PgUp/PgDn/Home/End` 浏览输出历史。
-- 增强 `cmds/richlinecmd` 交互入口：新增 slash 命令模式（如 `/output`、`/input`、`/help`），用于在 `Ctrl+O` 不可用场景下切换输出滚动与查看帮助。
-- 增强 `cmds/richlinecmd` slash 体验：输入 `/` 或前缀（如 `/o`）时提供自动补全候选，并支持 `Tab` 补全到完整 slash 命令。
-- 优化 `cmds/richlinecmd` 空输入补全体验：首次按 `Tab` 优先展示起始命令候选（无命令时回退默认候选），再次按 `Tab` 才应用当前选中项，降低“无提示不知道输入什么”的使用门槛。
-- 新增 `cmds/webttycmd`：提供最简本地 Web 终端（`WebSocket + PTY`）能力，并支持拖拽/批量上传、目录浏览与单文件下载。
-- 修复 `cmds/webttycmd` 交互终端在 `htop` 等全屏程序下 `Ctrl+C` 不中断的问题：控制字符输入改为优先向前台进程组发送信号，失败时回退原始字节写入。
+- 暂无
 
 ## 变更
 
-- 仓库瘦身：将 `cmds/agentlineapp`、`pkg/agentline`、`example/copilot-demo`（及依赖该能力的示例）迁移到独立项目维护，`redant` 主仓聚焦 CLI 框架核心能力。
-- `internal/mcpserver` 的 MCP 协议处理切换为基于 `github.com/modelcontextprotocol/go-sdk`，移除自实现报文编解码，复用官方 Server/Transport 能力简化维护。
-- MCP `serverInfo.name` 改为从根命令名动态推导（为空时回退 `redant-mcp`），使对外标识与 CLI 应用名一致。
-- MCP `tools/call` 在保留文本 `Content` 的同时，新增 `StructuredContent`（`ok/stdout/stderr/error/combined`）并声明 `OutputSchema`，便于上层程序化消费。
-- Web 运行接口返回扩展为 `program + argv + invocation`，前端据此渲染反斜杠续行的多行 CLI 调用过程，提升长命令可读性。
-- Web 控制台交互终端增强：连接后返回并展示 `shell/cwd` 上下文，前端终端随容器自动 fit，并在尺寸变化时同步 PTY `resize`，提升“本地 shell”一致性体验。
-- Web 控制台左侧 `Command` 列表改为树形可缩进导航，支持节点展开/折叠与搜索联动，减少多级命令场景下的选择混乱。
-- Web 控制台左侧菜单支持收起/展开（窄栏模式），便于在小屏或参数编辑时为主内容区释放更多空间。
-- Web 控制台交互终端支持一键全屏放大与 ESC 退出，并在切换时自动同步终端尺寸，提升长输出与交互调试体验。
-- 优化 Web 控制台交互终端全屏样式：增加暗色遮罩、沉浸式面板布局与页面滚动锁定，提升全屏观感与操作一致性。
-- `cmds/readlinecmd` 在每次执行前输出完整命令行（含必要引号转义），便于调试与复现实例命令。
-- `cmds/richlinecmd` 候选显示行数改为按当前终端窗口高度动态计算（窗口足够高时可一次显示全部候选），并将 `PgUp/PgDn` 翻页步长同步为动态行数。
-- `cmds/richlinecmd` 依赖升级到 Bubble Tea/Bubbles v2：模块路径切换为 `charm.land/bubbletea/v2` 与 `charm.land/bubbles/v2`，并同步适配 `tea.View`、输入组件样式与窗口设置 API。
-- 增强 `cmds/agentlineapp` 运行体验：新增 `/cancel`（含 `Ctrl+C` 运行中中断语义）、`tool.parse` 轨迹块与 `result` 状态/耗时信息（`status`、`duration`），使会话执行反馈更接近 agent CLI。
-- 增强 `cmds/agentlineapp` 对话编排：`/ask` 输出升级为多步骤会话块（`assistant.think` + `tool.placeholder` + 最终回复），并新增 `/fold` / `/unfold` 以折叠或展开 assistant/tool 详情，提升长会话可读性。
-- 增强 `cmds/agentlineapp` 交互布局为“输出区 + 输入区”双区域视图：启用鼠标滚轮分区滚动（输出区浏览会话输出、输入区浏览输入历史），支持点击输入历史回填到输入框并高亮当前选中项，保留键盘导航与 slash 候选协同体验。
-- 调整 `cmds/agentlineapp` 鼠标控制方式：移除 `/mouse` slash 命令，改为使用 `F2` 切换鼠标捕获，并在提示中说明 `Shift` 临时旁路复制。
-- 增强 agent 模式接入语义：`Command` 新增 `Metadata` 注解并支持 `mode=agent` / `agent.command=true` / `agent.entry=true`；其中 `agent.entry=true`（或 `mode=agent`）用于自动重定向进入 `agentline`，`agent.command=true` 用于将命令标记为交互模式可识别命令；`agentline` 新增 `/<command ...>` 直接执行路径（如 `/commit --message hi`），并在 `/` 候选与 `/help` 中动态展示命令型 slash 入口，实现“普通 CLI 命令 + 交互 slash 命令”双模式。
-- 调整 `cmds/agentlineapp` slash 候选展示：仅显示 slash 主命令，不再展示其别名（如 `/a`、`/q`），降低候选噪音并避免列表膨胀。
-- 调整 `example/copilot-demo resume`：`prompt` 参数改为可选，默认使用“继续”。
-- 增强 `cmds/webttycmd` 上传体验：支持可配置并发上传、总进度统计，以及单文件取消/全部取消，提升大批量文件场景的可控性。
-- 增强 `cmds/webttycmd` 会话与下载能力：支持前端自动重连（指数退避）/手动重连，新增目录打包下载接口（`/download-zip`），并提供上传调度策略（FIFO/小文件优先/大文件优先）。
-- 增强 `cmds/richlinecmd` 终端提示体验：状态栏新增 `IDLE/RUNNING/OUTPUT_SCROLL`，显示 `focus=INPUT/OUTPUT` 与输出区滚动状态（`offset/rows`）；`Ctrl+O` 切换输入/输出焦点时追加显式提示块，便于识别当前交互模式。
+- 暂无
 
 ## 文档
 
-- 更新 `README.md` 与 `docs/INDEX.md`：补充仓库范围说明，明确 `agentline` / `copilot-demo` 已迁移到独立项目维护。
-- 补充 `README.md`、`docs/USAGE_AT_A_GLANCE.md` 与 `docs/DESIGN.md`：新增隐藏内部标志 `--args` 的用途、示例与 `RawArgs` 交互说明。
-- 补充 `README.md`、`docs/DESIGN.md` 与 `docs/INDEX.md`：新增 MCP 集成入口、模块职责与阅读路径。
-- 补充 `README.md`、`docs/USAGE_AT_A_GLANCE.md`、`docs/DESIGN.md` 与 `docs/INDEX.md`：新增 Web 控制台说明、调用过程展示约定与参数顺序语义。
-- 新增 `docs/MCP.md`：补全 MCP 子命令、工具映射规则、`tools/call` 输入输出协议、类型映射与常见问题排查。
-- 重排 `README.md` 为总览型入口（精简章节与篇幅），将 Busybox/MCP/Web 等细节流程下沉到 `docs/*` 专项文档。
-- 新增 `docs/WEBTTY.md`，补充 WebTTY 的能力边界、接口约定与“按能力逐项推进”的开发路线；同步更新 `README.md`、`docs/INDEX.md` 与 `docs/DESIGN.md` 入口与架构说明。
+- 暂无
 
