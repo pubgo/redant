@@ -2,6 +2,8 @@ package redant
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 )
 
@@ -23,26 +25,30 @@ type StreamError struct {
 type InvocationStream struct {
 	ctx context.Context
 	inv *Invocation
+	ch  chan any // captured at creation to avoid racing with closeResponseStream
 }
 
 // NewInvocationStream creates a stream bound to invocation.
 func NewInvocationStream(ctx context.Context, inv *Invocation) *InvocationStream {
+	var ch chan any
+	if inv != nil {
+		ch = inv.responseStream
+	}
 	return &InvocationStream{
 		ctx: ctx,
 		inv: inv,
+		ch:  ch,
 	}
 }
 
 // Send emits data to the invocation-owned response stream and mirrors
 // text output to stdout, StreamError output to stderr.
 func (s *InvocationStream) Send(data any) error {
-	if s.inv != nil {
-		if out := s.inv.responseStream; out != nil {
-			select {
-			case <-s.ctx.Done():
-				return s.ctx.Err()
-			case out <- data:
-			}
+	if s.ch != nil {
+		select {
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		case s.ch <- data:
 		}
 	}
 
@@ -69,6 +75,16 @@ func (s *InvocationStream) Send(data any) error {
 	case StreamError:
 		if v.Message != "" && s.inv.Stderr != nil {
 			_, err := io.WriteString(s.inv.Stderr, v.Message)
+			return err
+		}
+	default:
+		if s.inv.Stdout != nil {
+			b, err := json.Marshal(data)
+			if err != nil {
+				_, err = fmt.Fprintf(s.inv.Stdout, "%v", data)
+				return err
+			}
+			_, err = s.inv.Stdout.Write(b)
 			return err
 		}
 	}

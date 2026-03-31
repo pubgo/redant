@@ -9,8 +9,8 @@ import (
 // RunCallback runs invocation via original Run and dispatches typed callback.
 //
 // Callback will be invoked in two cases:
-//   - unary response payload
-//   - stream output/output.chunk payload
+//   - unary response payload (from ResponseHandler)
+//   - stream data payload (from ResponseStreamHandler)
 func RunCallback[T any](inv *Invocation, callback func(T) error) error {
 	if inv == nil {
 		return errors.New("nil invocation")
