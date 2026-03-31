@@ -53,14 +53,12 @@ type TypedWriter[T any] struct {
 	stream *InvocationStream
 }
 
-func (w *TypedWriter[T]) Output(v T) error {
-	return w.stream.Send(map[string]any{"event": "output", "data": v})
+// Send emits a typed value to the stream.
+func (w *TypedWriter[T]) Send(v T) error {
+	return w.stream.Send(v)
 }
 
-func (w *TypedWriter[T]) OutputChunk(v T) error {
-	return w.stream.Send(map[string]any{"event": "output_chunk", "data": v})
-}
-
+// Raw returns the underlying InvocationStream for advanced use.
 func (w *TypedWriter[T]) Raw() *InvocationStream {
 	return w.stream
 }

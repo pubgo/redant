@@ -24,33 +24,18 @@ func main() {
 			},
 		},
 		ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
-			stream := out.Raw()
 			topic := "default-topic"
 			if inv != nil && len(inv.Args) > 0 {
 				topic = inv.Args[0]
 			}
 
-			if err := stream.Send(map[string]any{"event": "control", "data": "phase:init\n"}); err != nil {
+			if err := out.Send(fmt.Sprintf("[%s] topic=%s\n", persona, topic)); err != nil {
 				return err
 			}
-			if err := stream.Send(map[string]any{"event": "output", "data": fmt.Sprintf("[%s] topic=%s\n", persona, topic)}); err != nil {
+			if err := out.Send("chunk-1: hello\n"); err != nil {
 				return err
 			}
-			if err := stream.Send(map[string]any{"event": "round_end", "data": map[string]any{"reason": "topic-announced"}}); err != nil {
-				return err
-			}
-
-			if err := stream.Send(map[string]any{"event": "output_chunk", "data": "chunk-1: hello\n"}); err != nil {
-				return err
-			}
-			if err := stream.Send(map[string]any{"event": "output_chunk", "data": "chunk-2: stream\n"}); err != nil {
-				return err
-			}
-			if err := stream.Send(map[string]any{"event": "round_end", "data": map[string]any{"reason": "chunk-finished"}}); err != nil {
-				return err
-			}
-
-			return stream.Send(map[string]any{"event": "exit", "data": map[string]any{"code": 0, "reason": "session-end", "timedOut": false}})
+			return out.Send("chunk-2: stream\n")
 		}),
 	}
 

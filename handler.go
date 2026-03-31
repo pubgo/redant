@@ -17,41 +17,6 @@ type StreamError struct {
 	Details any    `json:"details,omitempty"`
 }
 
-func eventKind(evt map[string]any) string {
-	kind, _ := evt["event"].(string)
-	if kind == "" {
-		if _, ok := evt["error"]; ok {
-			return "error"
-		}
-		return "output"
-	}
-	return kind
-}
-
-func eventTextForIO(evt map[string]any) (string, bool) {
-	if rawErr, ok := evt["error"]; ok {
-		switch v := rawErr.(type) {
-		case *StreamError:
-			if v != nil && v.Message != "" {
-				return v.Message, true
-			}
-		case StreamError:
-			if v.Message != "" {
-				return v.Message, true
-			}
-		}
-	}
-
-	switch v := evt["data"].(type) {
-	case string:
-		return v, true
-	case []byte:
-		return string(v), true
-	default:
-		return "", false
-	}
-}
-
 // InvocationStream provides response-stream communication.
 // Response stream is internally created by invocation and automatically closed
 // when response stream handling returns.
@@ -68,22 +33,15 @@ func NewInvocationStream(ctx context.Context, inv *Invocation) *InvocationStream
 	}
 }
 
-// Send emits a response event to invocation-owned response stream and mirrors
-// text output to stdout/stderr.
-func (s *InvocationStream) Send(msg map[string]any) error {
-	if msg == nil {
-		msg = map[string]any{"event": "output"}
-	}
-	if _, ok := msg["event"]; !ok {
-		msg["event"] = eventKind(msg)
-	}
-
+// Send emits data to the invocation-owned response stream and mirrors
+// text output to stdout, StreamError output to stderr.
+func (s *InvocationStream) Send(data any) error {
 	if s.inv != nil {
 		if out := s.inv.responseStream; out != nil {
 			select {
 			case <-s.ctx.Done():
 				return s.ctx.Err()
-			case out <- msg:
+			case out <- data:
 			}
 		}
 	}
@@ -92,20 +50,27 @@ func (s *InvocationStream) Send(msg map[string]any) error {
 		return nil
 	}
 
-	writer := s.inv.Stdout
-	if eventKind(msg) == "error" {
-		writer = s.inv.Stderr
+	switch v := data.(type) {
+	case string:
+		if s.inv.Stdout != nil {
+			_, err := io.WriteString(s.inv.Stdout, v)
+			return err
+		}
+	case []byte:
+		if s.inv.Stdout != nil {
+			_, err := s.inv.Stdout.Write(v)
+			return err
+		}
+	case *StreamError:
+		if v != nil && v.Message != "" && s.inv.Stderr != nil {
+			_, err := io.WriteString(s.inv.Stderr, v.Message)
+			return err
+		}
+	case StreamError:
+		if v.Message != "" && s.inv.Stderr != nil {
+			_, err := io.WriteString(s.inv.Stderr, v.Message)
+			return err
+		}
 	}
-
-	if writer == nil {
-		return nil
-	}
-
-	text, ok := eventTextForIO(msg)
-	if !ok || text == "" {
-		return nil
-	}
-
-	_, err := io.WriteString(writer, text)
-	return err
+	return nil
 }

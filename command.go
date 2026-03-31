@@ -282,7 +282,7 @@ type Invocation struct {
 	Stderr io.Writer
 	Stdin  io.Reader
 
-	responseStream chan map[string]any
+	responseStream chan any
 	responseValue  any
 
 	// Annotations is a map of arbitrary annotations to attach to the invocation.
@@ -346,7 +346,7 @@ func (inv *Invocation) WithTestParsedFlags(
 //
 // The stream is internally owned by Invocation and is closed automatically when
 // ResponseStreamHandler execution finishes.
-func (inv *Invocation) ResponseStream() <-chan map[string]any {
+func (inv *Invocation) ResponseStream() <-chan any {
 	return inv.ensureResponseStream(inv.responseBufferSize())
 }
 
@@ -357,14 +357,14 @@ func (inv *Invocation) responseBufferSize() int {
 	return inv.Command.ResponseBuffer
 }
 
-func (inv *Invocation) ensureResponseStream(buffer int) chan map[string]any {
+func (inv *Invocation) ensureResponseStream(buffer int) chan any {
 	if inv.responseStream != nil {
 		return inv.responseStream
 	}
 	if buffer <= 0 {
 		buffer = defaultStreamResponseBuffer
 	}
-	inv.responseStream = make(chan map[string]any, buffer)
+	inv.responseStream = make(chan any, buffer)
 	return inv.responseStream
 }
 

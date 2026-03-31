@@ -62,10 +62,10 @@ func TestRunCallback_StreamTyped(t *testing.T) {
 	cmd := &Command{
 		Use: "chat",
 		ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
-			if err := out.Output("hello"); err != nil {
+			if err := out.Send("hello"); err != nil {
 				return err
 			}
-			return out.OutputChunk("world")
+			return out.Send("world")
 		}),
 	}
 
@@ -83,10 +83,10 @@ func TestRunCallback_StreamTyped(t *testing.T) {
 	}
 
 	if !slices.Contains(got, "hello") {
-		t.Fatalf("missing output event: %v", got)
+		t.Fatalf("missing hello: %v", got)
 	}
 	if !slices.Contains(got, "world") {
-		t.Fatalf("missing chunk event: %v", got)
+		t.Fatalf("missing world: %v", got)
 	}
 }
 
@@ -94,7 +94,7 @@ func TestRunCallback_StreamTypeMismatch(t *testing.T) {
 	cmd := &Command{
 		Use: "chat",
 		ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[int]) error {
-			return out.Output(1)
+			return out.Send(1)
 		}),
 	}
 
@@ -135,7 +135,7 @@ func TestRunCallback_CallbackError(t *testing.T) {
 	cmd := &Command{
 		Use: "chat",
 		ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
-			return out.Output("hello")
+			return out.Send("hello")
 		}),
 	}
 

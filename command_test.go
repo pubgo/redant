@@ -858,10 +858,7 @@ func TestCommandInitHandlerValidation(t *testing.T) {
 			command: &Command{
 				Use: "chat",
 				ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
-					if err := out.Output("hello"); err != nil {
-						return err
-					}
-					return out.Raw().Send(map[string]any{"event": "round_end", "data": map[string]any{"round": 1, "reason": "done"}})
+					return out.Send("hello")
 				}),
 			},
 			wantErr: false,

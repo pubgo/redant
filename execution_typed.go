@@ -28,14 +28,9 @@ func RunCallback[T any](inv *Invocation, callback func(T) error) error {
 	go func() {
 		defer close(consumeErrCh)
 		for evt := range stream {
-			event, _ := evt["event"].(string)
-			if event != "output" && event != "output_chunk" {
-				continue
-			}
-
-			typed, ok := evt["data"].(T)
+			typed, ok := evt.(T)
 			if !ok {
-				consumeErrCh <- fmt.Errorf("typed stream data mismatch: got %T for event %q", evt["data"], event)
+				consumeErrCh <- fmt.Errorf("typed stream data mismatch: got %T", evt)
 				cancel()
 				return
 			}

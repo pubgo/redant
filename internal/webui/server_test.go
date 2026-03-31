@@ -122,11 +122,7 @@ func TestCommandsEndpointIncludesStreamMetadata(t *testing.T) {
 	root.Children = append(root.Children, &redant.Command{
 		Use: "chat",
 		ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
-			stream := out.Raw()
-			if err := stream.Send(map[string]any{"event": "output", "data": "hello"}); err != nil {
-				return err
-			}
-			return stream.Send(map[string]any{"event": "round_end", "data": map[string]any{"round": 1, "reason": "done"}})
+			return out.Send("hello")
 		}),
 	})
 
@@ -512,14 +508,10 @@ func TestRunStreamWSEndpoint(t *testing.T) {
 	root.Children = append(root.Children, &redant.Command{
 		Use: "chat",
 		ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
-			stream := out.Raw()
-			if err := stream.Send(map[string]any{"event": "output", "data": "hello"}); err != nil {
+			if err := out.Send("hello"); err != nil {
 				return err
 			}
-			if err := stream.Send(map[string]any{"event": "round_end", "data": map[string]any{"round": 1, "reason": "done"}}); err != nil {
-				return err
-			}
-			return stream.Send(map[string]any{"event": "exit", "data": map[string]any{"code": 0, "reason": "ok", "timedOut": false}})
+			return out.Send("done")
 		}),
 	})
 
@@ -555,13 +547,6 @@ func TestRunStreamWSEndpoint(t *testing.T) {
 			sawStarted = true
 		case "stream":
 			sawStream = true
-			b, err := json.Marshal(msg.Event)
-			if err != nil {
-				t.Fatalf("marshal stream event: %v", err)
-			}
-			if !strings.Contains(string(b), "\"event\":\"output\"") && !strings.Contains(string(b), "\"event\":\"round_end\"") && !strings.Contains(string(b), "\"event\":\"exit\"") {
-				t.Fatalf("unexpected stream event payload: %s", string(b))
-			}
 		case "result":
 			sawResult = true
 			if !msg.OK {
