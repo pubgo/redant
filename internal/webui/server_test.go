@@ -117,6 +117,50 @@ func TestCommandsEndpoint(t *testing.T) {
 	}
 }
 
+func TestCommandsEndpointIncludesStreamMetadata(t *testing.T) {
+	root := &redant.Command{Use: "testapp"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "chat",
+		ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
+			stream := out.Raw()
+			if err := stream.Send(map[string]any{"event": "output", "data": "hello"}); err != nil {
+				return err
+			}
+			return stream.Send(map[string]any{"event": "round_end", "data": map[string]any{"round": 1, "reason": "done"}})
+		}),
+	})
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/commands")
+	if err != nil {
+		t.Fatalf("request commands: %v", err)
+	}
+	defer closeResponseBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status: %d", resp.StatusCode)
+	}
+
+	var payload commandListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode commands response: %v", err)
+	}
+
+	if len(payload.Commands) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(payload.Commands))
+	}
+
+	cmd := payload.Commands[0]
+	if cmd.ID != "chat" {
+		t.Fatalf("expected chat command, got %s", cmd.ID)
+	}
+	if !cmd.SupportsStream {
+		t.Fatalf("expected supportsStream=true")
+	}
+}
+
 func TestIndexPageServedFromStatic(t *testing.T) {
 	root := &redant.Command{Use: "testapp"}
 	root.Children = append(root.Children, &redant.Command{Use: "echo", Handler: func(ctx context.Context, inv *redant.Invocation) error {
@@ -460,6 +504,77 @@ func TestRunWSEndpointInteractive(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+func TestRunStreamWSEndpoint(t *testing.T) {
+	root := &redant.Command{Use: "testapp"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "chat",
+		ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
+			stream := out.Raw()
+			if err := stream.Send(map[string]any{"event": "output", "data": "hello"}); err != nil {
+				return err
+			}
+			if err := stream.Send(map[string]any{"event": "round_end", "data": map[string]any{"round": 1, "reason": "done"}}); err != nil {
+				return err
+			}
+			return stream.Send(map[string]any{"event": "exit", "data": map[string]any{"code": 0, "reason": "ok", "timedOut": false}})
+		}),
+	})
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/run/stream/ws"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "done") }()
+
+	if err := wsjson.Write(ctx, conn, wsRunMessage{Type: "start", Request: &RunRequest{Command: "chat"}}); err != nil {
+		t.Fatalf("write start message: %v", err)
+	}
+
+	sawStarted := false
+	sawStream := false
+	sawResult := false
+
+	for !sawResult {
+		var msg wsRunMessage
+		if err := wsjson.Read(ctx, conn, &msg); err != nil {
+			t.Fatalf("read ws message: %v", err)
+		}
+
+		switch msg.Type {
+		case "started":
+			sawStarted = true
+		case "stream":
+			sawStream = true
+			b, err := json.Marshal(msg.Event)
+			if err != nil {
+				t.Fatalf("marshal stream event: %v", err)
+			}
+			if !strings.Contains(string(b), "\"event\":\"output\"") && !strings.Contains(string(b), "\"event\":\"round_end\"") && !strings.Contains(string(b), "\"event\":\"exit\"") {
+				t.Fatalf("unexpected stream event payload: %s", string(b))
+			}
+		case "result":
+			sawResult = true
+			if !msg.OK {
+				t.Fatalf("expected ok result, got error=%s", msg.Error)
+			}
+		}
+	}
+
+	if !sawStarted {
+		t.Fatalf("expected started message")
+	}
+	if !sawStream {
+		t.Fatalf("expected at least one stream message")
 	}
 }
 

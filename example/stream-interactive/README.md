@@ -1,11 +1,11 @@
 # stream-interactive 示例
 
-这个示例展示 Redant 新增的 `StreamHandler` 在两种场景下的完整用法：
+这个示例展示 Redant 在“纯响应流”语义下的两种运行方式：
 
-1. `stdio`：命令在本地终端输出控制与业务消息。
-2. `channel`：通过 `ResponseStream()` 消费结构化响应事件，适合接 WebSocket/MCP/SSE 等上游。
+1. `stdio`：直接执行 `inv.Run()`，输出落到终端。
+2. `callback`：通过 `RunCallback` 消费类型化输出数据，适合函数调用场景。
 
-并且在 `channel` 模式下会打印 JSON 序列化后的 `StreamMessage`，可以直接看到 `type/method/jsonrpc` 等结构化输出字段。
+并且在 `callback` 模式下会实时打印类型化输出文本（`string`）。
 
 > 注意：当前为新协议模型，不再使用旧的 `Kind/Payload` 字段。
 
@@ -14,12 +14,13 @@
 ```mermaid
 flowchart LR
     A[调用 stream-interactive] --> B{mode}
-    B -- stdio --> C[StreamHandler]
-    B -- channel --> C
-    C --> E[Send 输出]
+    B -- stdio --> C[inv.Run]
+    B -- callback --> D[RunCallback]
+    C --> E[ResponseStreamHandler]
+    D --> E
     E --> F[控制/输出/退出事件]
     F -- stdio --> G[Stdout/Stderr]
-    F -- channel --> H[ResponseStream]
+    F -- callback --> H[typed callback]
 ```
 
 ## 运行方式
@@ -32,24 +33,24 @@ go run ./example/stream-interactive stdio
 
 运行后可直接看到控制信息与输出内容。
 
-### 2) 通道模式（channel）
+### 2) 回调模式（callback）
 
 ```bash
-go run ./example/stream-interactive channel
+go run ./example/stream-interactive callback
 ```
 
-该模式会从 `ResponseStream` 读取并打印输出事件 JSON（含 `jsonrpc/id/type/method/round/data/error/meta`）。
+该模式会通过 `RunCallback[string]` 实时接收并打印文本输出。
+
+> 兼容说明：`channel` 仍作为别名可用，便于旧脚本平滑迁移。
 
 ## 关键代码点
 
-- 命令定义：`StreamHandler func(ctx, stream) error`
-- 响应流：`out := inv.ResponseStream()`
-- 事件模型：`StreamMessage{jsonrpc,id,method,type,data,error,meta}`
-- 轮次结束：`stream.EndRound("...")` -> `stream.round.end`
-- `request_id`：可通过 `inv.Annotations["request_id"]` 影响消息 ID 前缀
+- 命令定义：`ResponseStreamHandler: redant.Stream(...)`
+- 回调执行：`RunCallback[T](inv, callback)`
+- 轮次结束：`stream.Send(map[string]any{"event":"round_end", ...})`
 
 ## 阻塞语义说明
 
 - `inv.Run()` 是阻塞调用。
-- 响应事件会写入内部 `ResponseStream`；`Run()` 结束后流自动关闭。
+- 在 `RunCallback` 模式中，仅 `output/output.chunk` 的类型化数据会分发到回调；`Run()` 结束后流自动关闭。
 - 推荐始终通过 `context` 设置超时/取消，避免上游异常导致无限等待。

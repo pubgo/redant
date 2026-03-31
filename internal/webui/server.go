@@ -49,18 +49,19 @@ type FlagMeta struct {
 }
 
 type CommandMeta struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Use         string     `json:"use"`
-	Aliases     []string   `json:"aliases,omitempty"`
-	Short       string     `json:"short,omitempty"`
-	Long        string     `json:"long,omitempty"`
-	Deprecated  string     `json:"deprecated,omitempty"`
-	RawArgs     bool       `json:"rawArgs"`
-	Path        []string   `json:"path"`
-	Description string     `json:"description,omitempty"`
-	Flags       []FlagMeta `json:"flags"`
-	Args        []ArgMeta  `json:"args"`
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	Use            string     `json:"use"`
+	Aliases        []string   `json:"aliases,omitempty"`
+	Short          string     `json:"short,omitempty"`
+	Long           string     `json:"long,omitempty"`
+	Deprecated     string     `json:"deprecated,omitempty"`
+	RawArgs        bool       `json:"rawArgs"`
+	Path           []string   `json:"path"`
+	Description    string     `json:"description,omitempty"`
+	Flags          []FlagMeta `json:"flags"`
+	Args           []ArgMeta  `json:"args"`
+	SupportsStream bool       `json:"supportsStream,omitempty"`
 }
 
 type RunRequest struct {
@@ -92,6 +93,7 @@ type commandListResponse struct {
 type wsRunMessage struct {
 	Type       string      `json:"type"`
 	Request    *RunRequest `json:"request,omitempty"`
+	Event      any         `json:"event,omitempty"`
 	Data       string      `json:"data,omitempty"`
 	Rows       int         `json:"rows,omitempty"`
 	Cols       int         `json:"cols,omitempty"`
@@ -133,8 +135,136 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/commands", a.handleCommands)
 	mux.HandleFunc("/api/run", a.handleRun)
 	mux.HandleFunc("/api/run/ws", a.handleRunWS)
+	mux.HandleFunc("/api/run/stream/ws", a.handleRunStreamWS)
 	mux.HandleFunc("/api/terminal/ws", a.handleTerminalWS)
 	return mux
+}
+
+func (a *App) handleRunStreamWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = conn.Close(websocket.StatusNormalClosure, "done")
+	}()
+
+	var sendMu sync.Mutex
+	send := func(msg wsRunMessage) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+
+		writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return wsjson.Write(writeCtx, conn, msg)
+	}
+
+	startCtx, cancelStart := context.WithTimeout(r.Context(), wsStartTimeout)
+	defer cancelStart()
+
+	var start wsRunMessage
+	if err := wsjson.Read(startCtx, conn, &start); err != nil {
+		_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("read start message failed: %v", err)})
+		_ = conn.Close(websocket.StatusPolicyViolation, "invalid start message")
+		return
+	}
+
+	if start.Type != "start" || start.Request == nil {
+		_ = send(wsRunMessage{Type: "error", Error: "first message must be {type:start, request:{...}}"})
+		_ = conn.Close(websocket.StatusPolicyViolation, "missing start request")
+		return
+	}
+
+	req := *start.Request
+	meta, ok := a.byID[strings.TrimSpace(req.Command)]
+	if !ok {
+		_ = send(wsRunMessage{Type: "error", Error: fmt.Sprintf("unknown command: %q", req.Command)})
+		_ = conn.Close(websocket.StatusPolicyViolation, "unknown command")
+		return
+	}
+
+	argv, program, invocation, err := buildInvocation(meta, req)
+	if err != nil {
+		_ = send(wsRunMessage{Type: "error", Error: err.Error()})
+		_ = conn.Close(websocket.StatusPolicyViolation, "invalid invocation")
+		return
+	}
+
+	runCtx, cancelRun := context.WithTimeout(r.Context(), resolveRunTimeout(req.TimeoutSeconds))
+	defer cancelRun()
+
+	if err := send(wsRunMessage{
+		Type:       "started",
+		Command:    meta.ID,
+		Program:    program,
+		Argv:       append([]string(nil), argv...),
+		Invocation: invocation,
+	}); err != nil {
+		return
+	}
+
+	root := cloneCommandTree(a.root)
+	inv := root.Invoke(argv...)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	inv.Stdout = &stdout
+	inv.Stderr = &stderr
+	inv.Stdin = bytes.NewReader([]byte(req.Stdin))
+	inv = inv.WithContext(runCtx)
+	stream := inv.ResponseStream()
+
+	streamErrCh := make(chan error, 1)
+	go func() {
+		defer close(streamErrCh)
+		for evt := range stream {
+			if err := send(wsRunMessage{Type: "stream", Event: evt}); err != nil {
+				streamErrCh <- err
+				cancelRun()
+				return
+			}
+		}
+	}()
+
+	runErrCh := make(chan error, 1)
+	go func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		runErrCh <- inv.Run()
+	}()
+
+	runErr := <-runErrCh
+	var streamErr error
+	for err := range streamErrCh {
+		if err != nil {
+			streamErr = err
+			break
+		}
+	}
+	runErr = errors.Join(runErr, streamErr)
+	timedOut := errors.Is(runErr, context.DeadlineExceeded) || errors.Is(runCtx.Err(), context.DeadlineExceeded)
+	displayErr := withInteractiveWSTimeoutHint(runErr, timedOut)
+
+	resp := RunResponse{
+		OK:         displayErr == nil,
+		TimedOut:   timedOut,
+		Command:    meta.ID,
+		Program:    program,
+		Argv:       append([]string(nil), argv...),
+		Invocation: invocation,
+		Stdout:     stdout.String(),
+		Stderr:     stderr.String(),
+		Combined:   combineOutput(stdout.String(), stderr.String(), displayErr),
+	}
+	if displayErr != nil {
+		resp.Error = displayErr.Error()
+	}
+
+	_ = send(wsRunMessage{Type: "result", OK: resp.OK, TimedOut: resp.TimedOut, Error: resp.Error, Data: resp.Combined, Command: resp.Command, Program: resp.Program, Argv: resp.Argv, Invocation: resp.Invocation})
+	if displayErr != nil {
+		_ = conn.Close(websocket.StatusInternalError, "command failed")
+	} else {
+		_ = conn.Close(websocket.StatusNormalClosure, "command completed")
+	}
 }
 
 func (a *App) handleIndex(w http.ResponseWriter, _ *http.Request) {
@@ -1101,7 +1231,7 @@ func collectCommands(root *redant.Command) []CommandMeta {
 		effective = append(effective, inherited...)
 		effective = append(effective, cmd.Options...)
 
-		if cmd.Handler != nil && len(path) > 0 && path[0] != "web" {
+		if (cmd.Handler != nil || cmd.ResponseHandler != nil || cmd.ResponseStreamHandler != nil) && len(path) > 0 && path[0] != "web" {
 			out = append(out, toCommandMeta(cmd, path, effective))
 		}
 
@@ -1120,18 +1250,19 @@ func collectCommands(root *redant.Command) []CommandMeta {
 
 func toCommandMeta(cmd *redant.Command, path []string, opts redant.OptionSet) CommandMeta {
 	return CommandMeta{
-		ID:          strings.Join(path, " "),
-		Name:        cmd.Name(),
-		Use:         cmd.Use,
-		Aliases:     append([]string(nil), cmd.Aliases...),
-		Short:       strings.TrimSpace(cmd.Short),
-		Long:        strings.TrimSpace(cmd.Long),
-		Deprecated:  strings.TrimSpace(cmd.Deprecated),
-		RawArgs:     cmd.RawArgs,
-		Path:        append([]string(nil), path...),
-		Description: commandDescription(cmd),
-		Flags:       toFlagMeta(opts),
-		Args:        toArgMeta(cmd.Args),
+		ID:             strings.Join(path, " "),
+		Name:           cmd.Name(),
+		Use:            cmd.Use,
+		Aliases:        append([]string(nil), cmd.Aliases...),
+		Short:          strings.TrimSpace(cmd.Short),
+		Long:           strings.TrimSpace(cmd.Long),
+		Deprecated:     strings.TrimSpace(cmd.Deprecated),
+		RawArgs:        cmd.RawArgs,
+		Path:           append([]string(nil), path...),
+		Description:    commandDescription(cmd),
+		Flags:          toFlagMeta(opts),
+		Args:           toArgMeta(cmd.Args),
+		SupportsStream: cmd.ResponseStreamHandler != nil,
 	}
 }
 

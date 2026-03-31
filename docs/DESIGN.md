@@ -252,6 +252,6 @@ flowchart LR
 
 1. 保留 `HandlerFunc` 与 `MiddlewareFunc`，不破坏现有执行链。
 2. 新增 `StreamHandlerFunc`，由适配层转换为 `HandlerFunc` 后进入中间件链。
-3. 响应事件通过 `Invocation.ResponseStream()` 消费，事件模型为 `StreamMessage{jsonrpc,id,method,type,data,error,meta}`。
+3. 响应事件通过 `Invocation.ResponseStream()` 消费，事件模型为 `map[string]any`（`event/data/error`）。
 
 详见：[`INTERACTIVE_STREAMING.md`](INTERACTIVE_STREAMING.md)。

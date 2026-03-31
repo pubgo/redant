@@ -171,13 +171,13 @@ root.Children = append(root.Children, repo)
 chat := &redant.Command{
     Use: "chat",
     StreamHandler: func(ctx context.Context, stream *redant.InvocationStream) error {
-        if err := stream.Control("phase:init"); err != nil {
+        if err := stream.Send(map[string]any{"event": "control", "data": "phase:init"}); err != nil {
             return err
         }
-        if err := stream.Output("hello"); err != nil {
+        if err := stream.Send(map[string]any{"event": "output", "data": "hello"}); err != nil {
             return err
         }
-        return stream.EndRound("done")
+        return stream.Send(map[string]any{"event": "round_end", "data": map[string]any{"reason": "done"}})
     },
 }
 ```

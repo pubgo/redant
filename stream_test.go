@@ -6,17 +6,19 @@ import (
 	"io"
 	"slices"
 	"testing"
+	"time"
 )
 
-func TestStreamHandlerFallsBackToStdIO(t *testing.T) {
+func TestResponseStreamHandlerFallsBackToStdIO(t *testing.T) {
 	cmd := &Command{
 		Use: "chat",
-		StreamHandler: func(ctx context.Context, stream *InvocationStream) error {
-			if err := stream.Control("phase:init\n"); err != nil {
+		ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
+			stream := out.Raw()
+			if err := stream.Send(map[string]any{"event": "control", "data": "phase:init\n"}); err != nil {
 				return err
 			}
-			return stream.Output("hello, redant")
-		},
+			return stream.Send(map[string]any{"event": "output", "data": "hello, redant"})
+		}),
 	}
 
 	var stdout bytes.Buffer
@@ -34,15 +36,16 @@ func TestStreamHandlerFallsBackToStdIO(t *testing.T) {
 	}
 }
 
-func TestStreamHandlerWithChannels(t *testing.T) {
+func TestResponseStreamHandlerWithChannels(t *testing.T) {
 	cmd := &Command{
 		Use: "chat",
-		StreamHandler: func(ctx context.Context, stream *InvocationStream) error {
-			if err := stream.Output("echo:ping"); err != nil {
+		ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
+			stream := out.Raw()
+			if err := stream.Send(map[string]any{"event": "output", "data": "echo:ping"}); err != nil {
 				return err
 			}
-			return stream.EndRound("done")
-		},
+			return stream.Send(map[string]any{"event": "round_end", "data": map[string]any{"round": 1, "reason": "done"}})
+		}),
 	}
 
 	inv := cmd.Invoke()
@@ -56,54 +59,28 @@ func TestStreamHandlerWithChannels(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var got StreamMessage
-	for msg := range out {
-		if msg.Type == StreamEventOutput {
-			got = msg
+	var got map[string]any
+	for evt := range out {
+		if event, _ := evt["event"].(string); event == "output" {
+			got = evt
 			break
 		}
 	}
 
-	if got.JSONRPC != "2.0" {
-		t.Fatalf("jsonrpc = %q, want %q", got.JSONRPC, "2.0")
+	if event, _ := got["event"].(string); event != "output" {
+		t.Fatalf("event = %q, want %q", event, "output")
 	}
-	if got.ID == "" {
-		t.Fatalf("id should not be empty")
-	}
-	if got.Type != StreamEventOutput {
-		t.Fatalf("type = %q, want %q", got.Type, StreamEventOutput)
-	}
-	if got.Method != StreamMethodOutput {
-		t.Fatalf("method = %q, want %q", got.Method, StreamMethodOutput)
-	}
-	if got.Text() != "echo:ping" {
-		t.Fatalf("text = %q, want %q", got.Text(), "echo:ping")
-	}
-}
-
-func TestStreamMessageNormalize(t *testing.T) {
-	msg := (StreamMessage{Type: StreamEventOutput, Data: "hello"}).Normalize()
-
-	if msg.JSONRPC != "2.0" {
-		t.Fatalf("jsonrpc = %q, want %q", msg.JSONRPC, "2.0")
-	}
-	if msg.Type != StreamEventOutput {
-		t.Fatalf("type = %q, want %q", msg.Type, StreamEventOutput)
-	}
-	if msg.Method != StreamMethodOutput {
-		t.Fatalf("method = %q, want %q", msg.Method, StreamMethodOutput)
-	}
-	if msg.Text() != "hello" {
-		t.Fatalf("text = %q, want %q", msg.Text(), "hello")
+	if text, _ := got["data"].(string); text != "echo:ping" {
+		t.Fatalf("text = %q, want %q", text, "echo:ping")
 	}
 }
 
 func TestStreamControlUsesControlMethod(t *testing.T) {
 	cmd := &Command{
 		Use: "chat",
-		StreamHandler: func(ctx context.Context, stream *InvocationStream) error {
-			return stream.Control("name?")
-		},
+		ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
+			return out.Raw().Send(map[string]any{"event": "control", "data": "name?"})
+		}),
 	}
 
 	inv := cmd.Invoke()
@@ -117,27 +94,24 @@ func TestStreamControlUsesControlMethod(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var msg StreamMessage
-	for m := range out {
-		if m.Type == StreamEventControl {
-			msg = m
+	var msg map[string]any
+	for evt := range out {
+		if event, _ := evt["event"].(string); event == "control" {
+			msg = evt
 			break
 		}
 	}
-	if msg.Method != StreamMethodControl {
-		t.Fatalf("method = %q, want %q", msg.Method, StreamMethodControl)
-	}
-	if msg.ID == "" {
-		t.Fatalf("id should not be empty")
+	if event, _ := msg["event"].(string); event != "control" {
+		t.Fatalf("event = %q, want %q", event, "control")
 	}
 }
 
 func TestInvocationRunClosesResponseStream(t *testing.T) {
 	cmd := &Command{
 		Use: "chat",
-		StreamHandler: func(ctx context.Context, stream *InvocationStream) error {
-			return stream.Output("done")
-		},
+		ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
+			return out.Raw().Send(map[string]any{"event": "output", "data": "done"})
+		}),
 	}
 
 	inv := cmd.Invoke()
@@ -164,14 +138,15 @@ func TestStreamEndRoundIsSequential(t *testing.T) {
 
 	cmd := &Command{
 		Use: "chat",
-		StreamHandler: func(ctx context.Context, stream *InvocationStream) error {
+		ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
+			stream := out.Raw()
 			for i := 0; i < 2; i++ {
-				if err := stream.EndRound("ok"); err != nil {
+				if err := stream.Send(map[string]any{"event": "round_end", "data": map[string]any{"round": i + 1, "reason": "ok"}}); err != nil {
 					return err
 				}
 			}
 			return nil
-		},
+		}),
 	}
 
 	inv := cmd.Invoke()
@@ -184,13 +159,54 @@ func TestStreamEndRoundIsSequential(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	for msg := range out {
-		if msg.Method == StreamMethodRoundEnd {
-			rounds = append(rounds, msg.Round)
+	for evt := range out {
+		if event, _ := evt["event"].(string); event == "round_end" {
+			if data, ok := evt["data"].(map[string]any); ok {
+				if round, ok := data["round"].(int); ok {
+					rounds = append(rounds, round)
+					continue
+				}
+				if round, ok := data["round"].(float64); ok {
+					rounds = append(rounds, int(round))
+				}
+			}
 		}
 	}
 	want := []int{1, 2}
 	if !slices.Equal(rounds, want) {
 		t.Fatalf("rounds = %#v, want %#v", rounds, want)
+	}
+}
+
+func TestResponseStreamHandlerRunWithoutChannelConsumerDoesNotBlock(t *testing.T) {
+	cmd := &Command{
+		Use: "chat",
+		ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
+			for i := 0; i < defaultStreamResponseBuffer*4; i++ {
+				if err := out.Output("x"); err != nil {
+					return err
+				}
+			}
+			return nil
+		}),
+	}
+
+	inv := cmd.Invoke()
+	inv.Stdout = io.Discard
+	inv.Stderr = io.Discard
+	inv.Stdin = bytes.NewBuffer(nil)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- inv.Run()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("run blocked without response stream consumer")
 	}
 }
