@@ -232,10 +232,14 @@ sequenceDiagram
 - 同级：[`MCP.md`](MCP.md) 提供 MCP 子命令、Schema 与调用协议说明。
 - 同级：[`WEBTTY.md`](WEBTTY.md) 提供 WebTTY 能力说明与分阶段迭代路线。
 - 下游：[`../example/args-test/README.md`](../example/args-test/README.md) 提供参数解析落地示例。
+- 下游：[`../example/unary/README.md`](../example/unary/README.md) 提供 Unary 响应处理器示例。
+- 下游：[`../example/stream-interactive/README.md`](../example/stream-interactive/README.md) 提供流式响应处理器示例。
 
 ## 9. 交互式命令与流式处理
 
-为兼容传统一次性命令执行，同时支持类 RPC 的结构化响应流输出，Redant 新增了流式处理能力。
+为兼容传统一次性命令执行，同时支持类 RPC 的结构化响应输出，Redant 新增了 Unary/Stream 处理能力。
+
+### 处理器类型与适配
 
 ```mermaid
 flowchart LR
@@ -243,19 +247,35 @@ flowchart LR
     B -- Handler --> D[原始 HandlerFunc]
     B -- ResponseHandler --> E[Unary 适配]
     B -- ResponseStreamHandler --> C[Stream 适配]
+    E --> E1[Handle → 返回 T]
+    E1 --> E2[setResponse + JSON stdout]
     C --> F[InvocationStream]
     F --> G[TypedWriter.Send]
     G --> H[ResponseStream 通道输出]
     H --> I[Run 结束自动 close]
 ```
 
+### 执行上下文兼容矩阵
+
+```mermaid
+flowchart TD
+    CMD[命令] --> CTX{执行上下文}
+    CTX -- CLI 直接调用 --> CLI[stdout 自动输出]
+    CTX -- RunCallback --> RCB[泛型回调分发]
+    CTX -- MCP callTool --> MCP[RunCallback → structuredContent]
+    CTX -- WebUI Stream WS --> WS[WebSocket 事件推送]
+    CTX -- readline / richline --> REPL[降级: stdout 纯文本]
+```
+
 设计要点：
 
 1. 保留 `HandlerFunc` 与 `MiddlewareFunc`，不破坏现有执行链。
 2. 三类处理器互斥：`Handler`（无响应）、`ResponseHandler`（Unary 单响应）、`ResponseStreamHandler`（流式响应），初始化阶段校验冲突。
-3. `ResponseStreamHandler` 通过 `Stream[T]` 泛型适配器构造，`TypedWriter[T].Send(v)` 直接发送泛型数据。
-4. 响应流通道类型为 `chan any`，通过 `Invocation.ResponseStream()` 消费。
-5. `InvocationStream.Send` 自动镜像文本到 stdout、`StreamError` 到 stderr、struct 类型 JSON 序列化到 stdout。
-6. `RunCallback[T]` 提供泛型回调消费入口，统一支持 Unary 与 Stream 两种模型的类型化分发。
+3. `ResponseHandler` 通过 `Unary[T]` 泛型适配器构造，返回值自动 JSON 序列化写入 stdout，可通过 `Response()` 或 `RunCallback[T]` 获取。
+4. `ResponseStreamHandler` 通过 `Stream[T]` 泛型适配器构造，`TypedWriter[T].Send(v)` 直接发送泛型数据。
+5. 响应流通道类型为 `chan any`，通过 `Invocation.ResponseStream()` 消费。
+6. `InvocationStream.Send` 自动镜像文本到 stdout、`StreamError` 到 stderr、struct 类型 JSON 序列化到 stdout。
+7. `RunCallback[T]` 提供泛型回调消费入口，统一支持 Unary 与 Stream 两种模型的类型化分发。
+8. `ResponseTypeInfo` 暴露运行时类型元数据（`TypeName`、`Schema`），供 MCP 等集成层生成输出 Schema。
 
 详见：[`INTERACTIVE_STREAMING.md`](INTERACTIVE_STREAMING.md)。

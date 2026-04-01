@@ -163,7 +163,33 @@ repo.Children = append(repo.Children, commit)
 root.Children = append(root.Children, repo)
 ```
 
-## 8) 交互式命令（ResponseStreamHandler）
+## 8) Unary 响应命令（ResponseHandler）
+
+当命令需要返回结构化单响应时，使用 `ResponseHandler` 配合 `Unary[T]` 泛型适配器：
+
+```go
+type VersionInfo struct {
+    Version   string `json:"version"`
+    BuildDate string `json:"buildDate"`
+}
+
+versionCmd := &redant.Command{
+    Use: "version",
+    ResponseHandler: redant.Unary(func(ctx context.Context, inv *redant.Invocation) (VersionInfo, error) {
+        return VersionInfo{Version: "1.0.0", BuildDate: "2026-04-01"}, nil
+    }),
+}
+```
+
+说明：
+
+- `Unary[T]` 将类型化函数适配为 `ResponseHandler` 接口。
+- 响应自动 JSON 序列化写入 stdout。
+- 泛型回调消费：`redant.RunCallback[VersionInfo](inv, callback)`，回调调用一次。
+- 可通过 `inv.Response()` 获取 Unary 响应值。
+- 运行时类型信息通过 `TypeInfo()` 暴露，供 MCP 等集成层使用。
+
+## 9) 流式响应命令（ResponseStreamHandler）
 
 当命令需要"结构化流式输出"时，使用 `ResponseStreamHandler` 配合 `Stream[T]` 泛型适配器：
 
@@ -183,5 +209,15 @@ chat := &redant.Command{
 
 - `TypedWriter[T].Send(v)` 直接发送泛型数据，自动镜像文本到 stdout。
 - 响应流通过 `inv.ResponseStream()` 消费（`<-chan any`），`Run()` 结束后自动关闭。
-- 泛型回调消费：`redant.RunCallback[string](inv, callback)`。
+- 泛型回调消费：`redant.RunCallback[string](inv, callback)`，回调调用多次。
 - 现有 `Handler` 与 `Middleware` 仍可继续使用，三类处理器互斥。
+
+## 10) 三类处理器对比
+
+| 维度        | Handler        | ResponseHandler (Unary)      | ResponseStreamHandler (Stream) |
+| ----------- | -------------- | ---------------------------- | ------------------------------ |
+| 适配器      | 无（直接赋值） | `Unary[T]`                   | `Stream[T]`                    |
+| 响应次数    | 无结构化响应   | 一次                         | 多次                           |
+| stdout 行为 | 手动写入       | JSON 自动序列化              | 每次 Send 自动镜像             |
+| RunCallback | 无回调         | 回调一次                     | 回调多次                       |
+| MCP 集成    | stdout 捕获    | `structuredContent.response` | `structuredContent.response[]` |

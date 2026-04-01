@@ -32,7 +32,9 @@
 
 ## 文档
 
-- 更新 `docs/DESIGN.md` 第 9 节，反映三类处理器互斥与泛型适配器架构。
-- 重写 `docs/INTERACTIVE_STREAMING.md`，更新为 `TypedWriter[T].Send` + `chan any` 模型。
-- 更新 `docs/USAGE_AT_A_GLANCE.md` 第 8 节示例为 `Stream[T]` + `TypedWriter[T]` 写法。
+- 更新 `docs/DESIGN.md` 第 9 节，反映三类处理器互斥与泛型适配器架构，补充 Unary 执行路径与执行上下文兼容矩阵。
+- 重写 `docs/INTERACTIVE_STREAMING.md`，更新为 `TypedWriter[T].Send` + `chan any` 模型；新增 Unary 执行路径、`ResponseTypeInfo` 说明、执行上下文兼容性表、MCP 集成章节。
+- 更新 `docs/USAGE_AT_A_GLANCE.md`，新增第 8 节（Unary ResponseHandler）、第 9 节（Stream ResponseStreamHandler）、第 10 节（三类处理器对比表）。
+- 更新 `docs/DOCS_CATALOG.md`，补充 `example/unary` 与 `example/stream-interactive` 示例引用。
+- 新增 `example/unary` 示例及说明文档，展示 `Unary[T]` + `RunCallback[T]` 用法。
 - 新增 `example/stream-interactive` 示例及说明文档。
