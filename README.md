@@ -133,6 +133,7 @@ MCP 输入/输出协议、Schema 规则与排查建议见：[`docs/MCP.md`](docs
 - `example/env-test`：环境变量示例
 - `example/globalflags`：全局标志示例
 - `example/args-test`：参数解析示例
+- `example/stream-interactive`：交互流（结构化输出 + 内建响应流）完整示例
 
 ## 开发与维护
 

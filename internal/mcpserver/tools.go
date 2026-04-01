@@ -14,13 +14,15 @@ import (
 )
 
 type toolDef struct {
-	Name         string
-	Description  string
-	PathTokens   []string
-	Command      *redant.Command
-	Options      redant.OptionSet
-	InputSchema  map[string]any
-	OutputSchema map[string]any
+	Name           string
+	Description    string
+	PathTokens     []string
+	Command        *redant.Command
+	Options        redant.OptionSet
+	InputSchema    map[string]any
+	OutputSchema   map[string]any
+	SupportsStream bool
+	ResponseType   *redant.ResponseTypeInfo
 }
 
 func collectTools(root *redant.Command) []toolDef {
@@ -39,15 +41,25 @@ func collectTools(root *redant.Command) []toolDef {
 		effectiveOptions = append(effectiveOptions, inheritedOptions...)
 		effectiveOptions = append(effectiveOptions, cmd.Options...)
 
-		if cmd.Handler != nil {
+		if cmd.Handler != nil || cmd.ResponseHandler != nil || cmd.ResponseStreamHandler != nil {
+			var respType *redant.ResponseTypeInfo
+			if cmd.ResponseHandler != nil {
+				ti := cmd.ResponseHandler.TypeInfo()
+				respType = &ti
+			} else if cmd.ResponseStreamHandler != nil {
+				ti := cmd.ResponseStreamHandler.TypeInfo()
+				respType = &ti
+			}
 			tools = append(tools, toolDef{
-				Name:         strings.Join(path, "."),
-				Description:  commandDescription(cmd),
-				PathTokens:   append([]string(nil), path...),
-				Command:      cmd,
-				Options:      append(redant.OptionSet(nil), effectiveOptions...),
-				InputSchema:  buildInputSchema(cmd.Args, effectiveOptions),
-				OutputSchema: buildOutputSchema(),
+				Name:           strings.Join(path, "."),
+				Description:    commandDescription(cmd),
+				PathTokens:     append([]string(nil), path...),
+				Command:        cmd,
+				Options:        append(redant.OptionSet(nil), effectiveOptions...),
+				InputSchema:    buildInputSchema(cmd.Args, effectiveOptions),
+				OutputSchema:   buildOutputSchema(respType, cmd.ResponseStreamHandler != nil),
+				SupportsStream: cmd.ResponseStreamHandler != nil,
+				ResponseType:   respType,
 			})
 		}
 
@@ -104,28 +116,43 @@ func buildInputSchema(args redant.ArgSet, options redant.OptionSet) map[string]a
 	return schema
 }
 
-func buildOutputSchema() map[string]any {
+func buildOutputSchema(respType *redant.ResponseTypeInfo, isStream bool) map[string]any {
+	props := map[string]any{
+		"ok": map[string]any{
+			"type": "boolean",
+		},
+		"stdout": map[string]any{
+			"type": "string",
+		},
+		"stderr": map[string]any{
+			"type": "string",
+		},
+		"error": map[string]any{
+			"type": "string",
+		},
+		"combined": map[string]any{
+			"type": "string",
+		},
+	}
+	required := []string{"ok", "stdout", "stderr", "error", "combined"}
+
+	if respType != nil && respType.TypeName != "" {
+		respSchema := map[string]any{
+			"description":   "typed response payload (" + respType.TypeName + ")",
+			"x-redant-type": respType.TypeName,
+		}
+		if isStream {
+			respSchema["type"] = "array"
+			respSchema["items"] = map[string]any{}
+		}
+		props["response"] = respSchema
+	}
+
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
-		"properties": map[string]any{
-			"ok": map[string]any{
-				"type": "boolean",
-			},
-			"stdout": map[string]any{
-				"type": "string",
-			},
-			"stderr": map[string]any{
-				"type": "string",
-			},
-			"error": map[string]any{
-				"type": "string",
-			},
-			"combined": map[string]any{
-				"type": "string",
-			},
-		},
-		"required": []string{"ok", "stdout", "stderr", "error", "combined"},
+		"properties":           props,
+		"required":             required,
 	}
 }
 
@@ -299,6 +326,24 @@ func (s *Server) callTool(ctx context.Context, params toolsCallParams) (map[stri
 	inv.Stdout = &stdout
 	inv.Stderr = &stderr
 	inv.Stdin = bytes.NewReader(nil)
+
+	// For commands with typed response, use RunCallback to collect structured data.
+	if tool.ResponseType != nil {
+		var responses []any
+		runErr := redant.RunCallback[any](inv.WithContext(ctx), func(v any) error {
+			responses = append(responses, v)
+			return nil
+		})
+		result := buildToolResult(stdout.String(), stderr.String(), runErr)
+		if structured, ok := result["structuredContent"].(map[string]any); ok && len(responses) > 0 {
+			if tool.SupportsStream {
+				structured["response"] = responses
+			} else {
+				structured["response"] = responses[0]
+			}
+		}
+		return result, nil
+	}
 
 	runErr := inv.WithContext(ctx).Run()
 	return buildToolResult(stdout.String(), stderr.String(), runErr), nil

@@ -356,11 +356,39 @@ func main() {
 
 	commitCmd.Children = append(commitCmd.Children, detailedCmd)
 
+	// 流式交互测试命令：每秒发送一条数据
+	var streamCount int64
+	streamCmd := &redant.Command{
+		Use:   "stream",
+		Short: "流式输出测试（每秒一条数据）",
+		Options: redant.OptionSet{
+			{Flag: "count", Shorthand: "n", Description: "发送条数（0 表示无限）", Value: redant.Int64Of(&streamCount), Default: "10"},
+		},
+		ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+
+			for i := int64(1); streamCount == 0 || i <= streamCount; i++ {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-ticker.C:
+					msg := fmt.Sprintf("[%s] #%d hello stream\n", time.Now().Format("15:04:05"), i)
+					if err := out.Send(msg); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}),
+	}
+
 	rootCmd.Children = append(rootCmd.Children,
 		commitCmd,
 		releaseShipCmd,
 		projectCmd,
 		profileCmd,
+		streamCmd,
 		completioncmd.New(),
 		readlinecmd.New(),
 		richlinecmd.New(),

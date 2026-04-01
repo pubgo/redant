@@ -10,6 +10,7 @@
 ## 当前版本文件
 
 - [`Unreleased.md`](Unreleased.md)
+- [`v0.2.0.md`](v0.2.0.md)
 - [`v0.1.0.md`](v0.1.0.md)
 - [`v0.0.6.md`](v0.0.6.md)
 - [`v0.0.5.md`](v0.0.5.md)

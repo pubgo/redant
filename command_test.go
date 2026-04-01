@@ -833,3 +833,47 @@ func TestInternalArgsFlagOverridesParsedArgs(t *testing.T) {
 		t.Fatalf("second arg value = %q, want %q", gotSecond, "from-flag-2")
 	}
 }
+
+func TestCommandInitHandlerValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		command *Command
+		wantErr bool
+	}{
+		{
+			name: "invalid multiple handler models configured",
+			command: &Command{
+				Use: "echo",
+				Handler: func(ctx context.Context, inv *Invocation) error {
+					return nil
+				},
+				ResponseHandler: Unary(func(ctx context.Context, inv *Invocation) (string, error) {
+					return "ok", nil
+				}),
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid response stream handler",
+			command: &Command{
+				Use: "chat",
+				ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
+					return out.Send("hello")
+				}),
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.command.init()
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected init error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected init error: %v", err)
+			}
+		})
+	}
+}

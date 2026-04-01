@@ -11,6 +11,7 @@
 ## 2) 架构与质量
 
 - [`DESIGN.md`](DESIGN.md)：核心模型、解析流程、扩展点。
+- [`INTERACTIVE_STREAMING.md`](INTERACTIVE_STREAMING.md)：交互式命令与结构化响应流方案。
 - [`EVALUATION.md`](EVALUATION.md)：质量评估、风险与优化建议。
 
 ## 3) PR 审查体系（聚合）
@@ -27,7 +28,9 @@
 ## 5) 仓库外延入口（按需）
 
 - 项目总览：`README.md`
-- 示例：`example/args-test/README.md`
+- 示例：`example/args-test/README.md`（参数解析示例）
+- 示例：`example/unary/README.md`（Unary 响应处理器示例）
+- 示例：`example/stream-interactive/README.md`（流式响应处理器示例）
 - 内部样式维护：`internal/pretty/README.md`
 
 ---
