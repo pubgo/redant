@@ -19,10 +19,10 @@ flowchart LR
     R --> O[选项与参数解析层]
     O --> M[中间件编排层]
     M --> H[处理器执行层]
-    H --> X[输出/错误/退出码]
+    H --> X["输出/错误/退出码"]
 
     R --> C1[命令树]
-    O --> C2[Option 与 Arg]
+    O --> C2["Option 与 Arg"]
     M --> C3[Middleware]
     H --> C4[Handler]
 ```
@@ -152,13 +152,13 @@ stateDiagram-v2
 
 ```mermaid
 flowchart LR
-    UI[浏览器 xterm.js] -->|WebSocket| WS[/ws]
-    WS --> PTY[PTY 桥接]
-    PTY --> SH[本地 shell]
+    UI["浏览器 xterm.js"] -->|WebSocket| WS["/ws"]
+    WS --> PTY["PTY 桥接"]
+    PTY --> SH["本地 shell"]
 
-    UI -->|multipart| UP[/upload]
-    UI -->|GET| LS[/api/files]
-    UI -->|GET| DL[/download]
+    UI -->|multipart| UP["/upload"]
+    UI -->|GET| LS["/api/files"]
+    UI -->|GET| DL["/download"]
 
     UP --> FS[(工作目录)]
     LS --> FS
