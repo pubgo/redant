@@ -25,11 +25,13 @@ type Server struct {
 }
 
 type ToolInfo struct {
-	Name         string         `json:"name"`
-	Description  string         `json:"description,omitempty"`
-	Path         []string       `json:"path"`
-	InputSchema  map[string]any `json:"inputSchema"`
-	OutputSchema map[string]any `json:"outputSchema"`
+	Name           string                   `json:"name"`
+	Description    string                   `json:"description,omitempty"`
+	Path           []string                 `json:"path"`
+	InputSchema    map[string]any           `json:"inputSchema"`
+	OutputSchema   map[string]any           `json:"outputSchema"`
+	SupportsStream bool                     `json:"supportsStream,omitempty"`
+	ResponseType   *redant.ResponseTypeInfo `json:"responseType,omitempty"`
 }
 
 func ListToolInfos(root *redant.Command) []ToolInfo {
@@ -37,11 +39,13 @@ func ListToolInfos(root *redant.Command) []ToolInfo {
 	out := make([]ToolInfo, 0, len(defs))
 	for _, td := range defs {
 		out = append(out, ToolInfo{
-			Name:         td.Name,
-			Description:  td.Description,
-			Path:         append([]string(nil), td.PathTokens...),
-			InputSchema:  td.InputSchema,
-			OutputSchema: td.OutputSchema,
+			Name:           td.Name,
+			Description:    td.Description,
+			Path:           append([]string(nil), td.PathTokens...),
+			InputSchema:    td.InputSchema,
+			OutputSchema:   td.OutputSchema,
+			SupportsStream: td.SupportsStream,
+			ResponseType:   td.ResponseType,
 		})
 	}
 	return out

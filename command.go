@@ -60,8 +60,10 @@ type Command struct {
 
 	// Middleware is called before the Handler.
 	// Use Chain() to combine multiple middlewares.
-	Middleware MiddlewareFunc
-	Handler    HandlerFunc
+	Middleware            MiddlewareFunc
+	Handler               HandlerFunc
+	ResponseHandler       ResponseHandler
+	ResponseStreamHandler ResponseStreamHandler
 }
 
 func ascendingSortFn[T cmp.Ordered](a, b T) int {
@@ -119,6 +121,10 @@ func (c *Command) init() error {
 		if opt.Description != "" {
 			opt.Description = strings.Trim(strings.ToTitle(strings.TrimSpace(opt.Description)), ".") + "."
 		}
+	}
+
+	if _, err := c.resolveConfiguredHandler(); err != nil {
+		merr = errors.Join(merr, err)
 	}
 
 	slices.SortFunc(c.Options, func(a, b Option) int {
@@ -272,6 +278,9 @@ type Invocation struct {
 	Stderr io.Writer
 	Stdin  io.Reader
 
+	responseStream chan any
+	responseValue  any
+
 	// Annotations is a map of arbitrary annotations to attach to the invocation.
 	Annotations map[string]any
 
@@ -329,11 +338,58 @@ func (inv *Invocation) WithTestParsedFlags(
 	})
 }
 
+// ResponseStream returns the invocation response stream channel.
+//
+// The stream is internally owned by Invocation and is closed automatically when
+// ResponseStreamHandler execution finishes.
+func (inv *Invocation) ResponseStream() <-chan any {
+	return inv.ensureResponseStream()
+}
+
+func (inv *Invocation) ensureResponseStream() chan any {
+	if inv.responseStream != nil {
+		return inv.responseStream
+	}
+	inv.responseStream = make(chan any, defaultStreamResponseBuffer)
+	return inv.responseStream
+}
+
+func (inv *Invocation) closeResponseStream() {
+	if inv.responseStream == nil {
+		return
+	}
+	ch := inv.responseStream
+	inv.responseStream = nil
+	close(ch)
+}
+
 func (inv *Invocation) Context() context.Context {
 	if inv.ctx == nil {
 		return context.Background()
 	}
 	return inv.ctx
+}
+
+// Response returns the unary response produced by ResponseHandler in current run.
+func (inv *Invocation) Response() (any, bool) {
+	if inv == nil || inv.responseValue == nil {
+		return nil, false
+	}
+	return inv.responseValue, true
+}
+
+func (inv *Invocation) setResponse(v any) {
+	if inv == nil {
+		return
+	}
+	inv.responseValue = v
+}
+
+func (inv *Invocation) clearResponse() {
+	if inv == nil {
+		return
+	}
+	inv.responseValue = nil
 }
 
 func (inv *Invocation) ParsedFlags() *pflag.FlagSet {
@@ -846,7 +902,7 @@ func (inv *Invocation) run(state *runState) error {
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	inv = inv.WithContext(ctx)
+	inv.ctx = ctx
 
 	// Check for help flag
 	if inv.Flags != nil {
@@ -855,11 +911,16 @@ func (inv *Invocation) run(state *runState) error {
 		}
 	}
 
-	if inv.Command.Handler == nil || errors.Is(state.flagParseErr, pflag.ErrHelp) {
+	handler, resolveErr := inv.Command.resolveConfiguredHandler()
+	if resolveErr != nil {
+		return &RunCommandError{Cmd: inv.Command, Err: resolveErr}
+	}
+
+	if handler == nil || errors.Is(state.flagParseErr, pflag.ErrHelp) {
 		return DefaultHelpFn()(ctx, inv)
 	}
 
-	err := mw(inv.Command.Handler)(ctx, inv)
+	err := mw(handler)(ctx, inv)
 	if err != nil {
 		return &RunCommandError{
 			Cmd: inv.Command,
@@ -1060,6 +1121,9 @@ func parseAndSetArgs(argsDef ArgSet, args []string) error {
 //
 //nolint:revive
 func (inv *Invocation) Run() (err error) {
+	defer inv.closeResponseStream()
+	inv.clearResponse()
+
 	restoreEnv, preloadErr := preloadEnvFromArgs(inv.Args)
 	if preloadErr != nil {
 		return fmt.Errorf("preloading environment variables: %w", preloadErr)
@@ -1212,4 +1276,43 @@ func (c *Command) children() map[string]*Command {
 		childrenMap[child.Name()] = child
 	}
 	return childrenMap
+}
+
+func (c *Command) resolveConfiguredHandler() (HandlerFunc, error) {
+	if c == nil {
+		return nil, nil
+	}
+
+	hasRequest := c.Handler != nil
+	hasUnary := c.ResponseHandler != nil
+	hasStream := c.ResponseStreamHandler != nil
+
+	configuredCount := 0
+	if hasRequest {
+		configuredCount++
+	}
+	if hasUnary {
+		configuredCount++
+	}
+	if hasStream {
+		configuredCount++
+	}
+
+	if configuredCount > 1 {
+		return nil, fmt.Errorf("command %q configures multiple handler models", c.FullName())
+	}
+
+	if hasRequest {
+		return c.Handler, nil
+	}
+
+	if hasUnary {
+		return adaptResponseHandler(c.ResponseHandler), nil
+	}
+
+	if hasStream {
+		return adaptResponseStreamHandler(c.ResponseStreamHandler), nil
+	}
+
+	return nil, nil
 }
