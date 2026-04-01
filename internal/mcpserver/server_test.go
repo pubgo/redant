@@ -583,3 +583,238 @@ func prettyJSON(v any) string {
 	}
 	return string(b)
 }
+
+func TestCollectToolsIncludesStreamHandler(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "chat",
+		Short: "stream chat",
+		ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
+			return out.Send("hello")
+		}),
+	})
+
+	s := New(root)
+	if len(s.tools) != 1 {
+		t.Fatalf("tools count = %d, want 1", len(s.tools))
+	}
+
+	tool := s.tools[0]
+	if tool.Name != "chat" {
+		t.Fatalf("tool name = %q, want %q", tool.Name, "chat")
+	}
+	if !tool.SupportsStream {
+		t.Fatalf("expected SupportsStream=true")
+	}
+	if tool.ResponseType == nil {
+		t.Fatalf("expected ResponseType to be set")
+	}
+	if tool.ResponseType.TypeName != "string" {
+		t.Fatalf("ResponseType.TypeName = %q, want string", tool.ResponseType.TypeName)
+	}
+	// Output schema should include response field for stream tools.
+	props, _ := tool.OutputSchema["properties"].(map[string]any)
+	if props == nil {
+		t.Fatalf("output schema properties missing")
+	}
+	respProp, ok := props["response"]
+	if !ok {
+		t.Fatalf("output schema should have response property for stream tool")
+	}
+	respMap, _ := respProp.(map[string]any)
+	if respMap["type"] != "array" {
+		t.Fatalf("response schema type = %v, want array for stream", respMap["type"])
+	}
+}
+
+func TestCollectToolsIncludesResponseHandler(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "greet",
+		Short: "unary greet",
+		ResponseHandler: redant.Unary(func(ctx context.Context, inv *redant.Invocation) (string, error) {
+			return "hi", nil
+		}),
+	})
+
+	s := New(root)
+	if len(s.tools) != 1 {
+		t.Fatalf("tools count = %d, want 1", len(s.tools))
+	}
+
+	tool := s.tools[0]
+	if tool.Name != "greet" {
+		t.Fatalf("tool name = %q, want %q", tool.Name, "greet")
+	}
+	if tool.SupportsStream {
+		t.Fatalf("expected SupportsStream=false for ResponseHandler")
+	}
+	if tool.ResponseType == nil {
+		t.Fatalf("expected ResponseType to be set for ResponseHandler")
+	}
+	if tool.ResponseType.TypeName != "string" {
+		t.Fatalf("ResponseType.TypeName = %q, want string", tool.ResponseType.TypeName)
+	}
+	// Output schema should include response field (non-array) for unary.
+	props, _ := tool.OutputSchema["properties"].(map[string]any)
+	respProp, ok := props["response"]
+	if !ok {
+		t.Fatalf("output schema should have response property for unary tool")
+	}
+	respMap, _ := respProp.(map[string]any)
+	if _, hasType := respMap["type"]; hasType {
+		t.Fatalf("unary response schema should not have array type")
+	}
+}
+
+func TestCallToolWithStreamHandler(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "chat",
+		ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
+			if err := out.Send("chunk-1"); err != nil {
+				return err
+			}
+			return out.Send("chunk-2")
+		}),
+	})
+
+	s := New(root)
+	result, err := s.callTool(context.Background(), toolsCallParams{
+		Name:      "chat",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("callTool error: %v", err)
+	}
+
+	isError, _ := result["isError"].(bool)
+	if isError {
+		t.Fatalf("expected success result, got error")
+	}
+
+	structured, ok := result["structuredContent"].(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent missing")
+	}
+	stdout, _ := structured["stdout"].(string)
+	if !strings.Contains(stdout, "chunk-1") || !strings.Contains(stdout, "chunk-2") {
+		t.Fatalf("stdout = %q, want contains chunk-1 and chunk-2", stdout)
+	}
+	// Verify typed response array is collected.
+	responses, ok := structured["response"].([]any)
+	if !ok {
+		t.Fatalf("structured response should be an array, got %T", structured["response"])
+	}
+	if len(responses) != 2 {
+		t.Fatalf("expected 2 response chunks, got %d", len(responses))
+	}
+	if responses[0] != "chunk-1" || responses[1] != "chunk-2" {
+		t.Fatalf("response = %v, want [chunk-1, chunk-2]", responses)
+	}
+}
+
+func TestCallToolWithResponseHandler(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "greet",
+		ResponseHandler: redant.Unary(func(ctx context.Context, inv *redant.Invocation) (string, error) {
+			return "hello-unary", nil
+		}),
+	})
+
+	s := New(root)
+	result, err := s.callTool(context.Background(), toolsCallParams{
+		Name:      "greet",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("callTool error: %v", err)
+	}
+
+	isError, _ := result["isError"].(bool)
+	if isError {
+		t.Fatalf("expected success result, got error")
+	}
+
+	structured, ok := result["structuredContent"].(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent missing")
+	}
+	stdout, _ := structured["stdout"].(string)
+	if !strings.Contains(stdout, "hello-unary") {
+		t.Fatalf("stdout = %q, want contains hello-unary", stdout)
+	}
+	// Verify typed unary response is collected (single value, not array).
+	respVal, ok := structured["response"]
+	if !ok {
+		t.Fatalf("structured response should exist for unary handler")
+	}
+	if respVal != "hello-unary" {
+		t.Fatalf("response = %v, want hello-unary", respVal)
+	}
+}
+
+func TestServeSDKClientCallStreamTool(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "chat",
+		Short: "streaming chat tool",
+		ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
+			if err := out.Send("hello"); err != nil {
+				return err
+			}
+			return out.Send("world")
+		}),
+	})
+
+	srv := New(root)
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	serverErrCh := make(chan error, 1)
+	go func() {
+		serverErrCh <- srv.server.Run(ctx, serverTransport)
+	}()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	listRes, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	if len(listRes.Tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(listRes.Tools))
+	}
+	if listRes.Tools[0].Name != "chat" {
+		t.Fatalf("tool name = %q, want chat", listRes.Tools[0].Name)
+	}
+
+	callRes, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "chat",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("call tool: %v", err)
+	}
+	if callRes.IsError {
+		t.Fatalf("expected success, got error: %q", firstText(callRes.Content))
+	}
+
+	text := firstText(callRes.Content)
+	if !strings.Contains(text, "hello") || !strings.Contains(text, "world") {
+		t.Fatalf("content text = %q, want contains hello and world", text)
+	}
+
+	cancel()
+	if err := <-serverErrCh; err != nil && !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("server run error: %v", err)
+	}
+}

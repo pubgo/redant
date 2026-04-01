@@ -1,13 +1,11 @@
 # stream-interactive 示例
 
-这个示例展示 Redant 在“纯响应流”语义下的两种运行方式：
+这个示例展示 Redant 在"纯响应流"语义下的两种运行方式：
 
 1. `stdio`：直接执行 `inv.Run()`，输出落到终端。
 2. `callback`：通过 `RunCallback` 消费类型化输出数据，适合函数调用场景。
 
 并且在 `callback` 模式下会实时打印类型化输出文本（`string`）。
-
-> 注意：当前为新协议模型，不再使用旧的 `Kind/Payload` 字段。
 
 ## 调用流程
 
@@ -18,8 +16,8 @@ flowchart LR
     B -- callback --> D[RunCallback]
     C --> E[ResponseStreamHandler]
     D --> E
-    E --> F[控制/输出/退出事件]
-    F -- stdio --> G[Stdout/Stderr]
+    E --> F[TypedWriter.Send]
+    F -- stdio --> G[自动镜像 Stdout]
     F -- callback --> H[typed callback]
 ```
 
@@ -31,7 +29,7 @@ flowchart LR
 go run ./example/stream-interactive stdio
 ```
 
-运行后可直接看到控制信息与输出内容。
+运行后可直接看到文本输出（`TypedWriter[string].Send` 自动镜像到 stdout）。
 
 ### 2) 回调模式（callback）
 
@@ -46,11 +44,12 @@ go run ./example/stream-interactive callback
 ## 关键代码点
 
 - 命令定义：`ResponseStreamHandler: redant.Stream(...)`
+- 泛型写入：`out.Send("hello")` （`TypedWriter[string].Send`）
 - 回调执行：`RunCallback[T](inv, callback)`
-- 轮次结束：`stream.Send(map[string]any{"event":"round_end", ...})`
 
 ## 阻塞语义说明
 
 - `inv.Run()` 是阻塞调用。
-- 在 `RunCallback` 模式中，仅 `output/output.chunk` 的类型化数据会分发到回调；`Run()` 结束后流自动关闭。
+- 在 `RunCallback` 模式中，流通道中的数据会类型断言为 `T` 并分发到回调；类型不匹配时返回错误。
+- `Run()` 结束后流自动关闭。
 - 推荐始终通过 `context` 设置超时/取消，避免上游异常导致无限等待。
