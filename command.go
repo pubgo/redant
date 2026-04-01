@@ -64,10 +64,6 @@ type Command struct {
 	Handler               HandlerFunc
 	ResponseHandler       ResponseHandler
 	ResponseStreamHandler ResponseStreamHandler
-
-	// ResponseBuffer controls internal stream response channel buffer size.
-	// If <= 0, a default value is used.
-	ResponseBuffer int
 }
 
 func ascendingSortFn[T cmp.Ordered](a, b T) int {
@@ -347,24 +343,14 @@ func (inv *Invocation) WithTestParsedFlags(
 // The stream is internally owned by Invocation and is closed automatically when
 // ResponseStreamHandler execution finishes.
 func (inv *Invocation) ResponseStream() <-chan any {
-	return inv.ensureResponseStream(inv.responseBufferSize())
+	return inv.ensureResponseStream()
 }
 
-func (inv *Invocation) responseBufferSize() int {
-	if inv == nil || inv.Command == nil || inv.Command.ResponseBuffer <= 0 {
-		return defaultStreamResponseBuffer
-	}
-	return inv.Command.ResponseBuffer
-}
-
-func (inv *Invocation) ensureResponseStream(buffer int) chan any {
+func (inv *Invocation) ensureResponseStream() chan any {
 	if inv.responseStream != nil {
 		return inv.responseStream
 	}
-	if buffer <= 0 {
-		buffer = defaultStreamResponseBuffer
-	}
-	inv.responseStream = make(chan any, buffer)
+	inv.responseStream = make(chan any, defaultStreamResponseBuffer)
 	return inv.responseStream
 }
 
