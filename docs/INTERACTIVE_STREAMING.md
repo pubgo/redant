@@ -1,62 +1,48 @@
 # 交互式命令与流式处理（Stream）
 
-本文档说明 Redant 的交互式命令与响应流新协议设计（非兼容升级）。
+本文档说明 Redant 的交互式命令与响应流设计。
 
 ## 目标与原则
 
 - 保持命令分发与中间件主链不变。
-- 通过新增 `StreamHandler` 提供结构化响应流输出能力。
+- 通过 `ResponseStreamHandler` 提供结构化响应流输出能力。
 - 响应流由 Invocation 内部创建并管理，`Run()` 结束后自动关闭。
-- Stream 消息采用统一结构化协议，不再保留旧字段兼容层。
-- 可按业务阶段发送多段输出；以 `round_end` 事件表示一轮阶段输出完成。
+- 流通道类型为 `chan any`，直接传递泛型数据，不再包装事件结构。
+- `TypedWriter[T]` 提供类型安全的发送接口。
 
-## 新增模型
+## 核心类型
 
 ### Command 扩展
 
-- 新增 `StreamHandler StreamHandlerFunc` 字段。
-- 运行时优先级：`StreamHandler` > `Handler`。
+三类处理器互斥，初始化阶段校验冲突：
+
+| 字段                    | 类型                    | 说明                               |
+| ----------------------- | ----------------------- | ---------------------------------- |
+| `Handler`               | `HandlerFunc`           | 传统处理器，无结构化响应           |
+| `ResponseHandler`       | `ResponseHandler`       | Unary 单响应，通过 `Unary[T]` 构造 |
+| `ResponseStreamHandler` | `ResponseStreamHandler` | 流式响应，通过 `Stream[T]` 构造    |
 
 ### Invocation 扩展
 
-- 新增 `ResponseStream() <-chan map[string]any`。
-- 响应流通道由内部创建，调用方仅消费，不注入。
+- `ResponseStream() <-chan any`：消费响应流通道。
+- `Response() (any, bool)`：获取 Unary 响应值。
 
-### Stream 事件
+### InvocationStream
 
-```mermaid
-flowchart LR
-    A[InvocationStream.Send] --> B[map事件载荷]
-    B --> C[Invocation.ResponseStream]
-    C --> D[上游传输层 Web/MCP/SSE]
-```
+`Send(data any)` 统一发送接口，行为：
 
-事件类型：
+1. 将数据推入内部 `chan any` 通道（供 `ResponseStream()` 消费）。
+2. 自动镜像到 stdio：
+   - `string` / `[]byte` → stdout
+   - `StreamError` → stderr
+   - 其他类型 → JSON 序列化后写 stdout
 
-- `output`：标准输出语义
-- `error`：错误输出语义
-- `control`：控制消息（如阶段边界、退出信号）
+### TypedWriter[T]
 
-### 流事件载荷（轻量模型）
+泛型写入器，由 `Stream[T]` 适配器自动注入：
 
-为适配 command-as-web / command-as-mcp 场景，流事件统一收敛为：
-
-- `event`：事件标签（如 `output`）
-- `data`：结构化负载
-- `error`：结构化错误（`code/message/details`）
-
-说明：该模型不保留 `Kind/Payload` 旧字段，也不再携带 `jsonrpc/id/type/round/meta`。
-
-### Method 约定表
-
-| event          | 说明                       |
-| -------------- | -------------------------- |
-| `output`       | 普通输出事件               |
-| `output_chunk` | 分片输出事件               |
-| `control`      | 通用控制事件               |
-| `round_end`    | 当前阶段输出结束事件       |
-| `error`        | 结构化错误事件             |
-| `exit`         | 会话结束事件（含退出信息） |
+- `Send(v T) error`：发送泛型数据。
+- `Raw() *InvocationStream`：获取底层流（高级场景）。
 
 ## 执行路径
 
@@ -64,50 +50,89 @@ flowchart LR
 sequenceDiagram
     participant I as Invocation
     participant M as Middleware Chain
-    participant A as Adapter
-    participant S as StreamHandler
+    participant A as adaptResponseStreamHandler
+    participant S as StreamHandler[T]
+    participant W as TypedWriter[T]
 
     I->>I: 解析命令与 flags/args
+    I->>I: resolveConfiguredHandler
     I->>M: 构建并执行中间件
     M->>A: 调用适配后的 Handler
-    A->>S: 构造 InvocationStream 并执行
-    S-->>A: 返回 error 或 nil
+    A->>A: 创建 InvocationStream
+    A->>S: 执行 HandleStream
+    S->>W: 使用 TypedWriter.Send 发送数据
+    W->>A: 数据推入 chan any + 镜像 stdout
     A-->>M: 透传执行结果
+    I->>I: Run 结束，closeResponseStream
 ```
 
-说明：
+## 泛型回调消费（RunCallback）
 
-1. 中间件仍复用原 `MiddlewareFunc` 机制。
-2. `AdaptStreamHandler` 将流处理器接入现有执行链。
-3. `Send` 写入内部响应流，并可镜像到 `Stdout/Stderr`。
-4. 通过 `Send(map[string]any{...})` 显式发送事件（如 `round_end`），表示当前阶段结束。
-5. `inv.Run()` 为阻塞调用；当执行结束时内部响应流会自动关闭。
+```mermaid
+flowchart TD
+    A[RunCallback] --> B[创建 ResponseStream]
+    B --> C[goroutine 消费 chan any]
+    C --> D{类型断言 T}
+    D -- 成功 --> E[调用 callback]
+    D -- 失败 --> F[返回类型不匹配错误]
+    A --> G[调用 inv.Run]
+    G --> H{Run 结束}
+    H --> I{有 Unary Response?}
+    I -- 是 --> J[类型断言并调用 callback]
+    I -- 否 --> K[返回]
+```
 
-## 开发任务同步（本次）
+## 开发任务同步
 
-- [x] 增加 `StreamHandlerFunc` 与 `InvocationStream`。
-- [x] 增加轻量流事件载荷与事件类型定义。
+- [x] 增加 `InvocationStream` 与 `TypedWriter[T]`。
+- [x] 增加 `ResponseHandler` / `ResponseStreamHandler` 接口与 `Unary[T]` / `Stream[T]` 泛型适配器。
 - [x] 增加 `Invocation.ResponseStream()`。
-- [x] 在执行链中接入 `StreamHandler` 优先策略。
-- [x] 增加回归测试：stdio 输出 + 内建响应流消费模式。
+- [x] 三类处理器互斥校验（`resolveConfiguredHandler`）。
+- [x] `InvocationStream.Send` 直接发送 `any`，自动镜像 stdio。
+- [x] `RunCallback[T]` 泛型回调消费。
+- [x] 回归测试：stdio 回退 + channel 消费 + 类型不匹配。
 - [ ] 后续任务：补充流式中间件（按事件级拦截）。
-- [x] 完成非兼容升级：移除旧消息字段兼容。
 
 ## 使用示例
 
+### 流式命令定义
+
 ```go
-cmd := &redant.Command{
+chat := &redant.Command{
     Use: "chat",
-    StreamHandler: func(ctx context.Context, stream *redant.InvocationStream) error {
-        if err := stream.Send(map[string]any{"event": "control", "data": "phase:init"}); err != nil {
+    ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
+        if err := out.Send("hello"); err != nil {
             return err
         }
-        if err := stream.Send(map[string]any{"event": "output", "data": "hello"}); err != nil {
-            return err
-        }
-        return stream.Send(map[string]any{"event": "round_end", "data": map[string]any{"reason": "done"}})
-    },
+        return out.Send("world")
+    }),
 }
 ```
 
-说明：调用方通过 `ResponseStream()` 消费结构化响应事件。
+### stdio 回退
+
+直接 `Run()` 即可，文本数据自动写入 stdout：
+
+```go
+chat.Invoke().WithOS().Run()
+```
+
+### 泛型回调消费
+
+```go
+err := redant.RunCallback[string](chat.Invoke(), func(chunk string) error {
+    fmt.Println(chunk)
+    return nil
+})
+```
+
+### 通道消费
+
+```go
+inv := chat.Invoke()
+out := inv.ResponseStream()
+inv.Run()
+for data := range out {
+    fmt.Println(data)
+}
+```

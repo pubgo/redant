@@ -239,19 +239,23 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    A[Invocation.Run] --> B{命令是否定义 StreamHandler}
-    B -- 是 --> C[AdaptStreamHandler]
-    B -- 否 --> D[Legacy Handler]
-    C --> E[InvocationStream]
-    E --> F[Send 结构化事件]
-    F --> G[内部创建 ResponseStream 输出事件]
-    G --> H[Run 结束自动 close]
+    A[Invocation.Run] --> B{命令处理器类型}
+    B -- Handler --> D[原始 HandlerFunc]
+    B -- ResponseHandler --> E[Unary 适配]
+    B -- ResponseStreamHandler --> C[Stream 适配]
+    C --> F[InvocationStream]
+    F --> G[TypedWriter.Send]
+    G --> H[ResponseStream 通道输出]
+    H --> I[Run 结束自动 close]
 ```
 
 设计要点：
 
 1. 保留 `HandlerFunc` 与 `MiddlewareFunc`，不破坏现有执行链。
-2. 新增 `StreamHandlerFunc`，由适配层转换为 `HandlerFunc` 后进入中间件链。
-3. 响应事件通过 `Invocation.ResponseStream()` 消费，事件模型为 `map[string]any`（`event/data/error`）。
+2. 三类处理器互斥：`Handler`（无响应）、`ResponseHandler`（Unary 单响应）、`ResponseStreamHandler`（流式响应），初始化阶段校验冲突。
+3. `ResponseStreamHandler` 通过 `Stream[T]` 泛型适配器构造，`TypedWriter[T].Send(v)` 直接发送泛型数据。
+4. 响应流通道类型为 `chan any`，通过 `Invocation.ResponseStream()` 消费。
+5. `InvocationStream.Send` 自动镜像文本到 stdout、`StreamError` 到 stderr、struct 类型 JSON 序列化到 stdout。
+6. `RunCallback[T]` 提供泛型回调消费入口，统一支持 Unary 与 Stream 两种模型的类型化分发。
 
 详见：[`INTERACTIVE_STREAMING.md`](INTERACTIVE_STREAMING.md)。

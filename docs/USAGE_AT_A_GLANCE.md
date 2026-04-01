@@ -163,26 +163,25 @@ repo.Children = append(repo.Children, commit)
 root.Children = append(root.Children, repo)
 ```
 
-## 8) 交互式命令（StreamHandler）
+## 8) 交互式命令（ResponseStreamHandler）
 
-当命令需要“结构化流式输出”时，可使用 `StreamHandler`：
+当命令需要"结构化流式输出"时，使用 `ResponseStreamHandler` 配合 `Stream[T]` 泛型适配器：
 
 ```go
 chat := &redant.Command{
     Use: "chat",
-    StreamHandler: func(ctx context.Context, stream *redant.InvocationStream) error {
-        if err := stream.Send(map[string]any{"event": "control", "data": "phase:init"}); err != nil {
+    ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
+        if err := out.Send("hello"); err != nil {
             return err
         }
-        if err := stream.Send(map[string]any{"event": "output", "data": "hello"}); err != nil {
-            return err
-        }
-        return stream.Send(map[string]any{"event": "round_end", "data": map[string]any{"reason": "done"}})
-    },
+        return out.Send("world")
+    }),
 }
 ```
 
 说明：
 
-- 响应输出通过 `out := inv.ResponseStream()` 消费；`Run()` 结束后响应流自动关闭。
-- 现有 `Handler` 与 `Middleware` 仍可继续使用，兼容不变。
+- `TypedWriter[T].Send(v)` 直接发送泛型数据，自动镜像文本到 stdout。
+- 响应流通过 `inv.ResponseStream()` 消费（`<-chan any`），`Run()` 结束后自动关闭。
+- 泛型回调消费：`redant.RunCallback[string](inv, callback)`。
+- 现有 `Handler` 与 `Middleware` 仍可继续使用，三类处理器互斥。
