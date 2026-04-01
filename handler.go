@@ -164,8 +164,8 @@ func (h streamHandler[T]) TypeInfo() ResponseTypeInfo {
 	return ResponseTypeInfo{TypeName: typeNameOf[T]()}
 }
 
-// AdaptResponseHandler converts ResponseHandler to legacy HandlerFunc.
-func AdaptResponseHandler(responseHandler ResponseHandler) HandlerFunc {
+// adaptResponseHandler converts ResponseHandler to HandlerFunc.
+func adaptResponseHandler(responseHandler ResponseHandler) HandlerFunc {
 	if responseHandler == nil {
 		return nil
 	}
@@ -180,8 +180,8 @@ func AdaptResponseHandler(responseHandler ResponseHandler) HandlerFunc {
 	}
 }
 
-// AdaptResponseStreamHandler converts ResponseStreamHandler to legacy HandlerFunc.
-func AdaptResponseStreamHandler(responseStreamHandler ResponseStreamHandler) HandlerFunc {
+// adaptResponseStreamHandler converts ResponseStreamHandler to HandlerFunc.
+func adaptResponseStreamHandler(responseStreamHandler ResponseStreamHandler) HandlerFunc {
 	if responseStreamHandler == nil {
 		return nil
 	}

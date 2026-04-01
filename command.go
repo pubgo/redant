@@ -1307,11 +1307,11 @@ func (c *Command) resolveConfiguredHandler() (HandlerFunc, error) {
 	}
 
 	if hasUnary {
-		return AdaptResponseHandler(c.ResponseHandler), nil
+		return adaptResponseHandler(c.ResponseHandler), nil
 	}
 
 	if hasStream {
-		return AdaptResponseStreamHandler(c.ResponseStreamHandler), nil
+		return adaptResponseStreamHandler(c.ResponseStreamHandler), nil
 	}
 
 	return nil, nil
