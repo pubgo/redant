@@ -14,6 +14,18 @@ type HandlerFunc func(ctx context.Context, inv *Invocation) error
 
 const defaultStreamResponseBuffer = 64
 
+// StreamEnvelope is the NDJSON envelope written to stdout/stderr to distinguish
+// structured response data from ordinary log output.
+//
+// Each envelope is a single JSON line: {"$":"resp","type":"T","data":...}
+// Consumers can test for the "$" key to separate response payloads from
+// plain-text log lines.
+type StreamEnvelope struct {
+	Kind string `json:"$"`              // "resp" or "error"
+	Type string `json:"type,omitempty"` // type name from TypeInfo
+	Data any    `json:"data"`           // payload
+}
+
 // StreamError models structured stream errors.
 type StreamError struct {
 	Code    int    `json:"code"`
@@ -43,9 +55,10 @@ type ResponseStreamHandler interface {
 // Response stream is internally created by invocation and automatically closed
 // when response stream handling returns.
 type InvocationStream struct {
-	ctx context.Context
-	inv *Invocation
-	ch  chan any // captured at creation to avoid racing with closeResponseStream
+	ctx      context.Context
+	inv      *Invocation
+	ch       chan any // captured at creation to avoid racing with closeResponseStream
+	typeName string   // response type name for envelope output
 }
 
 // NewInvocationStream creates a stream bound to invocation.
@@ -61,8 +74,12 @@ func NewInvocationStream(ctx context.Context, inv *Invocation) *InvocationStream
 	}
 }
 
-// Send emits data to the invocation-owned response stream and mirrors
-// text output to stdout, StreamError output to stderr.
+// Send emits data to the invocation-owned response stream (channel) and mirrors
+// structured output to stdout/stderr as NDJSON envelopes.
+//
+// Channel consumers (RunCallback, ResponseStream, WebUI stream WS) receive
+// raw data without envelopes. Only the stdout/stderr mirror uses envelopes
+// so that consumers can distinguish response payloads from ordinary log lines.
 func (s *InvocationStream) Send(data any) error {
 	if s.ch != nil {
 		select {
@@ -77,35 +94,21 @@ func (s *InvocationStream) Send(data any) error {
 	}
 
 	switch v := data.(type) {
-	case string:
-		if s.inv.Stdout != nil {
-			_, err := io.WriteString(s.inv.Stdout, v)
-			return err
-		}
-	case []byte:
-		if s.inv.Stdout != nil {
-			_, err := s.inv.Stdout.Write(v)
-			return err
-		}
 	case *StreamError:
-		if v != nil && v.Message != "" && s.inv.Stderr != nil {
-			_, err := io.WriteString(s.inv.Stderr, v.Message)
-			return err
+		if v != nil && s.inv.Stderr != nil {
+			return writeEnvelope(s.inv.Stderr, StreamEnvelope{Kind: "error", Data: v})
 		}
 	case StreamError:
-		if v.Message != "" && s.inv.Stderr != nil {
-			_, err := io.WriteString(s.inv.Stderr, v.Message)
-			return err
+		if s.inv.Stderr != nil {
+			return writeEnvelope(s.inv.Stderr, StreamEnvelope{Kind: "error", Data: v})
 		}
 	default:
 		if s.inv.Stdout != nil {
-			b, err := json.Marshal(data)
-			if err != nil {
-				_, err = fmt.Fprintf(s.inv.Stdout, "%v", data)
-				return err
-			}
-			_, err = s.inv.Stdout.Write(b)
-			return err
+			return writeEnvelope(s.inv.Stdout, StreamEnvelope{
+				Kind: "resp",
+				Type: s.typeName,
+				Data: v,
+			})
 		}
 	}
 	return nil
@@ -170,13 +173,14 @@ func adaptResponseHandler(responseHandler ResponseHandler) HandlerFunc {
 		return nil
 	}
 
+	typeName := responseHandler.TypeInfo().TypeName
 	return func(ctx context.Context, inv *Invocation) error {
 		resp, err := responseHandler.Handle(ctx, inv)
 		if err != nil {
 			return fmt.Errorf("running response handler: %w", err)
 		}
 		inv.setResponse(resp)
-		return writeUnaryResponse(inv, resp)
+		return writeUnaryResponse(inv, resp, typeName)
 	}
 }
 
@@ -186,8 +190,10 @@ func adaptResponseStreamHandler(responseStreamHandler ResponseStreamHandler) Han
 		return nil
 	}
 
+	typeName := responseStreamHandler.TypeInfo().TypeName
 	return func(ctx context.Context, inv *Invocation) error {
 		stream := NewInvocationStream(ctx, inv)
+		stream.typeName = typeName
 		if err := responseStreamHandler.HandleStream(ctx, inv, stream); err != nil {
 			return fmt.Errorf("running response stream handler: %w", err)
 		}
@@ -263,27 +269,28 @@ func RunCallback[T any](inv *Invocation, callback func(T) error) error {
 	return callback(typed)
 }
 
-func writeUnaryResponse(inv *Invocation, resp any) error {
+func writeUnaryResponse(inv *Invocation, resp any, typeName string) error {
 	if inv == nil || inv.Stdout == nil || resp == nil {
 		return nil
 	}
 
-	switch v := resp.(type) {
-	case string:
-		_, err := io.WriteString(inv.Stdout, v)
-		return err
-	case []byte:
-		_, err := inv.Stdout.Write(v)
-		return err
-	default:
-		b, err := json.Marshal(v)
-		if err != nil {
-			_, werr := io.WriteString(inv.Stdout, fmt.Sprintf("%v", resp))
-			return errors.Join(err, werr)
-		}
-		_, err = inv.Stdout.Write(b)
-		return err
+	return writeEnvelope(inv.Stdout, StreamEnvelope{
+		Kind: "resp",
+		Type: typeName,
+		Data: resp,
+	})
+}
+
+// writeEnvelope writes a single NDJSON envelope line to w.
+func writeEnvelope(w io.Writer, env StreamEnvelope) error {
+	b, err := json.Marshal(env)
+	if err != nil {
+		_, werr := fmt.Fprintf(w, "%v", env.Data)
+		return errors.Join(err, werr)
 	}
+	b = append(b, '\n')
+	_, err = w.Write(b)
+	return err
 }
 
 func typeNameOf[T any]() string {

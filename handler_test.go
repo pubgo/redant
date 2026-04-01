@@ -3,9 +3,11 @@ package redant
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -157,7 +159,7 @@ func TestResponseStreamHandlerFallsBackToStdIO(t *testing.T) {
 	cmd := &Command{
 		Use: "chat",
 		ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
-			if err := out.Send("phase:init\n"); err != nil {
+			if err := out.Send("phase:init"); err != nil {
 				return err
 			}
 			return out.Send("hello, redant")
@@ -174,8 +176,27 @@ func TestResponseStreamHandlerFallsBackToStdIO(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got, want := stdout.String(), "phase:init\nhello, redant"; got != want {
-		t.Fatalf("stdout = %q, want %q", got, want)
+	// stdout should contain NDJSON envelopes
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 NDJSON lines, got %d: %q", len(lines), stdout.String())
+	}
+
+	for i, line := range lines {
+		var env StreamEnvelope
+		if err := json.Unmarshal([]byte(line), &env); err != nil {
+			t.Fatalf("line %d: invalid NDJSON: %v", i, err)
+		}
+		if env.Kind != "resp" {
+			t.Fatalf("line %d: $.kind=%q, want \"resp\"", i, env.Kind)
+		}
+	}
+
+	// verify first envelope data
+	var env0 StreamEnvelope
+	_ = json.Unmarshal([]byte(lines[0]), &env0)
+	if data, ok := env0.Data.(string); !ok || data != "phase:init" {
+		t.Fatalf("line 0: data=%v, want \"phase:init\"", env0.Data)
 	}
 }
 
