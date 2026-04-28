@@ -1,0 +1,22 @@
+# myapp
+
+> My sample application.
+
+## Commands
+
+### myapp echo
+
+Prints a message.
+
+Aliases: ec
+
+**Arguments:**
+
+- `message` — Text to echo. (required)
+
+**Options:**
+
+- `-u, --upper` — Uppercase output.
+
+---
+

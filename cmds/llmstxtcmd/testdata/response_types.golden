@@ -1,0 +1,20 @@
+# app
+
+## Commands
+
+### app status
+
+Get status.
+
+**Response:** Unary `github.com/pubgo/redant/cmds/llmstxtcmd.StatusResult`
+
+---
+
+### app logs
+
+Stream logs.
+
+**Response:** Stream `string`
+
+---
+

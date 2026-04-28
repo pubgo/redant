@@ -10,6 +10,7 @@ import (
 
 	"github.com/pubgo/redant"
 	"github.com/pubgo/redant/cmds/completioncmd"
+	"github.com/pubgo/redant/cmds/llmstxtcmd"
 	"github.com/pubgo/redant/cmds/mcpcmd"
 	"github.com/pubgo/redant/cmds/readlinecmd"
 	"github.com/pubgo/redant/cmds/richlinecmd"
@@ -390,6 +391,7 @@ func main() {
 		profileCmd,
 		streamCmd,
 		completioncmd.New(),
+		llmstxtcmd.New(),
 		readlinecmd.New(),
 		richlinecmd.New(),
 		mcpcmd.New(),

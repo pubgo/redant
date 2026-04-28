@@ -61,6 +61,7 @@ func New(root *redant.Command) *Server {
 		}, &mcp.ServerOptions{}),
 	}
 	s.registerTools()
+	s.registerResources()
 	return s
 }
 

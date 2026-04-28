@@ -1,0 +1,32 @@
+# app
+
+> Test app.
+
+## Global Options
+
+- `-e, --env string-array` — SET ENVIRONMENT VARIABLES (FORMAT: KEY=VALUE). SUPPORTS REPEAT AND CSV.
+- `--env-file string-array` — LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.
+- `-h, --help` — SHOW HELP FOR COMMAND.
+- `--list-commands` — LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.
+- `--list-flags` — LIST ALL FLAGS.
+
+## Commands
+
+### app hello
+
+Say hello.
+
+---
+
+### app llms-txt
+
+Print command tree documentation in llms.txt format for LLM consumption.
+
+Generate a structured plain-text overview of all commands, flags, and arguments. The output is Markdown-based and optimised for LLMs to read, grep, and reference.
+
+**Options:**
+
+- `-d, --depth int64` — MAXIMUM COMMAND TREE DEPTH (0 = UNLIMITED). (default: 0)
+
+---
+

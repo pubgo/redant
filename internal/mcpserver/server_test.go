@@ -818,3 +818,103 @@ func TestServeSDKClientCallStreamTool(t *testing.T) {
 		t.Fatalf("server run error: %v", err)
 	}
 }
+
+func TestResourcesRegistered(t *testing.T) {
+	var msg string
+	root := &redant.Command{
+		Use:   "myapp",
+		Short: "Test app.",
+	}
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "echo",
+		Short: "echo message",
+		Args: redant.ArgSet{
+			{Name: "message", Required: true, Value: redant.StringOf(&msg)},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			_, _ = fmt.Fprint(inv.Stdout, msg)
+			return nil
+		},
+	})
+
+	srv := New(root)
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	serverErrCh := make(chan error, 1)
+	go func() {
+		serverErrCh <- srv.server.Run(ctx, serverTransport)
+	}()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	// List resources should include llms.txt + per-command help
+	listRes, err := session.ListResources(ctx, &mcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("list resources: %v", err)
+	}
+
+	if len(listRes.Resources) < 2 {
+		t.Fatalf("expected at least 2 resources (llms.txt + echo help), got %d", len(listRes.Resources))
+	}
+
+	var llmsTxtURI string
+	var echoHelpURI string
+	for _, r := range listRes.Resources {
+		if r.Name == "llms.txt" {
+			llmsTxtURI = r.URI
+		}
+		if r.Name == "echo help" {
+			echoHelpURI = r.URI
+		}
+	}
+
+	if llmsTxtURI == "" {
+		t.Fatalf("llms.txt resource not found")
+	}
+	if echoHelpURI == "" {
+		t.Fatalf("echo help resource not found")
+	}
+
+	// Read llms.txt
+	readRes, err := session.ReadResource(ctx, &mcp.ReadResourceParams{URI: llmsTxtURI})
+	if err != nil {
+		t.Fatalf("read llms.txt: %v", err)
+	}
+	if len(readRes.Contents) == 0 {
+		t.Fatalf("llms.txt contents empty")
+	}
+	text := readRes.Contents[0].Text
+	for _, want := range []string{"# myapp", "## Commands", "myapp echo", "echo message"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("llms.txt missing %q\ncontent:\n%s", want, text)
+		}
+	}
+
+	// Read echo help
+	readRes2, err := session.ReadResource(ctx, &mcp.ReadResourceParams{URI: echoHelpURI})
+	if err != nil {
+		t.Fatalf("read echo help: %v", err)
+	}
+	if len(readRes2.Contents) == 0 {
+		t.Fatalf("echo help contents empty")
+	}
+	echoText := readRes2.Contents[0].Text
+	for _, want := range []string{"# echo", "`message`"} {
+		if !strings.Contains(echoText, want) {
+			t.Errorf("echo help missing %q\ncontent:\n%s", want, echoText)
+		}
+	}
+
+	cancel()
+	if err := <-serverErrCh; err != nil && !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("server run error: %v", err)
+	}
+}
