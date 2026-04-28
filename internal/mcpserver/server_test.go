@@ -655,15 +655,18 @@ func TestCollectToolsIncludesResponseHandler(t *testing.T) {
 	if tool.ResponseType.TypeName != "string" {
 		t.Fatalf("ResponseType.TypeName = %q, want string", tool.ResponseType.TypeName)
 	}
-	// Output schema should include response field (non-array) for unary.
+	// Output schema should include response field with type info for unary.
 	props, _ := tool.OutputSchema["properties"].(map[string]any)
 	respProp, ok := props["response"]
 	if !ok {
 		t.Fatalf("output schema should have response property for unary tool")
 	}
 	respMap, _ := respProp.(map[string]any)
-	if _, hasType := respMap["type"]; hasType {
-		t.Fatalf("unary response schema should not have array type")
+	if respMap["type"] == "array" {
+		t.Fatalf("unary response schema should not be array type")
+	}
+	if _, hasXType := respMap["x-redant-type"]; !hasXType {
+		t.Fatalf("unary response schema should have x-redant-type")
 	}
 }
 
@@ -911,6 +914,156 @@ func TestResourcesRegistered(t *testing.T) {
 		if !strings.Contains(echoText, want) {
 			t.Errorf("echo help missing %q\ncontent:\n%s", want, echoText)
 		}
+	}
+
+	cancel()
+	if err := <-serverErrCh; err != nil && !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("server run error: %v", err)
+	}
+}
+
+func TestPromptsRegistered(t *testing.T) {
+	var msg string
+	root := &redant.Command{
+		Use:   "myapp",
+		Short: "Test app.",
+	}
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "echo",
+		Short: "echo message",
+		Args: redant.ArgSet{
+			{Name: "message", Required: true, Value: redant.StringOf(&msg)},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			_, _ = fmt.Fprint(inv.Stdout, msg)
+			return nil
+		},
+	})
+
+	srv := New(root)
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	serverErrCh := make(chan error, 1)
+	go func() {
+		serverErrCh <- srv.server.Run(ctx, serverTransport)
+	}()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	// List prompts
+	listRes, err := session.ListPrompts(ctx, &mcp.ListPromptsParams{})
+	if err != nil {
+		t.Fatalf("list prompts: %v", err)
+	}
+
+	// Should have overview + per-command prompts
+	if len(listRes.Prompts) < 2 {
+		t.Fatalf("expected at least 2 prompts (overview + use-echo), got %d", len(listRes.Prompts))
+	}
+
+	var foundOverview, foundUseEcho bool
+	for _, p := range listRes.Prompts {
+		if p.Name == "myapp-overview" {
+			foundOverview = true
+		}
+		if p.Name == "use-echo" {
+			foundUseEcho = true
+		}
+	}
+	if !foundOverview {
+		t.Fatalf("myapp-overview prompt not found")
+	}
+	if !foundUseEcho {
+		t.Fatalf("use-echo prompt not found")
+	}
+
+	// Get overview prompt
+	getRes, err := session.GetPrompt(ctx, &mcp.GetPromptParams{Name: "myapp-overview"})
+	if err != nil {
+		t.Fatalf("get prompt: %v", err)
+	}
+	if len(getRes.Messages) == 0 {
+		t.Fatalf("overview prompt messages empty")
+	}
+
+	cancel()
+	if err := <-serverErrCh; err != nil && !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("server run error: %v", err)
+	}
+}
+
+func TestSchemaResourcesRegistered(t *testing.T) {
+	root := &redant.Command{Use: "myapp"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:     "deploy",
+		Short:   "Deploy app.",
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+
+	srv := New(root)
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	serverErrCh := make(chan error, 1)
+	go func() {
+		serverErrCh <- srv.server.Run(ctx, serverTransport)
+	}()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	// List resources — should include schema resource
+	listRes, err := session.ListResources(ctx, &mcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("list resources: %v", err)
+	}
+
+	var schemaURI string
+	for _, r := range listRes.Resources {
+		if r.Name == "deploy schema" {
+			schemaURI = r.URI
+		}
+	}
+	if schemaURI == "" {
+		t.Fatalf("deploy schema resource not found in %d resources", len(listRes.Resources))
+	}
+
+	// Read schema resource
+	readRes, err := session.ReadResource(ctx, &mcp.ReadResourceParams{URI: schemaURI})
+	if err != nil {
+		t.Fatalf("read schema resource: %v", err)
+	}
+	if len(readRes.Contents) == 0 {
+		t.Fatalf("schema contents empty")
+	}
+
+	// Parse and validate JSON
+	var schema map[string]any
+	if err := json.Unmarshal([]byte(readRes.Contents[0].Text), &schema); err != nil {
+		t.Fatalf("schema is not valid JSON: %v", err)
+	}
+	if name, _ := schema["name"].(string); name != "deploy" {
+		t.Fatalf("schema name = %q, want deploy", name)
+	}
+	if _, ok := schema["inputSchema"]; !ok {
+		t.Fatalf("schema missing inputSchema")
+	}
+	if _, ok := schema["outputSchema"]; !ok {
+		t.Fatalf("schema missing outputSchema")
 	}
 
 	cancel()

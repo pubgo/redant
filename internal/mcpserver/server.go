@@ -62,6 +62,7 @@ func New(root *redant.Command) *Server {
 	}
 	s.registerTools()
 	s.registerResources()
+	s.registerPrompts()
 	return s
 }
 

@@ -527,3 +527,140 @@ func mustFindToolByName(t *testing.T, tools []toolDef, name string) toolDef {
 	t.Fatalf("tool %q not found in %#v", name, tools)
 	return toolDef{}
 }
+
+func TestValueTypeToSchemaExtendedTypes(t *testing.T) {
+	tests := []struct {
+		typ    string
+		field  string
+		expect string
+	}{
+		{"duration", "format", "duration"},
+		{"url", "format", "uri"},
+		{"regexp", "format", "regex"},
+		{"host:port", "pattern", "^[^:]+:\\d+$"},
+		{"json", "contentMediaType", "application/json"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.typ, func(t *testing.T) {
+			s := valueTypeToSchema(tt.typ)
+			got, _ := s[tt.field].(string)
+			if got != tt.expect {
+				t.Fatalf("valueTypeToSchema(%q)[%q] = %q, want %q", tt.typ, tt.field, got, tt.expect)
+			}
+		})
+	}
+}
+
+func TestCommandAgentHints(t *testing.T) {
+	cmd := &redant.Command{
+		Use:   "rm",
+		Short: "Remove file.",
+		Metadata: map[string]string{
+			"agent.destructive":           "true",
+			"agent.requires-confirmation": "true",
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	}
+
+	hints := commandAgentHints(cmd)
+	if !strings.Contains(hints, "Destructive") {
+		t.Fatalf("expected Destructive hint, got: %s", hints)
+	}
+	if !strings.Contains(hints, "Requires confirmation") {
+		t.Fatalf("expected Requires confirmation hint, got: %s", hints)
+	}
+}
+
+func TestCommandAgentHintsEmpty(t *testing.T) {
+	cmd := &redant.Command{
+		Use:     "ls",
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	}
+	if got := commandAgentHints(cmd); got != "" {
+		t.Fatalf("expected empty hints, got: %q", got)
+	}
+}
+
+func TestAgentHintsInToolDescription(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "deploy",
+		Short: "Deploy the app.",
+		Metadata: map[string]string{
+			"agent.idempotent": "true",
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+
+	tools := collectTools(root)
+	tool := mustFindToolByName(t, tools, "deploy")
+	if !strings.Contains(tool.Description, "Idempotent") {
+		t.Fatalf("tool description should contain agent hint, got: %q", tool.Description)
+	}
+}
+
+func TestOutputSchemaWithTypedResponse(t *testing.T) {
+	type Result struct {
+		OK      bool   `json:"ok"`
+		Message string `json:"message"`
+	}
+
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "status",
+		ResponseHandler: redant.Unary(func(ctx context.Context, inv *redant.Invocation) (Result, error) {
+			return Result{}, nil
+		}),
+	})
+
+	tools := collectTools(root)
+	tool := mustFindToolByName(t, tools, "status")
+
+	props, _ := tool.OutputSchema["properties"].(map[string]any)
+	respProp, ok := props["response"]
+	if !ok {
+		t.Fatalf("output schema should have response property")
+	}
+
+	respMap, _ := respProp.(map[string]any)
+
+	// Should have x-redant-type
+	xType, _ := respMap["x-redant-type"].(string)
+	if !strings.Contains(xType, "Result") {
+		t.Fatalf("x-redant-type = %q, want to contain Result", xType)
+	}
+
+	// Should have properties from struct reflection
+	respProps, _ := respMap["properties"].(map[string]any)
+	if _, ok := respProps["ok"]; !ok {
+		t.Fatalf("response schema should have 'ok' property")
+	}
+	if _, ok := respProps["message"]; !ok {
+		t.Fatalf("response schema should have 'message' property")
+	}
+}
+
+func TestOutputSchemaStreamTyped(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "logs",
+		ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
+			return out.Send("line")
+		}),
+	})
+
+	tools := collectTools(root)
+	tool := mustFindToolByName(t, tools, "logs")
+
+	props, _ := tool.OutputSchema["properties"].(map[string]any)
+	respProp, ok := props["response"]
+	if !ok {
+		t.Fatalf("output schema should have response property")
+	}
+
+	respMap, _ := respProp.(map[string]any)
+	if got, _ := respMap["type"].(string); got != "array" {
+		t.Fatalf("stream response type = %q, want array", got)
+	}
+}

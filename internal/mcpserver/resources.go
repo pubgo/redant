@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/pubgo/redant"
+	"github.com/pubgo/redant/cmds/llmstxtcmd"
 )
 
 func (s *Server) registerResources() {
@@ -27,7 +29,7 @@ func (s *Server) registerResources() {
 		MIMEType:    "text/markdown",
 	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		var buf bytes.Buffer
-		writeLLMSTxt(&buf, s.root, 0)
+		_ = llmstxtcmd.WriteLLMSTxt(&buf, s.root, 0)
 		return &mcp.ReadResourceResult{
 			Contents: []*mcp.ResourceContents{{
 				URI:      req.Params.URI,
@@ -54,6 +56,36 @@ func (s *Server) registerResources() {
 					URI:      req.Params.URI,
 					MIMEType: "text/markdown",
 					Text:     buf.String(),
+				}},
+			}, nil
+		})
+	}
+
+	// Resource: JSON schema for each tool (machine-consumable)
+	for _, td := range s.tools {
+		tool := td
+		uri := fmt.Sprintf("redant://%s/schema/%s", appName, tool.Name)
+		s.server.AddResource(&mcp.Resource{
+			URI:         uri,
+			Name:        tool.Name + " schema",
+			Description: fmt.Sprintf("JSON Schema for %q tool input/output.", tool.Name),
+			MIMEType:    "application/json",
+		}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+			schema := map[string]any{
+				"name":         tool.Name,
+				"description":  tool.Description,
+				"inputSchema":  tool.InputSchema,
+				"outputSchema": tool.OutputSchema,
+			}
+			b, err := json.MarshalIndent(schema, "", "  ")
+			if err != nil {
+				return nil, fmt.Errorf("marshal schema: %w", err)
+			}
+			return &mcp.ReadResourceResult{
+				Contents: []*mcp.ResourceContents{{
+					URI:      req.Params.URI,
+					MIMEType: "application/json",
+					Text:     string(b),
 				}},
 			}, nil
 		})
@@ -143,153 +175,6 @@ func writeCommandHelp(w io.Writer, tool toolDef) {
 		p.line("")
 		p.line("Type: %s `%s`", kind, tool.ResponseType.TypeName)
 		p.line("")
-	}
-}
-
-// writeLLMSTxt generates the full command tree documentation.
-func writeLLMSTxt(w io.Writer, root *redant.Command, maxDepth int) {
-	p := &resPrinter{w: w}
-
-	p.line("# %s", root.Name())
-	p.line("")
-	if root.Short != "" {
-		p.line("> %s", root.Short)
-		p.line("")
-	}
-	if root.Long != "" {
-		p.line("%s", root.Long)
-		p.line("")
-	}
-
-	// Global options
-	var globals []redant.Option
-	for _, opt := range root.Options {
-		if opt.Flag != "" && !opt.Hidden {
-			globals = append(globals, opt)
-		}
-	}
-	if len(globals) > 0 {
-		p.line("## Global Options")
-		p.line("")
-		writeResOptions(p, globals)
-		p.line("")
-	}
-
-	// Commands
-	if len(root.Children) > 0 {
-		p.line("## Commands")
-		p.line("")
-		for _, child := range root.Children {
-			writeResCommandTree(p, child, root.Name(), 1, maxDepth)
-		}
-	}
-}
-
-func writeResCommandTree(p *resPrinter, cmd *redant.Command, parentPath string, depth, maxDepth int) {
-	if cmd.Hidden {
-		return
-	}
-
-	fullPath := parentPath + " " + cmd.Name()
-	heading := strings.Repeat("#", min(depth+2, 6))
-
-	p.line("%s %s", heading, fullPath)
-	p.line("")
-	if cmd.Short != "" {
-		p.line("%s", cmd.Short)
-		p.line("")
-	}
-	if cmd.Long != "" && cmd.Long != cmd.Short {
-		p.line("%s", cmd.Long)
-		p.line("")
-	}
-	if len(cmd.Aliases) > 0 {
-		p.line("Aliases: %s", strings.Join(cmd.Aliases, ", "))
-		p.line("")
-	}
-
-	// Args
-	if len(cmd.Args) > 0 {
-		p.line("**Arguments:**")
-		p.line("")
-		for _, arg := range cmd.Args {
-			desc := arg.Description
-			if arg.Required {
-				desc += " (required)"
-			}
-			if desc == "" {
-				desc = "(positional)"
-			}
-			p.line("- `%s` — %s", arg.Name, desc)
-		}
-		p.line("")
-	}
-
-	// Command-specific options
-	var cmdOpts []redant.Option
-	for _, opt := range cmd.Options {
-		if opt.Flag != "" && !opt.Hidden {
-			cmdOpts = append(cmdOpts, opt)
-		}
-	}
-	if len(cmdOpts) > 0 {
-		p.line("**Options:**")
-		p.line("")
-		writeResOptions(p, cmdOpts)
-		p.line("")
-	}
-
-	// Response type
-	if cmd.ResponseHandler != nil {
-		ti := cmd.ResponseHandler.TypeInfo()
-		p.line("**Response:** Unary `%s`", ti.TypeName)
-		p.line("")
-	} else if cmd.ResponseStreamHandler != nil {
-		ti := cmd.ResponseStreamHandler.TypeInfo()
-		p.line("**Response:** Stream `%s`", ti.TypeName)
-		p.line("")
-	}
-
-	p.line("---")
-	p.line("")
-
-	if maxDepth > 0 && depth >= maxDepth {
-		return
-	}
-	for _, child := range cmd.Children {
-		writeResCommandTree(p, child, fullPath, depth+1, maxDepth)
-	}
-}
-
-func writeResOptions(p *resPrinter, opts []redant.Option) {
-	for _, opt := range opts {
-		flag := "--" + opt.Flag
-		if opt.Shorthand != "" {
-			flag = "-" + opt.Shorthand + ", " + flag
-		}
-		typeStr := opt.Type()
-		if typeStr != "" && typeStr != "bool" {
-			flag += " " + typeStr
-		}
-
-		parts := []string{"`" + flag + "`"}
-		if opt.Description != "" {
-			parts = append(parts, "— "+opt.Description)
-		}
-		var extras []string
-		if opt.Default != "" {
-			extras = append(extras, "default: "+opt.Default)
-		}
-		if opt.Required {
-			extras = append(extras, "required")
-		}
-		if len(opt.Envs) > 0 {
-			extras = append(extras, "env: "+strings.Join(opt.Envs, ", "))
-		}
-		if len(extras) > 0 {
-			parts = append(parts, "("+strings.Join(extras, "; ")+")")
-		}
-		p.line("- %s", strings.Join(parts, " "))
 	}
 }
 

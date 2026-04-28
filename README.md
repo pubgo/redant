@@ -126,6 +126,35 @@ app mcp serve --transport stdio
 
 MCP 输入/输出协议、Schema 规则与排查建议见：[`docs/MCP.md`](docs/MCP.md)。
 
+### LLM / Agent 集成
+
+Redant 内建多层 LLM 友好接口，便于 AI Agent 发现和调用命令：
+
+| 能力         | 入口                           | 说明                                                          |
+| ------------ | ------------------------------ | ------------------------------------------------------------- |
+| 命令树文档   | `app llms-txt`                 | 输出 Markdown 格式命令树（命令、参数、选项、响应类型）        |
+| MCP 工具映射 | `app mcp serve`                | 将命令树自动暴露为 MCP Tools（含 inputSchema / outputSchema） |
+| MCP 资源     | `redant://<app>/llms.txt`      | 完整命令树文档资源                                            |
+| MCP 资源     | `redant://<app>/help/<tool>`   | 单命令 Markdown 帮助                                          |
+| MCP 资源     | `redant://<app>/schema/<tool>` | 单命令 JSON Schema（input + output）                          |
+| MCP Prompts  | `<app>-overview`               | 全局命令概览提示模板                                          |
+| MCP Prompts  | `use-<tool>`                   | 单命令调用指南提示模板                                        |
+| Agent Hints  | `Metadata` 字段                | 标记命令只读/幂等/危险等语义，映射到 tool description         |
+
+**Agent Hints 用法示例**：
+
+```go
+cmd := &redant.Command{
+    Use:   "delete",
+    Short: "Delete a resource.",
+    Metadata: map[string]string{
+        "agent.destructive":          "true",
+        "agent.requires-confirmation": "true",
+    },
+    Handler: deleteHandler,
+}
+```
+
 ## 示例目录
 
 - `example/demo`：综合示例

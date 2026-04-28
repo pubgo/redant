@@ -78,16 +78,19 @@ func collectTools(root *redant.Command) []toolDef {
 func commandDescription(cmd *redant.Command) string {
 	short := strings.TrimSpace(cmd.Short)
 	long := strings.TrimSpace(cmd.Long)
+	var base string
 	switch {
 	case short != "" && long != "":
-		return short + "\n\n" + long
+		base = short + "\n\n" + long
 	case short != "":
-		return short
+		base = short
 	case long != "":
-		return long
-	default:
-		return ""
+		base = long
 	}
+	if hints := commandAgentHints(cmd); hints != "" {
+		base += "\n" + hints
+	}
+	return base
 }
 
 func buildInputSchema(args redant.ArgSet, options redant.OptionSet) map[string]any {
@@ -141,9 +144,19 @@ func buildOutputSchema(respType *redant.ResponseTypeInfo, isStream bool) map[str
 			"description":   "typed response payload (" + respType.TypeName + ")",
 			"x-redant-type": respType.TypeName,
 		}
+		if len(respType.Schema) > 0 {
+			// Merge generated schema into respSchema.
+			for k, v := range respType.Schema {
+				respSchema[k] = v
+			}
+		}
 		if isStream {
-			respSchema["type"] = "array"
-			respSchema["items"] = map[string]any{}
+			respSchema = map[string]any{
+				"type":          "array",
+				"items":         respType.Schema,
+				"description":   "typed response payload (" + respType.TypeName + ")",
+				"x-redant-type": respType.TypeName,
+			}
 		}
 		props["response"] = respSchema
 	}
@@ -285,6 +298,36 @@ func valueTypeToSchema(typ string) map[string]any {
 			"items": map[string]any{
 				"type": "string",
 			},
+		}
+	case "duration":
+		return map[string]any{
+			"type":        "string",
+			"format":      "duration",
+			"description": "Go duration string (e.g. 30s, 5m, 1h30m)",
+		}
+	case "url":
+		return map[string]any{
+			"type":   "string",
+			"format": "uri",
+		}
+	case "regexp":
+		return map[string]any{
+			"type":   "string",
+			"format": "regex",
+		}
+	case "host:port":
+		return map[string]any{
+			"type":    "string",
+			"pattern": "^[^:]+:\\d+$",
+			"examples": []string{
+				"localhost:8080",
+				"0.0.0.0:443",
+			},
+		}
+	case "json":
+		return map[string]any{
+			"type":             "string",
+			"contentMediaType": "application/json",
 		}
 	default:
 		return map[string]any{"type": "string"}
