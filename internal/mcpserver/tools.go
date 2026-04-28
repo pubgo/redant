@@ -23,6 +23,15 @@ type toolDef struct {
 	OutputSchema   map[string]any
 	SupportsStream bool
 	ResponseType   *redant.ResponseTypeInfo
+	Annotations    *toolAnnotations
+}
+
+// toolAnnotations holds MCP-standard tool behavior hints derived from Command.Metadata.
+type toolAnnotations struct {
+	ReadOnly    bool
+	Destructive *bool // nil = unset (MCP default: true)
+	Idempotent  bool
+	OpenWorld   *bool // nil = unset (MCP default: true)
 }
 
 func collectTools(root *redant.Command) []toolDef {
@@ -60,6 +69,7 @@ func collectTools(root *redant.Command) []toolDef {
 				OutputSchema:   buildOutputSchema(respType, cmd.ResponseStreamHandler != nil),
 				SupportsStream: cmd.ResponseStreamHandler != nil,
 				ResponseType:   respType,
+				Annotations:    buildToolAnnotations(cmd),
 			})
 		}
 
@@ -73,6 +83,40 @@ func collectTools(root *redant.Command) []toolDef {
 	}
 
 	return tools
+}
+
+// buildToolAnnotations extracts MCP-standard ToolAnnotations from Command.Metadata.
+func buildToolAnnotations(cmd *redant.Command) *toolAnnotations {
+	if cmd == nil || len(cmd.Metadata) == 0 {
+		return nil
+	}
+
+	a := &toolAnnotations{}
+	any := false
+
+	if v := cmd.Meta("agent.readonly"); v == "true" {
+		a.ReadOnly = true
+		any = true
+	}
+	if v := cmd.Meta("agent.idempotent"); v == "true" {
+		a.Idempotent = true
+		any = true
+	}
+	if v := cmd.Meta("agent.destructive"); v != "" {
+		b := v == "true"
+		a.Destructive = &b
+		any = true
+	}
+	if v := cmd.Meta("agent.open-world"); v != "" {
+		b := v == "true"
+		a.OpenWorld = &b
+		any = true
+	}
+
+	if !any {
+		return nil
+	}
+	return a
 }
 
 func commandDescription(cmd *redant.Command) string {
@@ -100,6 +144,7 @@ func buildInputSchema(args redant.ArgSet, options redant.OptionSet) map[string]a
 	properties := map[string]any{"flags": flagsSchema}
 
 	if len(args) > 0 {
+		argsSchema["x-redant-arg-modes"] = []string{"positional", "query", "form", "json"}
 		properties["args"] = argsSchema
 	} else {
 		properties["args"] = map[string]any{

@@ -664,3 +664,103 @@ func TestOutputSchemaStreamTyped(t *testing.T) {
 		t.Fatalf("stream response type = %q, want array", got)
 	}
 }
+
+func TestBuildToolAnnotations(t *testing.T) {
+	tests := []struct {
+		name     string
+		meta     map[string]string
+		wantNil  bool
+		readonly bool
+		idemp    bool
+		destr    *bool
+		open     *bool
+	}{
+		{"nil_metadata", nil, true, false, false, nil, nil},
+		{"readonly+idempotent", map[string]string{
+			"agent.readonly":   "true",
+			"agent.idempotent": "true",
+		}, false, true, true, nil, nil},
+		{"destructive_true", map[string]string{
+			"agent.destructive": "true",
+		}, false, false, false, ptrBool(true), nil},
+		{"destructive_false", map[string]string{
+			"agent.destructive": "false",
+		}, false, false, false, ptrBool(false), nil},
+		{"open_world", map[string]string{
+			"agent.open-world": "true",
+		}, false, false, false, nil, ptrBool(true)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &redant.Command{Use: "x", Metadata: tt.meta}
+			got := buildToolAnnotations(cmd)
+			if tt.wantNil {
+				if got != nil {
+					t.Fatalf("expected nil annotations, got %+v", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("expected non-nil annotations")
+			}
+			if got.ReadOnly != tt.readonly {
+				t.Fatalf("ReadOnly = %v, want %v", got.ReadOnly, tt.readonly)
+			}
+			if got.Idempotent != tt.idemp {
+				t.Fatalf("Idempotent = %v, want %v", got.Idempotent, tt.idemp)
+			}
+			if !equalBoolPtr(got.Destructive, tt.destr) {
+				t.Fatalf("Destructive = %v, want %v", got.Destructive, tt.destr)
+			}
+			if !equalBoolPtr(got.OpenWorld, tt.open) {
+				t.Fatalf("OpenWorld = %v, want %v", got.OpenWorld, tt.open)
+			}
+		})
+	}
+}
+
+func ptrBool(v bool) *bool { return &v }
+func equalBoolPtr(a, b *bool) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func TestArgsSchemaIncludesArgModes(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "greet",
+		Args: redant.ArgSet{
+			{Name: "name", Required: true, Value: redant.StringOf(new(string))},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+
+	tools := collectTools(root)
+	tool := mustFindToolByName(t, tools, "greet")
+
+	argsSection, ok := tool.InputSchema["properties"].(map[string]any)["args"].(map[string]any)
+	if !ok {
+		t.Fatalf("args section missing from input schema")
+	}
+
+	modes, ok := argsSection["x-redant-arg-modes"]
+	if !ok {
+		t.Fatalf("x-redant-arg-modes not set in args schema")
+	}
+
+	modeSlice, ok := modes.([]string)
+	if !ok {
+		t.Fatalf("x-redant-arg-modes is not []string: %T", modes)
+	}
+
+	expected := []string{"positional", "query", "form", "json"}
+	if !reflect.DeepEqual(modeSlice, expected) {
+		t.Fatalf("x-redant-arg-modes = %v, want %v", modeSlice, expected)
+	}
+}

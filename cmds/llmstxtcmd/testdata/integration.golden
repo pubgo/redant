@@ -22,11 +22,12 @@ Say hello.
 
 Print command tree documentation in llms.txt format for LLM consumption.
 
-Generate a structured plain-text overview of all commands, flags, and arguments. The output is Markdown-based and optimised for LLMs to read, grep, and reference.
+Generate a structured overview of all commands, flags, and arguments. Supports Markdown (default, optimised for grep) and JSON (optimised for programmatic consumption).
 
 **Options:**
 
 - `-d, --depth int64` — MAXIMUM COMMAND TREE DEPTH (0 = UNLIMITED). (default: 0)
+- `-f, --format enum[markdown\|json]` — OUTPUT FORMAT. (default: markdown)
 
 ---
 

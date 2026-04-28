@@ -1,0 +1,29 @@
+{
+  "name": "myapp",
+  "short": "My sample application.",
+  "children": [
+    {
+      "name": "echo",
+      "short": "Prints a message.",
+      "aliases": [
+        "ec"
+      ],
+      "args": [
+        {
+          "name": "message",
+          "description": "Text to echo.",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "options": [
+        {
+          "flag": "upper",
+          "shorthand": "u",
+          "description": "Uppercase output.",
+          "type": "bool"
+        }
+      ]
+    }
+  ]
+}

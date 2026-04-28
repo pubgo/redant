@@ -2,6 +2,7 @@ package llmstxtcmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -16,12 +17,15 @@ import (
 // human-readable Markdown that is also easy for language models to parse
 // and grep.
 func New() *redant.Command {
-	var depth int64
+	var (
+		depth  int64
+		format string
+	)
 
 	return &redant.Command{
 		Use:   "llms-txt",
 		Short: "Print command tree documentation in llms.txt format for LLM consumption.",
-		Long:  "Generate a structured plain-text overview of all commands, flags, and arguments. The output is Markdown-based and optimised for LLMs to read, grep, and reference.",
+		Long:  "Generate a structured overview of all commands, flags, and arguments. Supports Markdown (default, optimised for grep) and JSON (optimised for programmatic consumption).",
 		Options: redant.OptionSet{
 			{
 				Flag:        "depth",
@@ -30,11 +34,21 @@ func New() *redant.Command {
 				Default:     "0",
 				Value:       redant.Int64Of(&depth),
 			},
+			{
+				Flag:        "format",
+				Shorthand:   "f",
+				Description: "Output format.",
+				Default:     "markdown",
+				Value:       redant.EnumOf(&format, "markdown", "json"),
+			},
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
 			root := inv.Command
 			for root.Parent() != nil {
 				root = root.Parent()
+			}
+			if format == "json" {
+				return WriteJSON(inv.Stdout, root, int(depth))
 			}
 			return WriteLLMSTxt(inv.Stdout, root, int(depth))
 		},
@@ -237,4 +251,109 @@ func (p *printer) line(format string, args ...any) {
 		return
 	}
 	_, p.err = fmt.Fprintf(p.w, format+"\n", args...)
+}
+
+// WriteJSON writes the command tree as a JSON document to w.
+func WriteJSON(w io.Writer, root *redant.Command, maxDepth int) error {
+	doc := buildJSONTree(root, 0, maxDepth)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(doc)
+}
+
+type jsonCommand struct {
+	Name       string            `json:"name"`
+	Short      string            `json:"short,omitempty"`
+	Long       string            `json:"long,omitempty"`
+	Aliases    []string          `json:"aliases,omitempty"`
+	Deprecated string            `json:"deprecated,omitempty"`
+	Args       []jsonArg         `json:"args,omitempty"`
+	Options    []jsonOption      `json:"options,omitempty"`
+	Response   *jsonResponse     `json:"response,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+	Children   []jsonCommand     `json:"children,omitempty"`
+}
+
+type jsonArg struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+	Default     string `json:"default,omitempty"`
+	Type        string `json:"type,omitempty"`
+}
+
+type jsonOption struct {
+	Flag        string   `json:"flag"`
+	Shorthand   string   `json:"shorthand,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Type        string   `json:"type,omitempty"`
+	Default     string   `json:"default,omitempty"`
+	Required    bool     `json:"required,omitempty"`
+	Envs        []string `json:"envs,omitempty"`
+}
+
+type jsonResponse struct {
+	Kind     string `json:"kind"` // "unary" or "stream"
+	TypeName string `json:"typeName"`
+}
+
+func buildJSONTree(cmd *redant.Command, depth, maxDepth int) jsonCommand {
+	jc := jsonCommand{
+		Name:       cmd.Name(),
+		Short:      cmd.Short,
+		Long:       cmd.Long,
+		Aliases:    cmd.Aliases,
+		Deprecated: cmd.Deprecated,
+		Metadata:   cmd.Metadata,
+	}
+
+	for _, arg := range cmd.Args {
+		ja := jsonArg{
+			Name:        arg.Name,
+			Description: arg.Description,
+			Required:    arg.Required,
+			Default:     arg.Default,
+		}
+		if arg.Value != nil {
+			ja.Type = arg.Value.Type()
+		}
+		jc.Args = append(jc.Args, ja)
+	}
+
+	for _, opt := range cmd.Options {
+		if opt.Flag == "" || opt.Hidden {
+			continue
+		}
+		jo := jsonOption{
+			Flag:        opt.Flag,
+			Shorthand:   opt.Shorthand,
+			Description: opt.Description,
+			Default:     opt.Default,
+			Required:    opt.Required,
+			Envs:        opt.Envs,
+		}
+		if opt.Value != nil {
+			jo.Type = opt.Value.Type()
+		}
+		jc.Options = append(jc.Options, jo)
+	}
+
+	if cmd.ResponseHandler != nil {
+		ti := cmd.ResponseHandler.TypeInfo()
+		jc.Response = &jsonResponse{Kind: "unary", TypeName: ti.TypeName}
+	} else if cmd.ResponseStreamHandler != nil {
+		ti := cmd.ResponseStreamHandler.TypeInfo()
+		jc.Response = &jsonResponse{Kind: "stream", TypeName: ti.TypeName}
+	}
+
+	if maxDepth == 0 || depth < maxDepth {
+		for _, child := range cmd.Children {
+			if child.Hidden {
+				continue
+			}
+			jc.Children = append(jc.Children, buildJSONTree(child, depth+1, maxDepth))
+		}
+	}
+
+	return jc
 }

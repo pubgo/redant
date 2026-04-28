@@ -3,6 +3,7 @@ package llmstxtcmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -268,4 +269,85 @@ func newComprehensiveRoot() *redant.Command {
 	deployCmd.Children = append(deployCmd.Children, rollbackCmd)
 	root.Children = append(root.Children, deployCmd)
 	return root
+}
+
+func TestWriteJSON_Golden(t *testing.T) {
+	tests := []struct {
+		name     string
+		golden   string
+		maxDepth int
+		root     func() *redant.Command
+	}{
+		{"basic_json", "basic_json.golden", 0, newBasicRoot},
+		{"response_types_json", "response_types_json.golden", 0, newResponseTypesRoot},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := tt.root()
+
+			var buf bytes.Buffer
+			if err := WriteJSON(&buf, root, tt.maxDepth); err != nil {
+				t.Fatalf("WriteJSON error: %v", err)
+			}
+
+			got := buf.String()
+
+			// validate it's well-formed JSON
+			var parsed jsonCommand
+			if err := json.Unmarshal([]byte(got), &parsed); err != nil {
+				t.Fatalf("WriteJSON output is not valid JSON: %v\noutput:\n%s", err, got)
+			}
+
+			wantPath := filepath.Join("testdata", tt.golden)
+			if os.Getenv("UPDATE_GOLDEN") == "1" {
+				if err := os.MkdirAll("testdata", 0o755); err != nil {
+					t.Fatalf("mkdir testdata: %v", err)
+				}
+				if err := os.WriteFile(wantPath, []byte(got), 0o644); err != nil {
+					t.Fatalf("update golden %s: %v", wantPath, err)
+				}
+			}
+
+			want, err := os.ReadFile(wantPath)
+			if err != nil {
+				t.Fatalf("read golden %s: %v\nHint: run with UPDATE_GOLDEN=1 to create", wantPath, err)
+			}
+			if got != string(want) {
+				t.Fatalf("output mismatch for %s\n--- got ---\n%s\n--- want ---\n%s",
+					tt.golden, got, string(want))
+			}
+		})
+	}
+}
+
+func TestNewCommand_IntegrationJSON(t *testing.T) {
+	root := &redant.Command{Use: "app", Short: "Test app."}
+	root.Children = append(root.Children, &redant.Command{
+		Use:     "hello",
+		Short:   "Say hello.",
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+	root.Children = append(root.Children, New())
+
+	var buf bytes.Buffer
+	inv := root.Invoke("llms-txt", "--format", "json")
+	inv.Stdout = &buf
+	inv.Stderr = &bytes.Buffer{}
+
+	if err := inv.Run(); err != nil {
+		t.Fatalf("run llms-txt --format json: %v", err)
+	}
+
+	var doc jsonCommand
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+
+	if doc.Name != "app" {
+		t.Fatalf("root name = %q, want %q", doc.Name, "app")
+	}
+	if len(doc.Children) != 2 {
+		t.Fatalf("children count = %d, want 2", len(doc.Children))
+	}
 }

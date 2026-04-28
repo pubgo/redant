@@ -1071,3 +1071,91 @@ func TestSchemaResourcesRegistered(t *testing.T) {
 		t.Fatalf("server run error: %v", err)
 	}
 }
+
+func TestToolAnnotationsWired(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "status",
+		Short: "Get status.",
+		Metadata: map[string]string{
+			"agent.readonly":   "true",
+			"agent.idempotent": "true",
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "delete",
+		Short: "Delete resource.",
+		Metadata: map[string]string{
+			"agent.destructive": "true",
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+	root.Children = append(root.Children, &redant.Command{
+		Use:     "plain",
+		Short:   "No annotations.",
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+
+	srv := New(root)
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	serverErrCh := make(chan error, 1)
+	go func() { serverErrCh <- srv.server.Run(ctx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	res, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+
+	toolMap := make(map[string]*mcp.Tool)
+	for _, tool := range res.Tools {
+		toolMap[tool.Name] = tool
+	}
+
+	// status: readonly + idempotent
+	if st, ok := toolMap["status"]; !ok {
+		t.Fatalf("status tool not found")
+	} else if st.Annotations == nil {
+		t.Fatalf("status tool should have annotations")
+	} else {
+		if !st.Annotations.ReadOnlyHint {
+			t.Errorf("status readOnlyHint should be true")
+		}
+		if !st.Annotations.IdempotentHint {
+			t.Errorf("status idempotentHint should be true")
+		}
+	}
+
+	// delete: destructive
+	if del, ok := toolMap["delete"]; !ok {
+		t.Fatalf("delete tool not found")
+	} else if del.Annotations == nil {
+		t.Fatalf("delete tool should have annotations")
+	} else {
+		if del.Annotations.DestructiveHint == nil || !*del.Annotations.DestructiveHint {
+			t.Errorf("delete destructiveHint should be true")
+		}
+	}
+
+	// plain: no annotations
+	if pl, ok := toolMap["plain"]; !ok {
+		t.Fatalf("plain tool not found")
+	} else if pl.Annotations != nil {
+		t.Fatalf("plain tool should NOT have annotations, got %+v", pl.Annotations)
+	}
+
+	cancel()
+	if err := <-serverErrCh; err != nil && !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("server run error: %v", err)
+	}
+}
