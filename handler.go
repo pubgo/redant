@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"sync/atomic"
+	"time"
 )
 
 // HandlerFunc handles an Invocation of a command.
@@ -24,6 +26,8 @@ type StreamEnvelope struct {
 	Kind string `json:"$"`              // "resp" or "error"
 	Type string `json:"type,omitempty"` // type name from TypeInfo
 	Data any    `json:"data"`           // payload
+	Seq  *int64 `json:"seq,omitempty"`  // sequence number (stream only)
+	Ts   *int64 `json:"ts,omitempty"`   // unix millis timestamp (stream only)
 }
 
 // StreamError models structured stream errors.
@@ -57,8 +61,9 @@ type ResponseStreamHandler interface {
 type InvocationStream struct {
 	ctx      context.Context
 	inv      *Invocation
-	ch       chan any // captured at creation to avoid racing with closeResponseStream
-	typeName string   // response type name for envelope output
+	ch       chan any     // captured at creation to avoid racing with closeResponseStream
+	typeName string       // response type name for envelope output
+	seq      atomic.Int64 // stream sequence counter
 }
 
 // NewInvocationStream creates a stream bound to invocation.
@@ -93,14 +98,17 @@ func (s *InvocationStream) Send(data any) error {
 		return nil
 	}
 
+	seq := s.seq.Add(1) - 1 // 0-based
+	ts := time.Now().UnixMilli()
+
 	switch v := data.(type) {
 	case *StreamError:
 		if v != nil && s.inv.Stderr != nil {
-			return writeEnvelope(s.inv.Stderr, StreamEnvelope{Kind: "error", Data: v})
+			return writeEnvelope(s.inv.Stderr, StreamEnvelope{Kind: "error", Data: v, Seq: &seq, Ts: &ts})
 		}
 	case StreamError:
 		if s.inv.Stderr != nil {
-			return writeEnvelope(s.inv.Stderr, StreamEnvelope{Kind: "error", Data: v})
+			return writeEnvelope(s.inv.Stderr, StreamEnvelope{Kind: "error", Data: v, Seq: &seq, Ts: &ts})
 		}
 	default:
 		if s.inv.Stdout != nil {
@@ -108,6 +116,8 @@ func (s *InvocationStream) Send(data any) error {
 				Kind: "resp",
 				Type: s.typeName,
 				Data: v,
+				Seq:  &seq,
+				Ts:   &ts,
 			})
 		}
 	}

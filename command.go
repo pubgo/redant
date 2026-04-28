@@ -678,14 +678,25 @@ func (inv *Invocation) run(state *runState) error {
 
 	// Handle global flags
 	if inv.Flags != nil {
+		var listFormat string
+		if f := inv.Flags.Lookup("list-format"); f != nil {
+			listFormat = f.Value.String()
+		}
+
 		// Check for --list-commands flag
 		if listCommands, err := inv.Flags.GetBool("list-commands"); err == nil && listCommands {
+			if listFormat == "json" {
+				return PrintCommandsJSON(inv.Stdout, parent)
+			}
 			PrintCommands(parent) // Use parent to show full tree
 			return nil
 		}
 
 		// Check for --list-flags flag
 		if listFlags, err := inv.Flags.GetBool("list-flags"); err == nil && listFlags {
+			if listFormat == "json" {
+				return PrintFlagsJSON(inv.Stdout, parent)
+			}
 			PrintFlags(parent)
 			return nil
 		}

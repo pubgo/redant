@@ -764,3 +764,62 @@ func TestArgsSchemaIncludesArgModes(t *testing.T) {
 		t.Fatalf("x-redant-arg-modes = %v, want %v", modeSlice, expected)
 	}
 }
+
+func TestParseToolTimeout(t *testing.T) {
+	tests := []struct {
+		name   string
+		meta   map[string]string
+		wantMs int64 // 0 = no timeout
+	}{
+		{"no_metadata", nil, 0},
+		{"no_timeout_key", map[string]string{"agent.readonly": "true"}, 0},
+		{"valid_30s", map[string]string{"agent.timeout": "30s"}, 30000},
+		{"valid_2m", map[string]string{"agent.timeout": "2m"}, 120000},
+		{"invalid", map[string]string{"agent.timeout": "not-a-duration"}, 0},
+		{"negative", map[string]string{"agent.timeout": "-5s"}, 0},
+		{"zero", map[string]string{"agent.timeout": "0s"}, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &redant.Command{Use: "x", Metadata: tt.meta}
+			got := parseToolTimeout(cmd)
+			gotMs := got.Milliseconds()
+			if gotMs != tt.wantMs {
+				t.Fatalf("parseToolTimeout = %dms, want %dms", gotMs, tt.wantMs)
+			}
+		})
+	}
+}
+
+func TestToolTimeoutInCallTool(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "slow",
+		Short: "A slow command.",
+		Metadata: map[string]string{
+			"agent.timeout": "100ms",
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			// Verify ctx has a deadline
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				return fmt.Errorf("expected deadline on context")
+			}
+			_ = deadline
+			return nil
+		},
+	})
+
+	srv := New(root)
+	result, err := srv.callTool(context.Background(), toolsCallParams{
+		Name:      "slow",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("callTool error: %v", err)
+	}
+	if result == nil {
+		t.Fatalf("result should not be nil")
+	}
+}

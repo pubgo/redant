@@ -20,7 +20,7 @@ func TestCommandInitIsIdempotentForGlobalFlags(t *testing.T) {
 		counts[opt.Flag]++
 	}
 
-	for _, flag := range []string{"help", "list-commands", "list-flags", "env", "env-file", internalArgsOverrideFlag} {
+	for _, flag := range []string{"help", "list-commands", "list-flags", "list-format", "env", "env-file", internalArgsOverrideFlag} {
 		if counts[flag] != 1 {
 			t.Fatalf("expected global flag %q exactly once, got %d", flag, counts[flag])
 		}

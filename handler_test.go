@@ -411,3 +411,49 @@ func TestStreamTypeInfoIncludesSchema(t *testing.T) {
 		t.Fatalf("schema type = %q, want string", got)
 	}
 }
+
+func TestStreamEnvelopeSeqAndTs(t *testing.T) {
+	cmd := &Command{
+		Use: "events",
+		ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
+			if err := out.Send("a"); err != nil {
+				return err
+			}
+			return out.Send("b")
+		}),
+	}
+
+	var stdout bytes.Buffer
+	inv := cmd.Invoke()
+	inv.Stdin = bytes.NewBuffer(nil)
+	inv.Stdout = &stdout
+	inv.Stderr = io.Discard
+
+	if err := inv.Run(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+
+	for i, line := range lines {
+		var env StreamEnvelope
+		if err := json.Unmarshal([]byte(line), &env); err != nil {
+			t.Fatalf("line %d: invalid JSON: %v", i, err)
+		}
+		if env.Seq == nil {
+			t.Fatalf("line %d: seq should be set", i)
+		}
+		if *env.Seq != int64(i) {
+			t.Fatalf("line %d: seq = %d, want %d", i, *env.Seq, i)
+		}
+		if env.Ts == nil {
+			t.Fatalf("line %d: ts should be set", i)
+		}
+		if *env.Ts <= 0 {
+			t.Fatalf("line %d: ts should be positive, got %d", i, *env.Ts)
+		}
+	}
+}

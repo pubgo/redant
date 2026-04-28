@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pubgo/redant"
 )
@@ -24,6 +25,7 @@ type toolDef struct {
 	SupportsStream bool
 	ResponseType   *redant.ResponseTypeInfo
 	Annotations    *toolAnnotations
+	Timeout        time.Duration // 0 = no timeout
 }
 
 // toolAnnotations holds MCP-standard tool behavior hints derived from Command.Metadata.
@@ -70,6 +72,7 @@ func collectTools(root *redant.Command) []toolDef {
 				SupportsStream: cmd.ResponseStreamHandler != nil,
 				ResponseType:   respType,
 				Annotations:    buildToolAnnotations(cmd),
+				Timeout:        parseToolTimeout(cmd),
 			})
 		}
 
@@ -117,6 +120,20 @@ func buildToolAnnotations(cmd *redant.Command) *toolAnnotations {
 		return nil
 	}
 	return a
+}
+
+// parseToolTimeout reads Command.Metadata "agent.timeout" as a Go duration.
+// Returns 0 (no timeout) if unset or unparseable.
+func parseToolTimeout(cmd *redant.Command) time.Duration {
+	v := cmd.Meta("agent.timeout")
+	if v == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return d
 }
 
 func commandDescription(cmd *redant.Command) string {
@@ -400,6 +417,13 @@ func (s *Server) callTool(ctx context.Context, params toolsCallParams) (map[stri
 	tool, err := s.findTool(params.Name)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply per-tool timeout if configured via agent.timeout metadata.
+	if tool.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, tool.Timeout)
+		defer cancel()
 	}
 
 	argv, err := buildArgv(tool, params.Arguments)

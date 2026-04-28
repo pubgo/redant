@@ -271,6 +271,12 @@ func GlobalFlags() OptionSet {
 			Value:       BoolOf(new(bool)),
 		},
 		{
+			Flag:        "list-format",
+			Description: "Output format for --list-commands and --list-flags.",
+			Default:     "text",
+			Value:       EnumOf(new(string), "text", "json"),
+		},
+		{
 			Flag:        "env",
 			Shorthand:   "e",
 			Description: "Set environment variables (format: KEY=VALUE). Supports repeat and CSV.",

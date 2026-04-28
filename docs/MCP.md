@@ -318,7 +318,48 @@ app llms-txt --format json
 
 输出为完整命令树的 JSON 表示，包含 `name`、`short`、`long`、`aliases`、`args`、`options`、`response`、`metadata`、`children` 等字段。
 
-## 14. 相关文档
+## 14. MCP Tool 超时策略
+
+通过 `Command.Metadata` 设置 `agent.timeout`，可为单个 MCP tool 配置调用超时：
+
+```go
+cmd := &redant.Command{
+    Use:   "deploy",
+    Short: "Deploy to production.",
+    Metadata: map[string]string{
+        "agent.timeout": "30s",  // Go duration 格式
+    },
+    Handler: deployHandler,
+}
+```
+
+未设置时不施加超时（继承上游 context 的 deadline）。值格式遵循 Go `time.ParseDuration`，支持 `"5s"`、`"2m"`、`"1h30m"` 等。
+
+## 15. Stream Envelope 序号与时间戳
+
+Stream 响应的 NDJSON envelope 自动包含 `seq`（0-based 递增序号）和 `ts`（Unix 毫秒时间戳）：
+
+```json
+{"$":"resp","type":"Event","data":{"msg":"started"},"seq":0,"ts":1714300000000}
+{"$":"resp","type":"Event","data":{"msg":"done"},"seq":1,"ts":1714300001000}
+```
+
+- `seq`：同一 stream 内从 0 开始递增，可用于排序和去重。
+- `ts`：发送时刻的 Unix 毫秒时间戳。
+- Unary 响应不包含这两个字段（保持向后兼容）。
+
+## 16. `--list-commands` / `--list-flags` JSON 输出
+
+全局 flag `--list-format` 支持 `text`（默认）和 `json` 两种格式：
+
+```bash
+app --list-commands --list-format json
+app --list-flags --list-format json
+```
+
+JSON 输出结构便于工具链消费，`--list-commands` 输出命令数组，`--list-flags` 输出 flag 数组（含 `isGlobal` 标记）。
+
+## 17. 相关文档
 
 - 总览：[`../README.md`](../README.md)
 - 设计：[`DESIGN.md`](DESIGN.md)

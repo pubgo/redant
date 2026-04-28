@@ -3,6 +3,7 @@ package redant
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -875,5 +876,122 @@ func TestCommandInitHandlerValidation(t *testing.T) {
 				t.Fatalf("unexpected init error: %v", err)
 			}
 		})
+	}
+}
+
+func TestPrintCommandsJSON(t *testing.T) {
+	root := &Command{Use: "app"}
+	root.Children = append(root.Children,
+		&Command{
+			Use:     "deploy",
+			Short:   "Deploy app.",
+			Aliases: []string{"d"},
+			Handler: func(ctx context.Context, inv *Invocation) error { return nil },
+		},
+		&Command{
+			Use:     "secret",
+			Short:   "Hidden cmd.",
+			Hidden:  true,
+			Handler: func(ctx context.Context, inv *Invocation) error { return nil },
+		},
+	)
+
+	var buf bytes.Buffer
+	if err := PrintCommandsJSON(&buf, root); err != nil {
+		t.Fatalf("PrintCommandsJSON error: %v", err)
+	}
+
+	var cmds []listCommandJSON
+	if err := json.Unmarshal(buf.Bytes(), &cmds); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 command (hidden excluded), got %d", len(cmds))
+	}
+	if cmds[0].Path != "app:deploy" {
+		t.Fatalf("path = %q, want %q", cmds[0].Path, "app:deploy")
+	}
+	if cmds[0].Short != "Deploy app." {
+		t.Fatalf("short = %q, want %q", cmds[0].Short, "Deploy app.")
+	}
+	if len(cmds[0].Aliases) != 1 || cmds[0].Aliases[0] != "d" {
+		t.Fatalf("aliases = %v, want [d]", cmds[0].Aliases)
+	}
+	if !cmds[0].HasHandler {
+		t.Fatalf("hasHandler should be true")
+	}
+}
+
+func TestPrintFlagsJSON(t *testing.T) {
+	root := &Command{
+		Use: "app",
+		Options: OptionSet{
+			{Flag: "verbose", Shorthand: "v", Description: "Enable verbose.", Value: BoolOf(new(bool))},
+		},
+	}
+	root.Children = append(root.Children, &Command{
+		Use:   "run",
+		Short: "Run it.",
+		Options: OptionSet{
+			{Flag: "count", Description: "Count.", Value: Int64Of(new(int64)), Default: "1", Required: true},
+			{Flag: "internal", Hidden: true, Value: StringOf(new(string))},
+		},
+		Handler: func(ctx context.Context, inv *Invocation) error { return nil },
+	})
+
+	var buf bytes.Buffer
+	if err := PrintFlagsJSON(&buf, root); err != nil {
+		t.Fatalf("PrintFlagsJSON error: %v", err)
+	}
+
+	var flags []listFlagJSON
+	if err := json.Unmarshal(buf.Bytes(), &flags); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// Should have 1 global (verbose) + 1 command (count); hidden excluded
+	if len(flags) != 2 {
+		t.Fatalf("expected 2 flags, got %d: %+v", len(flags), flags)
+	}
+
+	// First should be global verbose
+	if flags[0].Flag != "verbose" || !flags[0].IsGlobal {
+		t.Fatalf("first flag = %+v, want global verbose", flags[0])
+	}
+
+	// Second should be count
+	if flags[1].Flag != "count" || flags[1].IsGlobal {
+		t.Fatalf("second flag = %+v, want non-global count", flags[1])
+	}
+	if !flags[1].Required {
+		t.Fatalf("count should be required")
+	}
+}
+
+func TestListCommandsFormatJSON(t *testing.T) {
+	root := &Command{Use: "app"}
+	root.Children = append(root.Children, &Command{
+		Use:     "hello",
+		Short:   "Say hi.",
+		Handler: func(ctx context.Context, inv *Invocation) error { return nil },
+	})
+
+	var buf bytes.Buffer
+	inv := root.Invoke("--list-commands", "--list-format", "json")
+	inv.Stdout = &buf
+	inv.Stderr = &bytes.Buffer{}
+	inv.Stdin = bytes.NewBuffer(nil)
+
+	if err := inv.Run(); err != nil {
+		t.Fatalf("run error: %v", err)
+	}
+
+	var cmds []listCommandJSON
+	if err := json.Unmarshal(buf.Bytes(), &cmds); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, buf.String())
+	}
+	if len(cmds) == 0 {
+		t.Fatalf("expected at least 1 command in JSON output")
 	}
 }
