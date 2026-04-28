@@ -63,18 +63,11 @@ flowchart TD
 
 内建全局标志：
 
-- `--env, -e KEY=VALUE`：设置环境变量（支持重复与 CSV）。
-- `--env-file FILE`：从 env 文件加载环境变量（支持重复与 CSV）。
 - `--args VALUE`：内部隐藏标志；支持重复与 CSV，用于覆盖命令位置参数。
 
 快速示例：
 
 ```text
-app demo -e A=1 -e B=2
-app demo --env A=1,B=2
-app demo --env-file .env
-app demo --env-file .env --env-file .env.local
-app demo --env-file .env,.env.local
 app demo --args first --args second
 app demo --args first,second
 ```

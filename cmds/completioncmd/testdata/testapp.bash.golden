@@ -26,9 +26,6 @@ testapp() {
         # Completions for testapp
         local opts="--help "
         opts+='--config '
-        opts+='--env '
-        opts+='-e '
-        opts+='--env-file '
         opts+='--help '
         opts+='-h '
         opts+='--list-commands '
@@ -43,9 +40,6 @@ testapp() {
         # Completions for completion
         local opts="--help "
         opts+='--config '
-        opts+='--env '
-        opts+='-e '
-        opts+='--env-file '
         opts+='--help '
         opts+='-h '
         opts+='--list-commands '
@@ -59,9 +53,6 @@ testapp() {
         # Completions for hello
         local opts="--help "
         opts+='--config '
-        opts+='--env '
-        opts+='-e '
-        opts+='--env-file '
         opts+='--help '
         opts+='-h '
         opts+='--list-commands '
@@ -75,9 +66,6 @@ testapp() {
         # Completions for project
         local opts="--help "
         opts+='--config '
-        opts+='--env '
-        opts+='-e '
-        opts+='--env-file '
         opts+='--help '
         opts+='-h '
         opts+='--list-commands '
@@ -94,9 +82,6 @@ testapp() {
         # Completions for repo
         local opts="--help "
         opts+='--config '
-        opts+='--env '
-        opts+='-e '
-        opts+='--env-file '
         opts+='--help '
         opts+='-h '
         opts+='--list-commands '
@@ -115,9 +100,6 @@ testapp() {
         # Completions for create
         local opts="--help "
         opts+='--config '
-        opts+='--env '
-        opts+='-e '
-        opts+='--env-file '
         opts+='--help '
         opts+='-h '
         opts+='--list-commands '

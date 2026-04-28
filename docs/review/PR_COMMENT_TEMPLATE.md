@@ -42,7 +42,7 @@
   - `[GRAM]` 语法问题
   - `[PRAC]` 最佳实践
   - `[PR]` PR描述
-- 模块：标记问题所属代码域，如 `command`、`args`、`env_preload`、`help`、`completion`、`docs`。
+- 模块：标记问题所属代码域，如 `command`、`args`、`help`、`completion`、`docs`。
 - 等级：统一使用 `Blocker / Major / Minor / Nit`。
 
 ## 书写规范

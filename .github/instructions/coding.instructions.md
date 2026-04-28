@@ -25,7 +25,7 @@ applyTo: "**/*.go"
 ## 文件落点约定
 
 - 命令分发/执行流程改动：优先落在 `command.go`，并补 `command_test.go`。
-- flag/env/default 语义改动：优先改 `option.go` / `env_preload.go`，并补对应测试。
+- flag/env/default 语义改动：优先改 `option.go`，并补对应测试。
 - 参数格式与解析改动：优先改 `args.go`，并验证示例或测试覆盖。
 - 帮助与补全体验改动：改 `help.go`/`help.tpl` 或 `cmds/completioncmd/`，并验证输出。
 

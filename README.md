@@ -78,8 +78,6 @@ func main() {
 - `--help, -h`
 - `--list-commands`
 - `--list-flags`
-- `--env, -e KEY=VALUE`
-- `--env-file FILE`
 - `--args VALUE`（内部隐藏，用于覆盖位置参数）
 
 详细解析规则见：[`docs/USAGE_AT_A_GLANCE.md`](docs/USAGE_AT_A_GLANCE.md)。

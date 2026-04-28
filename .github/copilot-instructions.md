@@ -64,7 +64,6 @@
 - 分发优先级：显式子命令 > `argv0` busybox 分发 > 根命令（`getExecCommand` + `resolveArgv0Command`）。
 - 子命令继承父标志；同名时深层命令标志覆盖浅层（`copyFlagSetWithout`）。
 - `--list-commands` / `--list-flags` 在 Handler 前短路执行。
-- 环境预加载（`--env`、`-e`、`--env-file`）先从原始参数读取，运行结束后恢复（`env_preload.go`）。
 - Required 选项判定认可三类来源：显式 flag、默认值、配置了 env 键列表。
 
 ## 项目特有约定
@@ -83,7 +82,7 @@
 ## 变更落点清单
 
 - 命令分发/执行 → 改 `command.go`，补 `command_test.go`。
-- flag/env/default 语义 → 改 `option.go` / `env_preload.go`，补 `env_preload_test.go`。
+- flag/env/default 语义 → 改 `option.go`，补对应测试。
 - 参数格式行为 → 改 `args.go`，同步 `example/args-test/`。
 - 帮助/补全体验 → 改 `help.go`/`help.tpl` 或 `cmds/completioncmd/`。
 - 值类型 → 改 `flags.go`，补 `flags_test.go`。

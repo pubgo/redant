@@ -4,8 +4,6 @@
 
 ## Global Options
 
-- `-e, --env string-array` — SET ENVIRONMENT VARIABLES (FORMAT: KEY=VALUE). SUPPORTS REPEAT AND CSV.
-- `--env-file string-array` — LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.
 - `-h, --help` — SHOW HELP FOR COMMAND.
 - `--list-commands` — LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.
 - `--list-flags` — LIST ALL FLAGS.

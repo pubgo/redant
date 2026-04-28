@@ -21,9 +21,6 @@ _testapp() {
         "")
             options=(
                 '--config:CONFIG FILE.'
-                '--env:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '-e:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '--env-file:LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
                 '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
@@ -42,9 +39,6 @@ _testapp() {
         "completion")
             options=(
                 '--config:CONFIG FILE.'
-                '--env:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '-e:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '--env-file:LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
                 '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
@@ -60,9 +54,6 @@ _testapp() {
         "hello")
             options=(
                 '--config:CONFIG FILE.'
-                '--env:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '-e:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '--env-file:LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
                 '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
@@ -78,9 +69,6 @@ _testapp() {
         "project")
             options=(
                 '--config:CONFIG FILE.'
-                '--env:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '-e:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '--env-file:LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
                 '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
@@ -99,9 +87,6 @@ _testapp() {
         "project repo")
             options=(
                 '--config:CONFIG FILE.'
-                '--env:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '-e:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '--env-file:LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
                 '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
@@ -122,9 +107,6 @@ _testapp() {
         "project repo create")
             options=(
                 '--config:CONFIG FILE.'
-                '--env:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '-e:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '--env-file:LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
                 '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
