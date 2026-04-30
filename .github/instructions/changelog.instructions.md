@@ -16,8 +16,9 @@ applyTo: ".version/changelog/*.md"
 ## 内容约束
 
 - 仅基于可见改动编写条目，不杜撰能力或影响。
-- 单条应简洁、可读、可追溯，尽量以动词开头。
+- 单条应简洁、可读、可追溯，以动词开头。
 - 重复事项需合并去重，避免同义重复。
+- 非标准分类（如 `优化`、`重构`）必须归入标准四类（通常归 `变更`）。
 - 不改写历史版本文件语义，不重排已发布版本。
 
 ## 落版约束（release）
@@ -25,10 +26,10 @@ applyTo: ".version/changelog/*.md"
 - 版本号来源于 `.version/VERSION`。
 - 落版文件：`.version/changelog/<VERSION>.md`。
 - 文件头格式：`# [<VERSION>] - <YYYY-MM-DD>`。
-- 落版后需重建 `.version/changelog/Unreleased.md` 模板（四个分类）。
-- 落版后需同步更新 `.version/changelog/README.md` 索引。
+- 落版前检查版本文件是否已存在，已存在时提示用户确认。
+- 落版后重建 `.version/changelog/Unreleased.md` 模板（四个分类）。
+- 落版后同步更新 `.version/changelog/README.md` 索引。
 
 ## 协同建议
 
-- 优先参考：`docs/CHANGELOG_LLM_PROMPT.md`。
-- 建议通过 agent 提示词执行：`/changelog-maintenance draft|release`。
+- 建议通过 agent 提示词执行：`/changelog draft|release`。

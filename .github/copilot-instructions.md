@@ -105,10 +105,10 @@
 
 - `task test` 含 `-race` 与覆盖率，执行耗时可能较高。
 - `Taskfile.yml` 声明了 `dotenv: [".env"]`；若任务依赖环境变量，请显式在 `.env` 中补齐占位键。
-- changelog 维护采用 agent/LLM 流程，优先使用 `/changelog-maintenance draft|release`。
+- changelog 维护采用 agent/LLM 流程，优先使用 `/changelog draft|release`。
 
 ## 参考文件
 
 - `README.md`、`Taskfile.yml`
-- `docs/DESIGN.md`、`docs/USAGE_AT_A_GLANCE.md`、`docs/CHANGELOG_LLM_PROMPT.md`
+- `docs/DESIGN.md`、`docs/USAGE_AT_A_GLANCE.md`
 - 核心源码：`command.go`、`option.go`、`args.go`、`flags.go`、`handler.go`

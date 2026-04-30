@@ -233,7 +233,6 @@ cmd := &redant.Command{
 
 - 文档入口：[`docs/INDEX.md`](docs/INDEX.md)
 - 变更记录：[`.version/changelog/README.md`](.version/changelog/README.md)
-- 文档/变更维护提示：[`docs/CHANGELOG_LLM_PROMPT.md`](docs/CHANGELOG_LLM_PROMPT.md)
 
 ## 许可证
 

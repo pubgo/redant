@@ -26,7 +26,7 @@
 
 ## 4) 发布与变更维护
 
-- [`CHANGELOG_LLM_PROMPT.md`](CHANGELOG_LLM_PROMPT.md)：changelog 自动维护提示词。
+- 变更日志维护：`/changelog draft|release`。
 - 版本日志目录：`.version/changelog/`（Unreleased 与版本落版记录）。
 
 ## 5) 仓库外延入口（按需）
