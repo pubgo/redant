@@ -175,14 +175,13 @@ func WriteDispatch(w io.Writer, root *redant.Command) error {
 	p.line("        CHECK_LIST -->|Yes| LIST_OUT")
 	p.line("        CHECK_LIST -->|No| CHECK_CHILD")
 	p.line("        CHECK_CHILD -->|Yes| RECURSE")
-	p.line("        CHECK_CHILD -->|No| CONTINUE")
 	p.line("    end")
 	p.line("    PARSE --> CHECK_LIST")
 
 	// Args + middleware + handler
 	p.line("")
 	p.line("    subgraph EXEC[\"执行\"]")
-	p.line("        CONTINUE[\"参数解析\\nenv 预加载\"]")
+	p.line("        CONTINUE[\"参数解析\"]")
 	p.line("        MIDDLEWARE[\"中间件链\\nroot → parent → child\"]")
 	p.line("        HELP_CHECK{\"需要帮助?\"}")
 	p.line("        HELP[\"DefaultHelpFn()\"]")
@@ -193,6 +192,7 @@ func WriteDispatch(w io.Writer, root *redant.Command) error {
 	p.line("        HELP_CHECK -->|Yes| HELP")
 	p.line("        HELP_CHECK -->|No| HANDLER")
 	p.line("    end")
+	p.line("    CHECK_CHILD -->|No| CONTINUE")
 
 	// Stats
 	p.line("")
@@ -239,13 +239,13 @@ func WriteMCPSequence(w io.Writer, root *redant.Command, toolName string) error 
 
 	p.line("sequenceDiagram")
 	p.line("    participant Agent")
-	p.line("    participant MCP as MCP Server (%s)", appName)
+	p.line("    participant MCP as MCP Server")
 	p.line("    participant Router as Command Router")
 	p.line("    participant Handler as Handler")
 	p.line("")
 
 	// Init phase
-	p.line("    Note over Agent,MCP: 初始化阶段")
+	p.line("    Note over Agent,MCP: 初始化阶段 - %s", appName)
 	p.line("    Agent->>MCP: initialize")
 	p.line("    MCP-->>Agent: capabilities (tools, resources, prompts)")
 	p.line("")

@@ -489,7 +489,7 @@ function docApp() {
                 this.selectNode(this.flatNodes[0]);
             }
 
-            this.$watch('activeTab', (tab) => this.renderDiagram(tab));
+            this.$watch('activeTab', (tab) => this.$nextTick(() => this.renderDiagram(tab)));
         },
 
         flatten(node, depth, expanded) {
@@ -561,7 +561,7 @@ function docApp() {
                 el.innerHTML = svg;
                 this.diagramsRendered[tab] = true;
             } catch (e) {
-                el.innerHTML = '<pre class="text-red-400 text-xs">' + e.message + '</pre><pre class="text-slate-500 text-xs mt-2">' + src + '</pre>';
+                el.innerHTML = '<pre class="text-red-400 text-xs whitespace-pre-wrap">' + e.message + '</pre><pre class="text-slate-500 text-xs mt-2 whitespace-pre-wrap">' + src.replace(/</g,'&lt;') + '</pre>';
             }
         },
     };
