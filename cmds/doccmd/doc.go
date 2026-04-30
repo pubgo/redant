@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/pubgo/redant"
-	"github.com/pubgo/redant/cmds/vizcmd"
 )
 
 // New returns a "doc" command that serves an interactive documentation site
@@ -140,15 +139,15 @@ func newDocApp(root *redant.Command) *docApp {
 
 	// Pre-generate diagrams
 	var buf bytes.Buffer
-	_ = vizcmd.WriteTree(&buf, root, 0)
+	_ = writeTree(&buf, root, 0)
 	app.vizTree = buf.String()
 
 	buf.Reset()
-	_ = vizcmd.WriteDispatch(&buf, root)
+	_ = writeDispatch(&buf, root)
 	app.vizFlow = buf.String()
 
 	buf.Reset()
-	_ = vizcmd.WriteMCPSequence(&buf, root, "")
+	_ = writeMCPSequence(&buf, root)
 	app.vizMCP = buf.String()
 
 	// Pre-generate command tree

@@ -7,9 +7,7 @@
 
 ## 新增
 
-- 新增 `cmds/vizcmd/` 命令组：支持生成命令树结构图（`viz tree`）、命令分发流程图（`viz dispatch`）、MCP 调用时序图（`viz mcp-sequence`），输出 Mermaid 格式。
-- 新增 `cmds/doccmd/` 交互式文档站命令（`doc`）：从命令树自动生成类 Swagger UI 的浏览界面，集成 Mermaid 图渲染、命令搜索、参数/选项表格。
-- `WriteTree` / `WriteDispatch` / `WriteMCPSequence` 导出函数，可供外部集成复用。
+- 新增 `cmds/doccmd/` 交互式文档站命令（`doc`）：从命令树自动生成类 Swagger UI 的浏览界面，集成 Mermaid 图渲染（命令树、分发流程、MCP 时序）、命令搜索、参数/选项表格。
 
 ## 修复
 
@@ -26,7 +24,7 @@
 ## 文档
 
 - 更新 `docs/DOCS_CATALOG.md`，新增"可视化与文档生成"分类。
-- fastcommit 示例集成 `vizcmd` 和 `doccmd` 命令。- README 改为“三步式黄金路径”快速开始（最小命令 → 加标志 → 加子命令）。
+- fastcommit 示例集成 `doccmd` 命令。- README 改为“三步式黄金路径”快速开始（最小命令 → 加标志 → 加子命令）。
 - 示例目录新增 [example/README.md](../../example/README.md) 分层索引（入门 → 基础 → 进阶 → 综合）。
 - 弱化 `--args` 内部标志在文档中的可见度，明确标注为框架内部保留标志。
 - `ParseJSONArgs` 错误提示改为包含格式示例的可操作性信息。

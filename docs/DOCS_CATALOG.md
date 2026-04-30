@@ -16,8 +16,7 @@
 
 ## 2.5) 可视化与文档生成
 
-- `cmds/vizcmd/`：Mermaid 图生成命令组（`viz tree` / `viz dispatch` / `viz mcp-sequence`）。
-- `cmds/doccmd/`：交互式命令文档站（`doc`），自动生成类 Swagger UI 的浏览界面。
+- `cmds/doccmd/`：交互式命令文档站（`doc`），自动生成类 Swagger UI 的浏览界面，内置 Mermaid 图渲染。
 
 ## 3) PR 审查体系（聚合）
 

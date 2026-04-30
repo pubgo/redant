@@ -1,7 +1,6 @@
-package vizcmd
+package doccmd
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -9,52 +8,8 @@ import (
 	"github.com/pubgo/redant"
 )
 
-// New returns a "viz" command group with subcommands for generating
-// Mermaid diagrams of command trees, dispatch flows, and MCP sequences.
-func New() *redant.Command {
-	cmd := &redant.Command{
-		Use:   "viz",
-		Short: "生成命令树与调度流程的 Mermaid 可视化图",
-		Long:  "提供多种可视化子命令：命令树结构图（tree）、命令分发流程图（dispatch）、MCP 调用时序图（mcp-sequence），输出 Mermaid 格式可直接嵌入 Markdown 或渲染为 SVG。",
-	}
-	cmd.Children = append(cmd.Children,
-		newTreeCmd(),
-		newDispatchCmd(),
-		newMCPSequenceCmd(),
-	)
-	return cmd
-}
-
-// ---------- viz tree ----------
-
-func newTreeCmd() *redant.Command {
-	var depth int64
-
-	return &redant.Command{
-		Use:   "tree",
-		Short: "命令树结构图（Mermaid graph）",
-		Long:  "遍历命令树生成 Mermaid graph TD 图，节点包含命令名与描述摘要、处理器类型标记。",
-		Options: redant.OptionSet{
-			{
-				Flag:        "depth",
-				Shorthand:   "d",
-				Description: "最大展示深度（0 = 不限）",
-				Default:     "0",
-				Value:       redant.Int64Of(&depth),
-			},
-		},
-		Handler: func(ctx context.Context, inv *redant.Invocation) error {
-			root := inv.Command
-			for root.Parent() != nil {
-				root = root.Parent()
-			}
-			return WriteTree(inv.Stdout, root, int(depth))
-		},
-	}
-}
-
-// WriteTree writes a Mermaid graph TD of the command tree.
-func WriteTree(w io.Writer, root *redant.Command, maxDepth int) error {
+// writeTree writes a Mermaid graph TD of the command tree.
+func writeTree(w io.Writer, root *redant.Command, maxDepth int) error {
 	p := &mermaidWriter{w: w}
 	p.line("graph TD")
 
@@ -83,18 +38,14 @@ func writeTreeNodes(p *mermaidWriter, cmd *redant.Command, parentID string, dept
 
 		switch {
 		case child.ResponseStreamHandler != nil:
-			// Subroutine shape for stream handlers
 			p.line("    %s[[\"%s\"]]", childID, escMermaid(label))
 			p.line("    style %s fill:#7c3aed,stroke:#a78bfa,color:#fff", childID)
 		case child.ResponseHandler != nil:
-			// Parallelogram for unary response handlers
 			p.line("    %s[\\\"%s\\\"/]", childID, escMermaid(label))
 			p.line("    style %s fill:#059669,stroke:#34d399,color:#fff", childID)
 		case child.Handler != nil:
-			// Rounded rect for plain handlers
 			p.line("    %s(\"%s\")", childID, escMermaid(label))
 		default:
-			// Hexagon for group nodes (no handler)
 			p.line("    %s{{\"%s\"}}", childID, escMermaid(label))
 			p.line("    style %s fill:#374151,stroke:#6b7280,color:#d1d5db", childID)
 		}
@@ -109,25 +60,8 @@ func writeTreeNodes(p *mermaidWriter, cmd *redant.Command, parentID string, dept
 	}
 }
 
-// ---------- viz dispatch ----------
-
-func newDispatchCmd() *redant.Command {
-	return &redant.Command{
-		Use:   "dispatch",
-		Short: "命令分发流程图（Mermaid flowchart）",
-		Long:  "展示 redant 命令执行时的完整分发决策流程：argv 解析 → 子命令匹配 → argv0 分发 → flag 继承 → 中间件链 → Handler 分派。",
-		Handler: func(ctx context.Context, inv *redant.Invocation) error {
-			root := inv.Command
-			for root.Parent() != nil {
-				root = root.Parent()
-			}
-			return WriteDispatch(inv.Stdout, root)
-		},
-	}
-}
-
-// WriteDispatch writes a Mermaid flowchart of the command dispatch pipeline.
-func WriteDispatch(w io.Writer, root *redant.Command) error {
+// writeDispatch writes a Mermaid flowchart of the command dispatch pipeline.
+func writeDispatch(w io.Writer, root *redant.Command) error {
 	p := &mermaidWriter{w: w}
 
 	p.line("flowchart TD")
@@ -135,7 +69,6 @@ func WriteDispatch(w io.Writer, root *redant.Command) error {
 	p.line("    INIT[\"init: register global flags\\nsetParentCommand\"]")
 	p.line("    START --> INIT")
 
-	// Command resolution
 	p.line("")
 	p.line("    subgraph RESOLVE[\"命令解析\"]")
 	p.line("        GET_EXEC[\"getExecCommand\\n空格路径 / 冒号路径\"]")
@@ -155,7 +88,6 @@ func WriteDispatch(w io.Writer, root *redant.Command) error {
 	p.line("    end")
 	p.line("    INIT --> GET_EXEC")
 
-	// Flag inheritance
 	p.line("")
 	p.line("    subgraph FLAGS[\"标志解析\"]")
 	p.line("        INHERIT[\"继承父命令标志\\ncopyFlagSetWithout\"]")
@@ -164,7 +96,6 @@ func WriteDispatch(w io.Writer, root *redant.Command) error {
 	p.line("    end")
 	p.line("    CMD_FOUND --> INHERIT")
 
-	// Short-circuit
 	p.line("")
 	p.line("    subgraph SHORT[\"短路检测\"]")
 	p.line("        CHECK_LIST{\"--list-commands\\n--list-flags?\"}")
@@ -178,7 +109,6 @@ func WriteDispatch(w io.Writer, root *redant.Command) error {
 	p.line("    end")
 	p.line("    PARSE --> CHECK_LIST")
 
-	// Args + middleware + handler
 	p.line("")
 	p.line("    subgraph EXEC[\"执行\"]")
 	p.line("        CONTINUE[\"参数解析\"]")
@@ -194,7 +124,6 @@ func WriteDispatch(w io.Writer, root *redant.Command) error {
 	p.line("    end")
 	p.line("    CHECK_CHILD -->|No| CONTINUE")
 
-	// Stats
 	p.line("")
 	var cmdCount, mwCount int
 	countCommands(root, &cmdCount, &mwCount)
@@ -204,35 +133,8 @@ func WriteDispatch(w io.Writer, root *redant.Command) error {
 	return p.err
 }
 
-// ---------- viz mcp-sequence ----------
-
-func newMCPSequenceCmd() *redant.Command {
-	var toolName string
-
-	return &redant.Command{
-		Use:   "mcp-sequence",
-		Short: "MCP 调用时序图（Mermaid sequence）",
-		Long:  "展示 Agent 通过 MCP 协议调用 tool 的完整时序：初始化 → ListTools → CallTool → 参数绑定 → 命令执行 → 响应封装。可用 --tool 聚焦单个工具链路。",
-		Options: redant.OptionSet{
-			{
-				Flag:        "tool",
-				Shorthand:   "t",
-				Description: "聚焦特定工具名（可选）",
-				Value:       redant.StringOf(&toolName),
-			},
-		},
-		Handler: func(ctx context.Context, inv *redant.Invocation) error {
-			root := inv.Command
-			for root.Parent() != nil {
-				root = root.Parent()
-			}
-			return WriteMCPSequence(inv.Stdout, root, toolName)
-		},
-	}
-}
-
-// WriteMCPSequence writes a Mermaid sequence diagram of MCP tool invocation.
-func WriteMCPSequence(w io.Writer, root *redant.Command, toolName string) error {
+// writeMCPSequence writes a Mermaid sequence diagram of MCP tool invocation.
+func writeMCPSequence(w io.Writer, root *redant.Command) error {
 	p := &mermaidWriter{w: w}
 
 	appName := root.Name()
@@ -244,13 +146,11 @@ func WriteMCPSequence(w io.Writer, root *redant.Command, toolName string) error 
 	p.line("    participant Handler as Handler")
 	p.line("")
 
-	// Init phase
 	p.line("    Note over Agent,MCP: 初始化阶段 - %s", appName)
 	p.line("    Agent->>MCP: initialize")
 	p.line("    MCP-->>Agent: capabilities (tools, resources, prompts)")
 	p.line("")
 
-	// Discovery
 	p.line("    Note over Agent,MCP: 工具发现")
 	p.line("    Agent->>MCP: tools/list")
 
@@ -259,23 +159,16 @@ func WriteMCPSequence(w io.Writer, root *redant.Command, toolName string) error 
 	p.line("    MCP-->>Agent: %d tools (inputSchema + outputSchema)", toolCount)
 	p.line("")
 
-	// Tool call flow
 	p.line("    Note over Agent,Handler: 工具调用")
-	if toolName != "" {
-		p.line("    Agent->>MCP: tools/call \"%s\"", escMermaid(toolName))
-	} else {
-		p.line("    Agent->>MCP: tools/call \"<tool-name>\"")
-	}
+	p.line("    Agent->>MCP: tools/call \"<tool-name>\"")
 	p.line("    activate MCP")
 	p.line("")
 
-	// Internal: parse args, build argv
 	p.line("    MCP->>MCP: buildArgv(inputSchema -> CLI flags)")
 	p.line("    MCP->>Router: Invoke(argv...)")
 	p.line("    activate Router")
 	p.line("")
 
-	// Dispatch
 	p.line("    Router->>Router: getExecCommand()")
 	p.line("    Router->>Router: flag inheritance + parse")
 	p.line("    Router->>Router: middleware chain")
@@ -283,7 +176,6 @@ func WriteMCPSequence(w io.Writer, root *redant.Command, toolName string) error 
 	p.line("    activate Handler")
 	p.line("")
 
-	// Response types
 	p.line("    alt Unary (ResponseHandler)")
 	p.line("        Handler-->>Router: (T, error)")
 	p.line("        Router-->>MCP: structuredContent.response = T")
@@ -303,7 +195,6 @@ func WriteMCPSequence(w io.Writer, root *redant.Command, toolName string) error 
 	p.line("    MCP-->>Agent: CallToolResult")
 	p.line("    deactivate MCP")
 
-	// Resource & prompt hints
 	p.line("")
 	p.line("    Note over Agent,MCP: 辅助能力")
 	p.line("    Agent->>MCP: resources/read \"llms.txt\"")

@@ -151,17 +151,14 @@ app webtty --addr 127.0.0.1:18081 --open=false
 
 `webtty` 提供最简本地 Web 终端能力（`WebSocket + PTY`），并支持文件上传/下载。详细接口与迭代路线见：[`docs/WEBTTY.md`](docs/WEBTTY.md)。
 
-### 可视化与文档站
+### 交互式文档站
 
 ```text
-app viz tree                      # 命令树 Mermaid 图
-app viz dispatch                  # 分发流程 Mermaid 图
-app viz mcp-sequence              # MCP 调用时序 Mermaid 图
 app doc                           # 启动交互式文档站（类 Swagger UI）
 app doc --addr 127.0.0.1:18081 --open=false
 ```
 
-`viz` 命令组生成 Mermaid 格式的命令树结构图、分发流程图和 MCP 时序图，可直接嵌入 Markdown 或渲染为 SVG。`doc` 命令从命令树自动生成交互式文档站，包含命令搜索、参数/选项表格与 Mermaid 图渲染。
+`doc` 命令从命令树自动生成交互式文档站，包含命令搜索、参数/选项表格与 Mermaid 图渲染。
 
 ### Richline 交互终端（可选挂载）
 
