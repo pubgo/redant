@@ -83,8 +83,8 @@ func writeTreeNodes(p *mermaidWriter, cmd *redant.Command, parentID string, dept
 
 		switch {
 		case child.ResponseStreamHandler != nil:
-			// Stadium shape for stream handlers
-			p.line("    %s([[\"%s\"]])", childID, escMermaid(label))
+			// Subroutine shape for stream handlers
+			p.line("    %s[[\"%s\"]]", childID, escMermaid(label))
 			p.line("    style %s fill:#7c3aed,stroke:#a78bfa,color:#fff", childID)
 		case child.ResponseHandler != nil:
 			// Parallelogram for unary response handlers
@@ -334,15 +334,26 @@ func nodeID(name string) string {
 }
 
 func escMermaid(s string) string {
-	r := strings.NewReplacer("\"", "#quot;", "<", "&lt;", ">", "&gt;")
+	r := strings.NewReplacer(
+		"\"", "#quot;",
+		"<", "&lt;",
+		">", "&gt;",
+		"[", "#lsqb;",
+		"]", "#rsqb;",
+		"(", "#lpar;",
+		")", "#rpar;",
+		"{", "#lbrace;",
+		"}", "#rbrace;",
+	)
 	return r.Replace(s)
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n-3] + "..."
+	return string(runes[:n-3]) + "..."
 }
 
 func countCommands(cmd *redant.Command, cmdCount, mwCount *int) {
