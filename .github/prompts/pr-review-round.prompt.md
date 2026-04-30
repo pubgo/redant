@@ -18,7 +18,7 @@ agent: "PR 分轮审查代理"
 - 结论必须给证据（文件路径 + 关键片段）
 - 问题建议必须使用 `[分类]` 前缀（如 `[LOGI]`、`[SEC]`、`[PERF]`）
 - Round 0 必须输出“模块覆盖矩阵”（模块 / 变更文件数 / 状态 / 证据）
-- 每个模块至少 1 条证据；高风险模块（command/args/env_preload/web/webtty/webui/mcp/completion）至少 2 条证据
+- 每个模块至少 1 条证据；高风险模块（command/args/web/webtty/webui/mcp/completion）至少 2 条证据
 - 模块即使“无问题”也必须给出低风险依据
 - 若存在未检查模块，禁止进入 Round 4
 - Round 4 最终结论必须包含“全分类勾选清单（26 类）”，并标注每类 `已检查 / N/A`

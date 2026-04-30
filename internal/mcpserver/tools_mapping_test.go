@@ -527,3 +527,299 @@ func mustFindToolByName(t *testing.T, tools []toolDef, name string) toolDef {
 	t.Fatalf("tool %q not found in %#v", name, tools)
 	return toolDef{}
 }
+
+func TestValueTypeToSchemaExtendedTypes(t *testing.T) {
+	tests := []struct {
+		typ    string
+		field  string
+		expect string
+	}{
+		{"duration", "format", "duration"},
+		{"url", "format", "uri"},
+		{"regexp", "format", "regex"},
+		{"host:port", "pattern", "^[^:]+:\\d+$"},
+		{"json", "contentMediaType", "application/json"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.typ, func(t *testing.T) {
+			s := valueTypeToSchema(tt.typ)
+			got, _ := s[tt.field].(string)
+			if got != tt.expect {
+				t.Fatalf("valueTypeToSchema(%q)[%q] = %q, want %q", tt.typ, tt.field, got, tt.expect)
+			}
+		})
+	}
+}
+
+func TestCommandAgentHints(t *testing.T) {
+	cmd := &redant.Command{
+		Use:   "rm",
+		Short: "Remove file.",
+		Metadata: map[string]string{
+			"agent.destructive":           "true",
+			"agent.requires-confirmation": "true",
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	}
+
+	hints := commandAgentHints(cmd)
+	if !strings.Contains(hints, "Destructive") {
+		t.Fatalf("expected Destructive hint, got: %s", hints)
+	}
+	if !strings.Contains(hints, "Requires confirmation") {
+		t.Fatalf("expected Requires confirmation hint, got: %s", hints)
+	}
+}
+
+func TestCommandAgentHintsEmpty(t *testing.T) {
+	cmd := &redant.Command{
+		Use:     "ls",
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	}
+	if got := commandAgentHints(cmd); got != "" {
+		t.Fatalf("expected empty hints, got: %q", got)
+	}
+}
+
+func TestAgentHintsInToolDescription(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "deploy",
+		Short: "Deploy the app.",
+		Metadata: map[string]string{
+			"agent.idempotent": "true",
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+
+	tools := collectTools(root)
+	tool := mustFindToolByName(t, tools, "deploy")
+	if !strings.Contains(tool.Description, "Idempotent") {
+		t.Fatalf("tool description should contain agent hint, got: %q", tool.Description)
+	}
+}
+
+func TestOutputSchemaWithTypedResponse(t *testing.T) {
+	type Result struct {
+		OK      bool   `json:"ok"`
+		Message string `json:"message"`
+	}
+
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "status",
+		ResponseHandler: redant.Unary(func(ctx context.Context, inv *redant.Invocation) (Result, error) {
+			return Result{}, nil
+		}),
+	})
+
+	tools := collectTools(root)
+	tool := mustFindToolByName(t, tools, "status")
+
+	props, _ := tool.OutputSchema["properties"].(map[string]any)
+	respProp, ok := props["response"]
+	if !ok {
+		t.Fatalf("output schema should have response property")
+	}
+
+	respMap, _ := respProp.(map[string]any)
+
+	// Should have x-redant-type
+	xType, _ := respMap["x-redant-type"].(string)
+	if !strings.Contains(xType, "Result") {
+		t.Fatalf("x-redant-type = %q, want to contain Result", xType)
+	}
+
+	// Should have properties from struct reflection
+	respProps, _ := respMap["properties"].(map[string]any)
+	if _, ok := respProps["ok"]; !ok {
+		t.Fatalf("response schema should have 'ok' property")
+	}
+	if _, ok := respProps["message"]; !ok {
+		t.Fatalf("response schema should have 'message' property")
+	}
+}
+
+func TestOutputSchemaStreamTyped(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "logs",
+		ResponseStreamHandler: redant.Stream(func(ctx context.Context, inv *redant.Invocation, out *redant.TypedWriter[string]) error {
+			return out.Send("line")
+		}),
+	})
+
+	tools := collectTools(root)
+	tool := mustFindToolByName(t, tools, "logs")
+
+	props, _ := tool.OutputSchema["properties"].(map[string]any)
+	respProp, ok := props["response"]
+	if !ok {
+		t.Fatalf("output schema should have response property")
+	}
+
+	respMap, _ := respProp.(map[string]any)
+	if got, _ := respMap["type"].(string); got != "array" {
+		t.Fatalf("stream response type = %q, want array", got)
+	}
+}
+
+func TestBuildToolAnnotations(t *testing.T) {
+	tests := []struct {
+		name     string
+		meta     map[string]string
+		wantNil  bool
+		readonly bool
+		idemp    bool
+		destr    *bool
+		open     *bool
+	}{
+		{"nil_metadata", nil, true, false, false, nil, nil},
+		{"readonly+idempotent", map[string]string{
+			"agent.readonly":   "true",
+			"agent.idempotent": "true",
+		}, false, true, true, nil, nil},
+		{"destructive_true", map[string]string{
+			"agent.destructive": "true",
+		}, false, false, false, ptrBool(true), nil},
+		{"destructive_false", map[string]string{
+			"agent.destructive": "false",
+		}, false, false, false, ptrBool(false), nil},
+		{"open_world", map[string]string{
+			"agent.open-world": "true",
+		}, false, false, false, nil, ptrBool(true)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &redant.Command{Use: "x", Metadata: tt.meta}
+			got := buildToolAnnotations(cmd)
+			if tt.wantNil {
+				if got != nil {
+					t.Fatalf("expected nil annotations, got %+v", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("expected non-nil annotations")
+			}
+			if got.ReadOnly != tt.readonly {
+				t.Fatalf("ReadOnly = %v, want %v", got.ReadOnly, tt.readonly)
+			}
+			if got.Idempotent != tt.idemp {
+				t.Fatalf("Idempotent = %v, want %v", got.Idempotent, tt.idemp)
+			}
+			if !equalBoolPtr(got.Destructive, tt.destr) {
+				t.Fatalf("Destructive = %v, want %v", got.Destructive, tt.destr)
+			}
+			if !equalBoolPtr(got.OpenWorld, tt.open) {
+				t.Fatalf("OpenWorld = %v, want %v", got.OpenWorld, tt.open)
+			}
+		})
+	}
+}
+
+func ptrBool(v bool) *bool { return &v }
+func equalBoolPtr(a, b *bool) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func TestArgsSchemaIncludesArgModes(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "greet",
+		Args: redant.ArgSet{
+			{Name: "name", Required: true, Value: redant.StringOf(new(string))},
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+	})
+
+	tools := collectTools(root)
+	tool := mustFindToolByName(t, tools, "greet")
+
+	argsSection, ok := tool.InputSchema["properties"].(map[string]any)["args"].(map[string]any)
+	if !ok {
+		t.Fatalf("args section missing from input schema")
+	}
+
+	modes, ok := argsSection["x-redant-arg-modes"]
+	if !ok {
+		t.Fatalf("x-redant-arg-modes not set in args schema")
+	}
+
+	modeSlice, ok := modes.([]string)
+	if !ok {
+		t.Fatalf("x-redant-arg-modes is not []string: %T", modes)
+	}
+
+	expected := []string{"positional", "query", "form", "json"}
+	if !reflect.DeepEqual(modeSlice, expected) {
+		t.Fatalf("x-redant-arg-modes = %v, want %v", modeSlice, expected)
+	}
+}
+
+func TestParseToolTimeout(t *testing.T) {
+	tests := []struct {
+		name   string
+		meta   map[string]string
+		wantMs int64 // 0 = no timeout
+	}{
+		{"no_metadata", nil, 0},
+		{"no_timeout_key", map[string]string{"agent.readonly": "true"}, 0},
+		{"valid_30s", map[string]string{"agent.timeout": "30s"}, 30000},
+		{"valid_2m", map[string]string{"agent.timeout": "2m"}, 120000},
+		{"invalid", map[string]string{"agent.timeout": "not-a-duration"}, 0},
+		{"negative", map[string]string{"agent.timeout": "-5s"}, 0},
+		{"zero", map[string]string{"agent.timeout": "0s"}, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &redant.Command{Use: "x", Metadata: tt.meta}
+			got := parseToolTimeout(cmd)
+			gotMs := got.Milliseconds()
+			if gotMs != tt.wantMs {
+				t.Fatalf("parseToolTimeout = %dms, want %dms", gotMs, tt.wantMs)
+			}
+		})
+	}
+}
+
+func TestToolTimeoutInCallTool(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "slow",
+		Short: "A slow command.",
+		Metadata: map[string]string{
+			"agent.timeout": "100ms",
+		},
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			// Verify ctx has a deadline
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				return fmt.Errorf("expected deadline on context")
+			}
+			_ = deadline
+			return nil
+		},
+	})
+
+	srv := New(root)
+	result, err := srv.callTool(context.Background(), toolsCallParams{
+		Name:      "slow",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("callTool error: %v", err)
+	}
+	if result == nil {
+		t.Fatalf("result should not be nil")
+	}
+}

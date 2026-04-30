@@ -14,6 +14,11 @@
 - [`INTERACTIVE_STREAMING.md`](INTERACTIVE_STREAMING.md)：交互式命令与结构化响应流方案。
 - [`EVALUATION.md`](EVALUATION.md)：质量评估、风险与优化建议。
 
+## 2.5) 可视化与文档生成
+
+- `cmds/vizcmd/`：Mermaid 图生成命令组（`viz tree` / `viz dispatch` / `viz mcp-sequence`）。
+- `cmds/doccmd/`：交互式命令文档站（`doc`），自动生成类 Swagger UI 的浏览界面。
+
 ## 3) PR 审查体系（聚合）
 
 - [`review/PR_REVIEW_RUBRIC.md`](review/PR_REVIEW_RUBRIC.md)：分轮审查基线（含零输入自动全量模式）。

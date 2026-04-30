@@ -1,0 +1,32 @@
+# app
+
+> Test app.
+
+## Global Options
+
+- `-h, --help` — SHOW HELP FOR COMMAND.
+- `--list-commands` — LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.
+- `--list-flags` — LIST ALL FLAGS.
+- `--list-format enum[text\|json]` — OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS. (default: text)
+
+## Commands
+
+### app hello
+
+Say hello.
+
+---
+
+### app llms-txt
+
+Print command tree documentation in llms.txt format for LLM consumption.
+
+Generate a structured overview of all commands, flags, and arguments. Supports Markdown (default, optimised for grep) and JSON (optimised for programmatic consumption).
+
+**Options:**
+
+- `-d, --depth int64` — MAXIMUM COMMAND TREE DEPTH (0 = UNLIMITED). (default: 0)
+- `-f, --format enum[markdown\|json]` — OUTPUT FORMAT. (default: markdown)
+
+---
+

@@ -55,7 +55,7 @@
 
 - 每个高风险路径至少给出 1 条证据。
 - 标记阻断问题（Blocker）与非阻断问题（Major / Minor / Nit）。
-- 每个模块至少提供 1 条证据；高风险模块（command/args/env_preload/web/webtty/webui/mcp/completion）至少 2 条证据。
+- 每个模块至少提供 1 条证据；高风险模块（command/args/web/webtty/webui/mcp/completion）至少 2 条证据。
 - 若模块结论为“无问题”，必须提供低风险依据（如测试覆盖、边界保护、输入校验）。
 
 ### Round 2：测试覆盖与可验证性

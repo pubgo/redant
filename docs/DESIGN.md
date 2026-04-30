@@ -132,6 +132,8 @@ stateDiagram-v2
 | MCP 集成       | `internal/mcpserver` + `cmds/mcpcmd` | 命令树到 MCP Tools 的映射与 stdio 服务          |
 | Web 控制台     | `cmds/webcmd` + `internal/webui`     | 可视化命令调试、调用过程展示与执行回放          |
 | WebTTY         | `cmds/webttycmd`                     | 最简本地 Web 终端、文件上传/下载与 PTY 信号转发 |
+| 可视化命令     | `cmds/vizcmd`                        | Mermaid 图生成：命令树、分发流程、MCP 时序      |
+| 文档站         | `cmds/doccmd`                        | 交互式命令文档站（类 Swagger UI）               |
 
 ### 5.1 Web 调用过程重建（可观测性）
 

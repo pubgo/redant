@@ -21,13 +21,11 @@ _testapp() {
         "")
             options=(
                 '--config:CONFIG FILE.'
-                '--env:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '-e:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '--env-file:LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
                 '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
                 '--list-flags:LIST ALL FLAGS.'
+                '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'
@@ -41,13 +39,11 @@ _testapp() {
         "completion")
             options=(
                 '--config:CONFIG FILE.'
-                '--env:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '-e:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '--env-file:LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
                 '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
                 '--list-flags:LIST ALL FLAGS.'
+                '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'
@@ -58,13 +54,11 @@ _testapp() {
         "hello")
             options=(
                 '--config:CONFIG FILE.'
-                '--env:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '-e:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '--env-file:LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
                 '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
                 '--list-flags:LIST ALL FLAGS.'
+                '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'
@@ -75,13 +69,11 @@ _testapp() {
         "project")
             options=(
                 '--config:CONFIG FILE.'
-                '--env:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '-e:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '--env-file:LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
                 '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
                 '--list-flags:LIST ALL FLAGS.'
+                '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'
@@ -95,13 +87,11 @@ _testapp() {
         "project repo")
             options=(
                 '--config:CONFIG FILE.'
-                '--env:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '-e:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '--env-file:LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
                 '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
                 '--list-flags:LIST ALL FLAGS.'
+                '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'
@@ -117,13 +107,11 @@ _testapp() {
         "project repo create")
             options=(
                 '--config:CONFIG FILE.'
-                '--env:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '-e:SET ENVIRONMENT VARIABLES (FORMAT\: KEY=VALUE). SUPPORTS REPEAT AND CSV.'
-                '--env-file:LOAD ENVIRONMENT VARIABLES FROM FILE(S). SUPPORTS REPEAT AND CSV.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
                 '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
                 '--list-flags:LIST ALL FLAGS.'
+                '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'

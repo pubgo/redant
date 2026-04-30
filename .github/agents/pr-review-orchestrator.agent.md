@@ -17,7 +17,7 @@ user-invocable: true
 - 严格区分问题等级：Blocker / Major / Minor / Nit。
 - 禁止无证据结论；禁止跨轮跳步。
 - 审查覆盖必须完整：
-  - 模块范围：PR 变更涉及的所有模块（如 command / args / env_preload / help / completion / docs 等）
+  - 模块范围：PR 变更涉及的所有模块（如 command / args / help / completion / docs 等）
   - 分类范围：`REQ LOGI SEC AUTH DSN RBST TRANS CONC PERF CPT IDE MAIN CPL READ SIMPL CONS DUP NAM DOCS COMM LOGG ERR FOR GRAM PRAC PR`
 
 ## 输入优先级
@@ -61,7 +61,7 @@ user-invocable: true
 - 发布前必须执行去重：以 `path + line + 分类 + 模块 + 等级 + 问题摘要` 作为唯一键检查已有评论；若已存在同键评论，则不重复发布，直接复用并回传已有评论链接。
 - 每条评论必须使用统一模板，且包含以下六部分：
   - 分类：必须使用分类代码标签与名称（如 `[LOGI] 逻辑问题`、`[SEC] 安全问题`），分类集合以 `docs/review/CODE_REVIEW_GUIDE_CN.md` 为准。
-  - 模块：问题所属模块（如 command / args / env_preload / help / completion / docs）。
+  - 模块：问题所属模块（如 command / args / help / completion / docs）。
   - 等级：Blocker / Major / Minor / Nit。
   - 问题：一句话描述发现的问题。
   - 原因：说明为何这是问题（语义风险/兼容性/可维护性/测试缺口）。
@@ -78,7 +78,7 @@ user-invocable: true
 ## 防遗漏硬门禁（必须）
 
 - Round 0 必须输出“模块覆盖矩阵”：模块名 / 变更文件数 / 审查状态（已检查/未检查）/ 证据。
-- 每个模块至少提供 1 条证据；高风险模块（command/args/env_preload/web/webtty/webui/mcp/completion）至少 2 条证据。
+- 每个模块至少提供 1 条证据；高风险模块（command/args/web/webtty/webui/mcp/completion）至少 2 条证据。
 - 模块若结论为“无问题”，仍需给出“低风险依据”（如测试覆盖、边界防护、输入校验）。
 - 只要存在“未检查模块”，禁止进入 Round 4。
 - Round 4 前必须满足：`modules_total == modules_checked`，否则仅允许输出“未完成审查 + 所缺清单”。

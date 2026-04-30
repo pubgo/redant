@@ -20,7 +20,7 @@ func TestCommandInitIsIdempotentForGlobalFlags(t *testing.T) {
 		counts[opt.Flag]++
 	}
 
-	for _, flag := range []string{"help", "list-commands", "list-flags", "env", "env-file", internalArgsOverrideFlag} {
+	for _, flag := range []string{"help", "list-commands", "list-flags", "list-format", internalArgsOverrideFlag} {
 		if counts[flag] != 1 {
 			t.Fatalf("expected global flag %q exactly once, got %d", flag, counts[flag])
 		}
@@ -34,7 +34,7 @@ func TestCommandInitDoesNotOverrideExistingRootGlobalFlag(t *testing.T) {
 	root := &Command{
 		Use: "app",
 		Options: OptionSet{
-			{Flag: "env", Description: "custom env", Value: StringArrayOf(new([]string))},
+			{Flag: "list-commands", Description: "custom list-commands", Value: BoolOf(new(bool))},
 		},
 	}
 
@@ -42,13 +42,13 @@ func TestCommandInitDoesNotOverrideExistingRootGlobalFlag(t *testing.T) {
 		t.Fatalf("init failed: %v", err)
 	}
 
-	envCount := 0
+	count := 0
 	for _, opt := range root.Options {
-		if opt.Flag == "env" {
-			envCount++
+		if opt.Flag == "list-commands" {
+			count++
 		}
 	}
-	if envCount != 1 {
-		t.Fatalf("expected env flag exactly once, got %d", envCount)
+	if count != 1 {
+		t.Fatalf("expected list-commands flag exactly once, got %d", count)
 	}
 }

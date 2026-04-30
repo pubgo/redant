@@ -61,6 +61,8 @@ func New(root *redant.Command) *Server {
 		}, &mcp.ServerOptions{}),
 	}
 	s.registerTools()
+	s.registerResources()
+	s.registerPrompts()
 	return s
 }
 
@@ -93,12 +95,21 @@ func (s *Server) registerTools() {
 
 	for _, td := range s.tools {
 		tool := td
-		s.server.AddTool(&mcp.Tool{
+		mcpTool := &mcp.Tool{
 			Name:         tool.Name,
 			Description:  tool.Description,
 			InputSchema:  tool.InputSchema,
 			OutputSchema: tool.OutputSchema,
-		}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		}
+		if tool.Annotations != nil {
+			mcpTool.Annotations = &mcp.ToolAnnotations{
+				ReadOnlyHint:    tool.Annotations.ReadOnly,
+				IdempotentHint:  tool.Annotations.Idempotent,
+				DestructiveHint: tool.Annotations.Destructive,
+				OpenWorldHint:   tool.Annotations.OpenWorld,
+			}
+		}
+		s.server.AddTool(mcpTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := map[string]any{}
 			if raw := req.Params.Arguments; len(raw) > 0 {
 				if err := json.Unmarshal(raw, &args); err != nil {

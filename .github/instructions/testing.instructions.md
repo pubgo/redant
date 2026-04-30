@@ -21,7 +21,6 @@ applyTo: "**/*_test.go"
 - 标志行为：继承、重名覆盖、默认值/env 回退、required 判定。
 - 参数解析：位置参数、query、form、JSON 及边界输入。
 - 特殊开关：`--list-commands` / `--list-flags` 的短路行为。
-- env 预加载：`--env` / `-e` / `--env-file` 与恢复逻辑。
 
 ## 质量约束
 

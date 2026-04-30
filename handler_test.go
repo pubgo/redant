@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -289,5 +290,170 @@ func TestResponseStreamHandlerRunWithoutChannelConsumerDoesNotBlock(t *testing.T
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("run blocked without response stream consumer")
+	}
+}
+
+func TestReflectTypeSchema(t *testing.T) {
+	type Inner struct {
+		Code int `json:"code"`
+	}
+	type Result struct {
+		OK      bool    `json:"ok"`
+		Message string  `json:"message,omitempty"`
+		Score   float64 `json:"score"`
+		Tags    []string
+		Meta    Inner `json:"meta"`
+	}
+
+	schema := reflectTypeSchema(reflect.TypeOf(Result{}))
+	if schema == nil {
+		t.Fatalf("schema is nil")
+	}
+	if got, _ := schema["type"].(string); got != "object" {
+		t.Fatalf("type = %q, want object", got)
+	}
+
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties missing")
+	}
+
+	// Check fields
+	for _, field := range []string{"ok", "message", "score", "Tags", "meta"} {
+		if _, exists := props[field]; !exists {
+			t.Errorf("missing property %q", field)
+		}
+	}
+
+	// ok should be boolean
+	okSchema, _ := props["ok"].(map[string]any)
+	if got, _ := okSchema["type"].(string); got != "boolean" {
+		t.Errorf("ok type = %q, want boolean", got)
+	}
+
+	// Tags should be array
+	tagsSchema, _ := props["Tags"].(map[string]any)
+	if got, _ := tagsSchema["type"].(string); got != "array" {
+		t.Errorf("Tags type = %q, want array", got)
+	}
+
+	// meta should be object with properties
+	metaSchema, _ := props["meta"].(map[string]any)
+	if got, _ := metaSchema["type"].(string); got != "object" {
+		t.Errorf("meta type = %q, want object", got)
+	}
+	metaProps, _ := metaSchema["properties"].(map[string]any)
+	if _, ok := metaProps["code"]; !ok {
+		t.Errorf("meta missing 'code' property")
+	}
+
+	// omitempty should be marked
+	msgSchema, _ := props["message"].(map[string]any)
+	if v, ok := msgSchema["x-omitempty"]; !ok || v != true {
+		t.Errorf("message should have x-omitempty=true")
+	}
+}
+
+func TestReflectTypeSchemaForPrimitives(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    any
+		wantType string
+	}{
+		{"string", "", "string"},
+		{"int", 0, "integer"},
+		{"bool", false, "boolean"},
+		{"float64", 0.0, "number"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := reflectTypeSchema(reflect.TypeOf(tt.value))
+			if got, _ := schema["type"].(string); got != tt.wantType {
+				t.Fatalf("type = %q, want %q", got, tt.wantType)
+			}
+		})
+	}
+}
+
+func TestUnaryTypeInfoIncludesSchema(t *testing.T) {
+	type Resp struct {
+		OK bool `json:"ok"`
+	}
+
+	handler := Unary(func(ctx context.Context, inv *Invocation) (Resp, error) {
+		return Resp{}, nil
+	})
+
+	info := handler.TypeInfo()
+	if info.Schema == nil {
+		t.Fatalf("TypeInfo schema should not be nil")
+	}
+	if got, _ := info.Schema["type"].(string); got != "object" {
+		t.Fatalf("schema type = %q, want object", got)
+	}
+	props, _ := info.Schema["properties"].(map[string]any)
+	if _, ok := props["ok"]; !ok {
+		t.Fatalf("schema missing 'ok' property")
+	}
+}
+
+func TestStreamTypeInfoIncludesSchema(t *testing.T) {
+	handler := Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
+		return nil
+	})
+
+	info := handler.TypeInfo()
+	if info.Schema == nil {
+		t.Fatalf("TypeInfo schema should not be nil")
+	}
+	if got, _ := info.Schema["type"].(string); got != "string" {
+		t.Fatalf("schema type = %q, want string", got)
+	}
+}
+
+func TestStreamEnvelopeSeqAndTs(t *testing.T) {
+	cmd := &Command{
+		Use: "events",
+		ResponseStreamHandler: Stream(func(ctx context.Context, inv *Invocation, out *TypedWriter[string]) error {
+			if err := out.Send("a"); err != nil {
+				return err
+			}
+			return out.Send("b")
+		}),
+	}
+
+	var stdout bytes.Buffer
+	inv := cmd.Invoke()
+	inv.Stdin = bytes.NewBuffer(nil)
+	inv.Stdout = &stdout
+	inv.Stderr = io.Discard
+
+	if err := inv.Run(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+
+	for i, line := range lines {
+		var env StreamEnvelope
+		if err := json.Unmarshal([]byte(line), &env); err != nil {
+			t.Fatalf("line %d: invalid JSON: %v", i, err)
+		}
+		if env.Seq == nil {
+			t.Fatalf("line %d: seq should be set", i)
+		}
+		if *env.Seq != int64(i) {
+			t.Fatalf("line %d: seq = %d, want %d", i, *env.Seq, i)
+		}
+		if env.Ts == nil {
+			t.Fatalf("line %d: ts should be set", i)
+		}
+		if *env.Ts <= 0 {
+			t.Fatalf("line %d: ts should be positive, got %d", i, *env.Ts)
+		}
 	}
 }

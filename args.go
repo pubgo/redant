@@ -271,15 +271,10 @@ func GlobalFlags() OptionSet {
 			Value:       BoolOf(new(bool)),
 		},
 		{
-			Flag:        "env",
-			Shorthand:   "e",
-			Description: "Set environment variables (format: KEY=VALUE). Supports repeat and CSV.",
-			Value:       StringArrayOf(new([]string)),
-		},
-		{
-			Flag:        "env-file",
-			Description: "Load environment variables from file(s). Supports repeat and CSV.",
-			Value:       StringArrayOf(new([]string)),
+			Flag:        "list-format",
+			Description: "Output format for --list-commands and --list-flags.",
+			Default:     "text",
+			Value:       EnumOf(new(string), "text", "json"),
 		},
 		{
 			Flag:        internalArgsOverrideFlag,

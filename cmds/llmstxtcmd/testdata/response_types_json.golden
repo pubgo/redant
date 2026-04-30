@@ -1,0 +1,21 @@
+{
+  "name": "app",
+  "children": [
+    {
+      "name": "status",
+      "short": "Get status.",
+      "response": {
+        "kind": "unary",
+        "typeName": "github.com/pubgo/redant/cmds/llmstxtcmd.StatusResult"
+      }
+    },
+    {
+      "name": "logs",
+      "short": "Stream logs.",
+      "response": {
+        "kind": "stream",
+        "typeName": "string"
+      }
+    }
+  ]
+}

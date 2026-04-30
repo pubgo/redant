@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pubgo/redant"
 )
@@ -23,6 +24,16 @@ type toolDef struct {
 	OutputSchema   map[string]any
 	SupportsStream bool
 	ResponseType   *redant.ResponseTypeInfo
+	Annotations    *toolAnnotations
+	Timeout        time.Duration // 0 = no timeout
+}
+
+// toolAnnotations holds MCP-standard tool behavior hints derived from Command.Metadata.
+type toolAnnotations struct {
+	ReadOnly    bool
+	Destructive *bool // nil = unset (MCP default: true)
+	Idempotent  bool
+	OpenWorld   *bool // nil = unset (MCP default: true)
 }
 
 func collectTools(root *redant.Command) []toolDef {
@@ -60,6 +71,8 @@ func collectTools(root *redant.Command) []toolDef {
 				OutputSchema:   buildOutputSchema(respType, cmd.ResponseStreamHandler != nil),
 				SupportsStream: cmd.ResponseStreamHandler != nil,
 				ResponseType:   respType,
+				Annotations:    buildToolAnnotations(cmd),
+				Timeout:        parseToolTimeout(cmd),
 			})
 		}
 
@@ -75,19 +88,70 @@ func collectTools(root *redant.Command) []toolDef {
 	return tools
 }
 
+// buildToolAnnotations extracts MCP-standard ToolAnnotations from Command.Metadata.
+func buildToolAnnotations(cmd *redant.Command) *toolAnnotations {
+	if cmd == nil || len(cmd.Metadata) == 0 {
+		return nil
+	}
+
+	a := &toolAnnotations{}
+	any := false
+
+	if v := cmd.Meta("agent.readonly"); v == "true" {
+		a.ReadOnly = true
+		any = true
+	}
+	if v := cmd.Meta("agent.idempotent"); v == "true" {
+		a.Idempotent = true
+		any = true
+	}
+	if v := cmd.Meta("agent.destructive"); v != "" {
+		b := v == "true"
+		a.Destructive = &b
+		any = true
+	}
+	if v := cmd.Meta("agent.open-world"); v != "" {
+		b := v == "true"
+		a.OpenWorld = &b
+		any = true
+	}
+
+	if !any {
+		return nil
+	}
+	return a
+}
+
+// parseToolTimeout reads Command.Metadata "agent.timeout" as a Go duration.
+// Returns 0 (no timeout) if unset or unparseable.
+func parseToolTimeout(cmd *redant.Command) time.Duration {
+	v := cmd.Meta("agent.timeout")
+	if v == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return d
+}
+
 func commandDescription(cmd *redant.Command) string {
 	short := strings.TrimSpace(cmd.Short)
 	long := strings.TrimSpace(cmd.Long)
+	var base string
 	switch {
 	case short != "" && long != "":
-		return short + "\n\n" + long
+		base = short + "\n\n" + long
 	case short != "":
-		return short
+		base = short
 	case long != "":
-		return long
-	default:
-		return ""
+		base = long
 	}
+	if hints := commandAgentHints(cmd); hints != "" {
+		base += "\n" + hints
+	}
+	return base
 }
 
 func buildInputSchema(args redant.ArgSet, options redant.OptionSet) map[string]any {
@@ -97,6 +161,7 @@ func buildInputSchema(args redant.ArgSet, options redant.OptionSet) map[string]a
 	properties := map[string]any{"flags": flagsSchema}
 
 	if len(args) > 0 {
+		argsSchema["x-redant-arg-modes"] = []string{"positional", "query", "form", "json"}
 		properties["args"] = argsSchema
 	} else {
 		properties["args"] = map[string]any{
@@ -141,9 +206,19 @@ func buildOutputSchema(respType *redant.ResponseTypeInfo, isStream bool) map[str
 			"description":   "typed response payload (" + respType.TypeName + ")",
 			"x-redant-type": respType.TypeName,
 		}
+		if len(respType.Schema) > 0 {
+			// Merge generated schema into respSchema.
+			for k, v := range respType.Schema {
+				respSchema[k] = v
+			}
+		}
 		if isStream {
-			respSchema["type"] = "array"
-			respSchema["items"] = map[string]any{}
+			respSchema = map[string]any{
+				"type":          "array",
+				"items":         respType.Schema,
+				"description":   "typed response payload (" + respType.TypeName + ")",
+				"x-redant-type": respType.TypeName,
+			}
 		}
 		props["response"] = respSchema
 	}
@@ -286,6 +361,36 @@ func valueTypeToSchema(typ string) map[string]any {
 				"type": "string",
 			},
 		}
+	case "duration":
+		return map[string]any{
+			"type":        "string",
+			"format":      "duration",
+			"description": "Go duration string (e.g. 30s, 5m, 1h30m)",
+		}
+	case "url":
+		return map[string]any{
+			"type":   "string",
+			"format": "uri",
+		}
+	case "regexp":
+		return map[string]any{
+			"type":   "string",
+			"format": "regex",
+		}
+	case "host:port":
+		return map[string]any{
+			"type":    "string",
+			"pattern": "^[^:]+:\\d+$",
+			"examples": []string{
+				"localhost:8080",
+				"0.0.0.0:443",
+			},
+		}
+	case "json":
+		return map[string]any{
+			"type":             "string",
+			"contentMediaType": "application/json",
+		}
 	default:
 		return map[string]any{"type": "string"}
 	}
@@ -312,6 +417,13 @@ func (s *Server) callTool(ctx context.Context, params toolsCallParams) (map[stri
 	tool, err := s.findTool(params.Name)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply per-tool timeout if configured via agent.timeout metadata.
+	if tool.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, tool.Timeout)
+		defer cancel()
 	}
 
 	argv, err := buildArgv(tool, params.Arguments)

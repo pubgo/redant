@@ -3,8 +3,7 @@ package redant
 import (
 	"bytes"
 	"context"
-	"os"
-	"path/filepath"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -420,258 +419,6 @@ func TestEnvVarFlag(t *testing.T) {
 	}
 }
 
-func TestGlobalEnvFlagSetsOptionEnvAndRestores(t *testing.T) {
-	const envName = "REDANT_TEST_GLOBAL_ENV"
-	t.Setenv(envName, "original")
-
-	var value string
-	cmd := &Command{
-		Use:   "test",
-		Short: "Test command",
-		Options: OptionSet{
-			{
-				Flag:        "value",
-				Description: "A value from env",
-				Value:       StringOf(&value),
-				Envs:        []string{envName},
-			},
-		},
-		Handler: func(ctx context.Context, inv *Invocation) error {
-			return nil
-		},
-	}
-
-	inv := cmd.Invoke("--env", envName+"=from-flag")
-	inv.Stdout = &bytes.Buffer{}
-	inv.Stderr = &bytes.Buffer{}
-
-	err := inv.Run()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if value != "from-flag" {
-		t.Errorf("value = %q, want %q", value, "from-flag")
-	}
-
-	if got := os.Getenv(envName); got != "original" {
-		t.Errorf("env %s after run = %q, want %q", envName, got, "original")
-	}
-}
-
-func TestGlobalEnvFileFlagSetsOptionEnvAndRestores(t *testing.T) {
-	const envName = "REDANT_TEST_ENV_FILE"
-	t.Setenv(envName, "original")
-
-	tmpFile := filepath.Join(t.TempDir(), ".env")
-	err := os.WriteFile(tmpFile, []byte("# comment\nexport REDANT_TEST_ENV_FILE=from-file\n"), 0o600)
-	if err != nil {
-		t.Fatalf("write env file: %v", err)
-	}
-
-	var value string
-	cmd := &Command{
-		Use:   "test",
-		Short: "Test command",
-		Options: OptionSet{
-			{
-				Flag:        "value",
-				Description: "A value from env file",
-				Value:       StringOf(&value),
-				Envs:        []string{envName},
-			},
-		},
-		Handler: func(ctx context.Context, inv *Invocation) error {
-			return nil
-		},
-	}
-
-	inv := cmd.Invoke("--env-file", tmpFile)
-	inv.Stdout = &bytes.Buffer{}
-	inv.Stderr = &bytes.Buffer{}
-
-	err = inv.Run()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if value != "from-file" {
-		t.Errorf("value = %q, want %q", value, "from-file")
-	}
-
-	if got := os.Getenv(envName); got != "original" {
-		t.Errorf("env %s after run = %q, want %q", envName, got, "original")
-	}
-}
-
-func TestGlobalEnvFileCSVAndEnvOrder(t *testing.T) {
-	const envName = "REDANT_TEST_ENV_FILES_ORDER"
-	t.Setenv(envName, "original")
-
-	tmpDir := t.TempDir()
-	file1 := filepath.Join(tmpDir, "a.env")
-	file2 := filepath.Join(tmpDir, "b.env")
-	if err := os.WriteFile(file1, []byte(envName+"=from-file1\n"), 0o600); err != nil {
-		t.Fatalf("write file1: %v", err)
-	}
-	if err := os.WriteFile(file2, []byte(envName+"=from-file2\n"), 0o600); err != nil {
-		t.Fatalf("write file2: %v", err)
-	}
-
-	var value string
-	cmd := &Command{
-		Use:   "test",
-		Short: "Test command",
-		Options: OptionSet{
-			{
-				Flag:        "value",
-				Description: "A value from env",
-				Value:       StringOf(&value),
-				Envs:        []string{envName},
-			},
-		},
-		Handler: func(ctx context.Context, inv *Invocation) error {
-			return nil
-		},
-	}
-
-	inv := cmd.Invoke(
-		"--env-file", file1+","+file2,
-		"--env", envName+"=from-env",
-	)
-	inv.Stdout = &bytes.Buffer{}
-	inv.Stderr = &bytes.Buffer{}
-
-	err := inv.Run()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if value != "from-env" {
-		t.Errorf("value = %q, want %q", value, "from-env")
-	}
-
-	if got := os.Getenv(envName); got != "original" {
-		t.Errorf("env %s after run = %q, want %q", envName, got, "original")
-	}
-}
-
-func TestGlobalEnvShorthandAndCSV(t *testing.T) {
-	const envName = "REDANT_TEST_GLOBAL_ENV_SHORT"
-	t.Setenv(envName, "original")
-
-	var value string
-	cmd := &Command{
-		Use:   "test",
-		Short: "Test command",
-		Options: OptionSet{
-			{
-				Flag:        "value",
-				Description: "A value from env",
-				Value:       StringOf(&value),
-				Envs:        []string{envName},
-			},
-		},
-		Handler: func(ctx context.Context, inv *Invocation) error {
-			return nil
-		},
-	}
-
-	inv := cmd.Invoke("-e", "ANOTHER_KEY=123,"+envName+"=from-short-csv")
-	inv.Stdout = &bytes.Buffer{}
-	inv.Stderr = &bytes.Buffer{}
-
-	err := inv.Run()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if value != "from-short-csv" {
-		t.Errorf("value = %q, want %q", value, "from-short-csv")
-	}
-
-	if got := os.Getenv(envName); got != "original" {
-		t.Errorf("env %s after run = %q, want %q", envName, got, "original")
-	}
-}
-
-func TestGlobalEnvShorthandRepeat(t *testing.T) {
-	const envA = "REDANT_TEST_SHORT_REPEAT_A"
-	const envB = "REDANT_TEST_SHORT_REPEAT_B"
-	t.Setenv(envA, "orig-a")
-	t.Setenv(envB, "orig-b")
-
-	var valueA string
-	var valueB string
-	cmd := &Command{
-		Use:   "test",
-		Short: "Test command",
-		Options: OptionSet{
-			{
-				Flag:        "value-a",
-				Description: "A value from env A",
-				Value:       StringOf(&valueA),
-				Envs:        []string{envA},
-			},
-			{
-				Flag:        "value-b",
-				Description: "A value from env B",
-				Value:       StringOf(&valueB),
-				Envs:        []string{envB},
-			},
-		},
-		Handler: func(ctx context.Context, inv *Invocation) error {
-			return nil
-		},
-	}
-
-	inv := cmd.Invoke("-e", envA+"=1", "-e", envB+"=2")
-	inv.Stdout = &bytes.Buffer{}
-	inv.Stderr = &bytes.Buffer{}
-
-	err := inv.Run()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if valueA != "1" {
-		t.Errorf("valueA = %q, want %q", valueA, "1")
-	}
-	if valueB != "2" {
-		t.Errorf("valueB = %q, want %q", valueB, "2")
-	}
-
-	if got := os.Getenv(envA); got != "orig-a" {
-		t.Errorf("env %s after run = %q, want %q", envA, got, "orig-a")
-	}
-	if got := os.Getenv(envB); got != "orig-b" {
-		t.Errorf("env %s after run = %q, want %q", envB, got, "orig-b")
-	}
-}
-
-func TestGlobalEnvFlagInvalidAssignment(t *testing.T) {
-	cmd := &Command{
-		Use:   "test",
-		Short: "Test command",
-		Handler: func(ctx context.Context, inv *Invocation) error {
-			return nil
-		},
-	}
-
-	inv := cmd.Invoke("--env", "INVALID")
-	inv.Stdout = &bytes.Buffer{}
-	inv.Stderr = &bytes.Buffer{}
-
-	err := inv.Run()
-	if err == nil {
-		t.Fatalf("expected error for invalid --env assignment")
-	}
-
-	if !strings.Contains(err.Error(), "invalid --env value") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestDeprecatedFlag(t *testing.T) {
 	var deprecated string
 
@@ -875,5 +622,122 @@ func TestCommandInitHandlerValidation(t *testing.T) {
 				t.Fatalf("unexpected init error: %v", err)
 			}
 		})
+	}
+}
+
+func TestPrintCommandsJSON(t *testing.T) {
+	root := &Command{Use: "app"}
+	root.Children = append(root.Children,
+		&Command{
+			Use:     "deploy",
+			Short:   "Deploy app.",
+			Aliases: []string{"d"},
+			Handler: func(ctx context.Context, inv *Invocation) error { return nil },
+		},
+		&Command{
+			Use:     "secret",
+			Short:   "Hidden cmd.",
+			Hidden:  true,
+			Handler: func(ctx context.Context, inv *Invocation) error { return nil },
+		},
+	)
+
+	var buf bytes.Buffer
+	if err := PrintCommandsJSON(&buf, root); err != nil {
+		t.Fatalf("PrintCommandsJSON error: %v", err)
+	}
+
+	var cmds []listCommandJSON
+	if err := json.Unmarshal(buf.Bytes(), &cmds); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 command (hidden excluded), got %d", len(cmds))
+	}
+	if cmds[0].Path != "app:deploy" {
+		t.Fatalf("path = %q, want %q", cmds[0].Path, "app:deploy")
+	}
+	if cmds[0].Short != "Deploy app." {
+		t.Fatalf("short = %q, want %q", cmds[0].Short, "Deploy app.")
+	}
+	if len(cmds[0].Aliases) != 1 || cmds[0].Aliases[0] != "d" {
+		t.Fatalf("aliases = %v, want [d]", cmds[0].Aliases)
+	}
+	if !cmds[0].HasHandler {
+		t.Fatalf("hasHandler should be true")
+	}
+}
+
+func TestPrintFlagsJSON(t *testing.T) {
+	root := &Command{
+		Use: "app",
+		Options: OptionSet{
+			{Flag: "verbose", Shorthand: "v", Description: "Enable verbose.", Value: BoolOf(new(bool))},
+		},
+	}
+	root.Children = append(root.Children, &Command{
+		Use:   "run",
+		Short: "Run it.",
+		Options: OptionSet{
+			{Flag: "count", Description: "Count.", Value: Int64Of(new(int64)), Default: "1", Required: true},
+			{Flag: "internal", Hidden: true, Value: StringOf(new(string))},
+		},
+		Handler: func(ctx context.Context, inv *Invocation) error { return nil },
+	})
+
+	var buf bytes.Buffer
+	if err := PrintFlagsJSON(&buf, root); err != nil {
+		t.Fatalf("PrintFlagsJSON error: %v", err)
+	}
+
+	var flags []listFlagJSON
+	if err := json.Unmarshal(buf.Bytes(), &flags); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// Should have 1 global (verbose) + 1 command (count); hidden excluded
+	if len(flags) != 2 {
+		t.Fatalf("expected 2 flags, got %d: %+v", len(flags), flags)
+	}
+
+	// First should be global verbose
+	if flags[0].Flag != "verbose" || !flags[0].IsGlobal {
+		t.Fatalf("first flag = %+v, want global verbose", flags[0])
+	}
+
+	// Second should be count
+	if flags[1].Flag != "count" || flags[1].IsGlobal {
+		t.Fatalf("second flag = %+v, want non-global count", flags[1])
+	}
+	if !flags[1].Required {
+		t.Fatalf("count should be required")
+	}
+}
+
+func TestListCommandsFormatJSON(t *testing.T) {
+	root := &Command{Use: "app"}
+	root.Children = append(root.Children, &Command{
+		Use:     "hello",
+		Short:   "Say hi.",
+		Handler: func(ctx context.Context, inv *Invocation) error { return nil },
+	})
+
+	var buf bytes.Buffer
+	inv := root.Invoke("--list-commands", "--list-format", "json")
+	inv.Stdout = &buf
+	inv.Stderr = &bytes.Buffer{}
+	inv.Stdin = bytes.NewBuffer(nil)
+
+	if err := inv.Run(); err != nil {
+		t.Fatalf("run error: %v", err)
+	}
+
+	var cmds []listCommandJSON
+	if err := json.Unmarshal(buf.Bytes(), &cmds); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, buf.String())
+	}
+	if len(cmds) == 0 {
+		t.Fatalf("expected at least 1 command in JSON output")
 	}
 }

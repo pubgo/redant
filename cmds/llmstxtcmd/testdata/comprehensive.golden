@@ -1,0 +1,38 @@
+# myctl
+
+> My control tool.
+
+A comprehensive CLI tool for managing resources.
+
+## Global Options
+
+- `-o, --output enum[text\|json\|yaml]` — Output format. (default: text)
+
+## Commands
+
+### myctl deploy
+
+Deploy to environment.
+
+Deploy the application to the specified target environment.
+
+**Arguments:**
+
+- `target` — Target environment. (required)
+
+**Options:**
+
+- `-f, --force` — Force deploy.
+- `--count int64` — Instance count. (default: 1; required)
+- `--endpoint string` — Deploy endpoint. (default: https://deploy.example.com; env: DEPLOY_ENDPOINT)
+
+---
+
+#### myctl deploy rollback
+
+Rollback deployment.
+
+**DEPRECATED**: Use 'deploy --rollback' instead.
+
+---
+
