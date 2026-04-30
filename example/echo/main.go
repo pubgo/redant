@@ -14,6 +14,11 @@ func main() {
 	cmd := redant.Command{
 		Use:   "echo <text>",
 		Short: "Prints the given text to the console.",
+		Long: `Prints the given text to stdout.
+
+Examples:
+  echo hello
+  echo --upper hello`,
 		Options: redant.OptionSet{
 			{
 				Flag:        "upper",

@@ -61,18 +61,7 @@ flowchart TD
 | 环境变量回退 | `GIT_AUTHOR=alice app repo commit` | `Envs` 配置生效      |
 | 默认值       | 未传值时自动应用                   | 由 `Default` 指定    |
 
-内建全局标志：
-
-- `--args VALUE`：内部隐藏标志；支持重复与 CSV，用于覆盖命令位置参数。
-
-快速示例：
-
-```text
-app demo --args first --args second
-app demo --args first,second
-```
-
-说明：`--args` 为内部能力，默认不会出现在帮助信息与 `--list-flags` 输出中。
+> **内部标志**：`--args VALUE` 为框架内部保留标志（隐藏），仅用于 MCP/Web 等集成场景覆盖位置参数。业务代码无需关注。
 
 ## 4) 通用输入模板
 

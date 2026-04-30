@@ -1,6 +1,7 @@
 package redant
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/pflag"
@@ -99,7 +100,9 @@ func (optSet *OptionSet) FlagSet(name string) *pflag.FlagSet {
 
 		// Apply default value to the Value before adding the flag
 		if opt.Default != "" && val != DiscardValue {
-			_ = val.Set(opt.Default) // Ignore error, will be caught during validation
+			if err := val.Set(opt.Default); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: flag %q: invalid default value %q: %v\n", opt.Flag, opt.Default, err)
+			}
 		}
 
 		fs.AddFlag(&pflag.Flag{
@@ -130,10 +133,12 @@ func (optSet *OptionSet) FlagSet(name string) *pflag.FlagSet {
 		for _, envName := range opt.Envs {
 			if envValue := os.Getenv(envName); envValue != "" {
 				if flag := fs.Lookup(opt.Flag); flag != nil {
-					if err := flag.Value.Set(envValue); err == nil {
-						flag.Changed = true
-						break // Use the first non-empty value
+					if err := flag.Value.Set(envValue); err != nil {
+						fmt.Fprintf(os.Stderr, "warning: flag %q: invalid value from env %s=%q: %v\n", opt.Flag, envName, envValue, err)
+						continue
 					}
+					flag.Changed = true
+					break // Use the first non-empty value
 				}
 			}
 		}

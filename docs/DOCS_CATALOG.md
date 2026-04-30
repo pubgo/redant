@@ -33,6 +33,7 @@
 ## 5) 仓库外延入口（按需）
 
 - 项目总览：`README.md`
+- 示例分层索引：[`example/README.md`](../example/README.md)（入门 → 基础 → 进阶 → 综合）
 - 示例：`example/args-test/README.md`（参数解析示例）
 - 示例：`example/unary/README.md`（Unary 响应处理器示例）
 - 示例：`example/stream-interactive/README.md`（流式响应处理器示例）

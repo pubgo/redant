@@ -248,7 +248,7 @@ func ParseJSONArgs(jsonStr string) (map[string][]string, error) {
 		return values, nil
 	}
 
-	return nil, fmt.Errorf("invalid JSON format")
+	return nil, fmt.Errorf("invalid JSON format, expected object {\"key\":\"value\"} or array [\"a\",\"b\"]")
 }
 
 // GlobalFlags returns the default global flags that should be added to every command

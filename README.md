@@ -34,6 +34,10 @@ README 仅保留“快速上手 + 能力入口”。详细设计与流程请跳�
 
 ## 快速开始
 
+### 第一步：最小命令
+
+只需一个 `Command` + `Handler`，3 行核心代码即可跑起：
+
 ```go
 package main
 
@@ -65,6 +69,54 @@ func main() {
 }
 ```
 
+### 第二步：添加标志
+
+通过 `Options` 声明标志，支持命令行、环境变量、默认值三种来源：
+
+```go
+var upper bool
+cmd := redant.Command{
+    Use:   "echo <text>",
+    Short: "输出传入文本",
+    Options: redant.OptionSet{
+        {
+            Flag:        "upper",
+            Shorthand:   "u",
+            Description: "输出大写",
+            Value:       redant.BoolOf(&upper),
+        },
+    },
+    Handler: func(ctx context.Context, inv *redant.Invocation) error {
+        // upper 已由框架自动解析
+        fmt.Fprintln(inv.Stdout, inv.Args[0])
+        return nil
+    },
+}
+```
+
+### 第三步：加子命令
+
+用 `Children` 挂载子命令，标志自动继承：
+
+```go
+root := redant.Command{
+    Use:   "app",
+    Short: "我的 CLI 工具",
+    Children: []*redant.Command{
+        {
+            Use:   "greet <name>",
+            Short: "打招呼",
+            Handler: func(ctx context.Context, inv *redant.Invocation) error {
+                fmt.Fprintf(inv.Stdout, "Hello, %s!\n", inv.Args[0])
+                return nil
+            },
+        },
+    },
+}
+```
+
+更多进阶用法（中间件、结构化响应、MCP/Web 集成）见 [`docs/USAGE_AT_A_GLANCE.md`](docs/USAGE_AT_A_GLANCE.md)。
+
 ## 常用能力速览
 
 ### 参数与标志
@@ -78,7 +130,6 @@ func main() {
 - `--help, -h`
 - `--list-commands`
 - `--list-flags`
-- `--args VALUE`（内部隐藏，用于覆盖位置参数）
 
 详细解析规则见：[`docs/USAGE_AT_A_GLANCE.md`](docs/USAGE_AT_A_GLANCE.md)。
 
@@ -168,12 +219,18 @@ cmd := &redant.Command{
 
 ## 示例目录
 
-- `example/demo`：综合示例
-- `example/echo`：最小命令示例
-- `example/env-test`：环境变量示例
-- `example/globalflags`：全局标志示例
-- `example/args-test`：参数解析示例
-- `example/stream-interactive`：交互流（结构化输出 + 内建响应流）完整示例
+按学习路径推荐顺序：
+
+| 阶段 | 示例                         | 说明                                 |
+| ---- | ---------------------------- | ------------------------------------ |
+| 入门 | `example/echo`               | 最小命令（Handler + Flag + 中间件）  |
+| 基础 | `example/globalflags`        | 全局标志与环境变量回退               |
+| 基础 | `example/env-test`           | 环境变量配置示例                     |
+| 进阶 | `example/args-test`          | 四种参数形态（位置/query/form/JSON） |
+| 进阶 | `example/unary`              | 结构化响应（ResponseHandler）        |
+| 进阶 | `example/stream-interactive` | 交互流（ResponseStreamHandler）      |
+| 综合 | `example/demo`               | 子命令树 + 多模块集成                |
+| 综合 | `example/fastcommit`         | 全功能展示（Web/MCP/Viz/Doc）        |
 
 ## 开发与维护
 
