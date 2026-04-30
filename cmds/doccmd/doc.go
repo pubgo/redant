@@ -292,12 +292,9 @@ const docHTML = `<!doctype html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Command Documentation</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({ startOnLoad: false, theme: 'dark' });</script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script type="module">
-        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-        mermaid.initialize({ startOnLoad: false, theme: 'dark' });
-        window.mermaidAPI = mermaid;
-    </script>
     <style>
         [x-cloak] { display: none !important; }
         .tree-item { transition: background-color 0.15s; }
@@ -448,19 +445,31 @@ const docHTML = `<!doctype html>
         <!-- Tab: Command Tree Diagram -->
         <div x-show="activeTab === 'tree-diagram'" class="p-6">
             <h2 class="text-lg font-semibold text-slate-200 mb-4">命令树结构图</h2>
-            <div id="mermaid-tree" class="bg-slate-900/50 rounded-lg p-4 overflow-auto"></div>
+            <div class="bg-slate-900/50 rounded-lg p-4 overflow-auto">
+                <div x-show="!diagramsRendered['tree-diagram']" class="text-slate-500 text-sm">加载中...</div>
+                <pre id="mermaid-tree" class="mermaid" x-ref="mermaidTree" style="display:none"></pre>
+                <div id="mermaid-tree-error" class="hidden text-red-400 text-xs whitespace-pre-wrap"></div>
+            </div>
         </div>
 
         <!-- Tab: Dispatch Flow -->
         <div x-show="activeTab === 'dispatch'" class="p-6">
             <h2 class="text-lg font-semibold text-slate-200 mb-4">命令分发流程</h2>
-            <div id="mermaid-dispatch" class="bg-slate-900/50 rounded-lg p-4 overflow-auto"></div>
+            <div class="bg-slate-900/50 rounded-lg p-4 overflow-auto">
+                <div x-show="!diagramsRendered['dispatch']" class="text-slate-500 text-sm">加载中...</div>
+                <pre id="mermaid-dispatch" class="mermaid" x-ref="mermaidDispatch" style="display:none"></pre>
+                <div id="mermaid-dispatch-error" class="hidden text-red-400 text-xs whitespace-pre-wrap"></div>
+            </div>
         </div>
 
         <!-- Tab: MCP Sequence -->
         <div x-show="activeTab === 'mcp'" class="p-6">
             <h2 class="text-lg font-semibold text-slate-200 mb-4">MCP 调用时序</h2>
-            <div id="mermaid-mcp" class="bg-slate-900/50 rounded-lg p-4 overflow-auto"></div>
+            <div class="bg-slate-900/50 rounded-lg p-4 overflow-auto">
+                <div x-show="!diagramsRendered['mcp']" class="text-slate-500 text-sm">加载中...</div>
+                <pre id="mermaid-mcp" class="mermaid" x-ref="mermaidMcp" style="display:none"></pre>
+                <div id="mermaid-mcp-error" class="hidden text-red-400 text-xs whitespace-pre-wrap"></div>
+            </div>
         </div>
     </main>
 </div>
@@ -544,24 +553,38 @@ function docApp() {
 
         async renderDiagram(tab) {
             const mapping = {
-                'tree-diagram': { el: 'mermaid-tree', api: '/api/diagram/tree' },
-                'dispatch': { el: 'mermaid-dispatch', api: '/api/diagram/dispatch' },
-                'mcp': { el: 'mermaid-mcp', api: '/api/diagram/mcp' },
+                'tree-diagram': { el: 'mermaid-tree', err: 'mermaid-tree-error', api: '/api/diagram/tree' },
+                'dispatch': { el: 'mermaid-dispatch', err: 'mermaid-dispatch-error', api: '/api/diagram/dispatch' },
+                'mcp': { el: 'mermaid-mcp', err: 'mermaid-mcp-error', api: '/api/diagram/mcp' },
             };
             const cfg = mapping[tab];
             if (!cfg || this.diagramsRendered[tab]) return;
 
-            const res = await fetch(cfg.api);
-            const src = await res.text();
             const el = document.getElementById(cfg.el);
+            const errEl = document.getElementById(cfg.err);
             if (!el) return;
 
             try {
-                const { svg } = await window.mermaidAPI.render(cfg.el + '-svg', src);
-                el.innerHTML = svg;
+                const res = await fetch(cfg.api);
+                const src = await res.text();
+                if (!src || !src.trim()) {
+                    if (errEl) { errEl.textContent = '图表数据为空'; errEl.classList.remove('hidden'); }
+                    this.diagramsRendered[tab] = true;
+                    return;
+                }
+
+                el.textContent = src;
+                el.removeAttribute('data-processed');
+                el.style.display = '';
+                await mermaid.run({ nodes: [el] });
                 this.diagramsRendered[tab] = true;
             } catch (e) {
-                el.innerHTML = '<pre class="text-red-400 text-xs whitespace-pre-wrap">' + e.message + '</pre><pre class="text-slate-500 text-xs mt-2 whitespace-pre-wrap">' + src.replace(/</g,'&lt;') + '</pre>';
+                el.style.display = 'none';
+                if (errEl) {
+                    errEl.innerHTML = '<strong>渲染失败:</strong> ' + (e.message || e).toString().replace(/</g, '&lt;');
+                    errEl.classList.remove('hidden');
+                }
+                this.diagramsRendered[tab] = true;
             }
         },
     };
