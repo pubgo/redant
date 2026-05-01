@@ -10,9 +10,7 @@
 - 当任务是 PR 审查 / review comment 处理 / 审查结论整理时，优先进入审查模式并遵循：
 	- `.github/instructions/pr-review.instructions.md`
 	- `.github/instructions/pr-review-golang.instructions.md`
-	- `.github/instructions/pr-review-javascript.instructions.md`
-	- `.github/instructions/pr-review-shell.instructions.md`
-- 审查模式下输出要求以审查规则文件为准（分类标签、证据链、Review Conclusion、评论模板与去重规则）。
+- 审查规则的单一事实来源为 `docs/review/` 目录（轮次流程、评论模板、分类定义）。
 
 ## 技术栈与目标
 
