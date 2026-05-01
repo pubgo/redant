@@ -61,7 +61,7 @@ flowchart TD
 | 环境变量回退 | `GIT_AUTHOR=alice app repo commit` | `Envs` 配置生效      |
 | 默认值       | 未传值时自动应用                   | 由 `Default` 指定    |
 
-> **内部标志**：`--args VALUE` 为框架内部保留标志（隐藏），仅用于 MCP/Web 等集成场景覆盖位置参数。业务代码无需关注。
+> **内部标志**：`--redant-args VALUE` 为框架内部保留标志（隐藏），仅用于 MCP/Web 等集成场景覆盖位置参数。业务代码无需关注。
 
 ## 4) 通用输入模板
 

@@ -332,7 +332,13 @@ func reflectTypeSchema(t reflect.Type) map[string]any {
 	return reflectTypeSchemaInner(t, 0)
 }
 
+// maxSchemaDepth caps recursion depth to prevent infinite expansion on
+// recursive or deeply nested types. Depth 5 covers most practical CLI
+// response structs; types beyond this threshold are emitted as {"type":"object"}.
 const maxSchemaDepth = 5
+
+// timeType is cached for fast comparison in schema generation.
+var timeType = reflect.TypeOf(time.Time{})
 
 func reflectTypeSchemaInner(t reflect.Type, depth int) map[string]any {
 	if depth > maxSchemaDepth {
@@ -342,6 +348,11 @@ func reflectTypeSchemaInner(t reflect.Type, depth int) map[string]any {
 	// Dereference pointer.
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
+	}
+
+	// Special-case time.Time: encoding/json serialises it as RFC 3339 string.
+	if t == timeType {
+		return map[string]any{"type": "string", "format": "date-time"}
 	}
 
 	switch t.Kind() {
@@ -357,6 +368,10 @@ func reflectTypeSchemaInner(t reflect.Type, depth int) map[string]any {
 		return map[string]any{"type": "string"}
 
 	case reflect.Slice, reflect.Array:
+		// []byte is base64-encoded by encoding/json.
+		if t.Elem().Kind() == reflect.Uint8 {
+			return map[string]any{"type": "string", "format": "byte"}
+		}
 		return map[string]any{
 			"type":  "array",
 			"items": reflectTypeSchemaInner(t.Elem(), depth+1),
@@ -370,43 +385,62 @@ func reflectTypeSchemaInner(t reflect.Type, depth int) map[string]any {
 
 	case reflect.Struct:
 		props := map[string]any{}
-		for i := range t.NumField() {
-			f := t.Field(i)
-			if !f.IsExported() {
-				continue
-			}
-			name := f.Name
-			omitempty := false
-			if tag, ok := f.Tag.Lookup("json"); ok {
-				parts := splitTag(tag)
-				if parts[0] == "-" {
-					continue
-				}
-				if parts[0] != "" {
-					name = parts[0]
-				}
-				for _, p := range parts[1:] {
-					if p == "omitempty" {
-						omitempty = true
-					}
-				}
-			}
-			fieldSchema := reflectTypeSchemaInner(f.Type, depth+1)
-			if omitempty {
-				fieldSchema["x-omitempty"] = true
-			}
-			props[name] = fieldSchema
-		}
+		collectStructFields(t, props, depth)
 		return map[string]any{
 			"type":       "object",
 			"properties": props,
 		}
 
 	case reflect.Interface:
-		return map[string]any{}
+		return map[string]any{"type": "object", "description": "any value"}
 
 	default:
 		return map[string]any{"type": "string"}
+	}
+}
+
+// collectStructFields walks exported fields, flattening anonymous (embedded)
+// fields into the parent properties map to match encoding/json behaviour.
+func collectStructFields(t reflect.Type, props map[string]any, depth int) {
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+
+		// Flatten anonymous (embedded) fields.
+		if f.Anonymous {
+			ft := f.Type
+			for ft.Kind() == reflect.Ptr {
+				ft = ft.Elem()
+			}
+			if ft.Kind() == reflect.Struct {
+				collectStructFields(ft, props, depth)
+				continue
+			}
+		}
+
+		name := f.Name
+		omitempty := false
+		if tag, ok := f.Tag.Lookup("json"); ok {
+			parts := splitTag(tag)
+			if parts[0] == "-" {
+				continue
+			}
+			if parts[0] != "" {
+				name = parts[0]
+			}
+			for _, p := range parts[1:] {
+				if p == "omitempty" {
+					omitempty = true
+				}
+			}
+		}
+		fieldSchema := reflectTypeSchemaInner(f.Type, depth+1)
+		if omitempty {
+			fieldSchema["x-omitempty"] = true
+		}
+		props[name] = fieldSchema
 	}
 }
 

@@ -29,7 +29,9 @@ func (s *Server) registerResources() {
 		MIMEType:    "text/markdown",
 	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		var buf bytes.Buffer
-		_ = llmstxtcmd.WriteLLMSTxt(&buf, s.root, 0)
+		if err := llmstxtcmd.WriteLLMSTxt(&buf, s.root, 0); err != nil {
+			return nil, fmt.Errorf("generating llms.txt: %w", err)
+		}
 		return &mcp.ReadResourceResult{
 			Contents: []*mcp.ResourceContents{{
 				URI:      req.Params.URI,

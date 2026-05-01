@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -564,7 +565,7 @@ func TestInternalArgsFlagOverridesParsedArgs(t *testing.T) {
 		},
 	}
 
-	inv := cmd.Invoke("from-cli-1", "from-cli-2", "--args", "from-flag-1", "--args", "from-flag-2")
+	inv := cmd.Invoke("from-cli-1", "from-cli-2", "--redant-args", "from-flag-1", "--redant-args", "from-flag-2")
 	inv.Stdout = &bytes.Buffer{}
 	inv.Stderr = &bytes.Buffer{}
 
@@ -578,6 +579,36 @@ func TestInternalArgsFlagOverridesParsedArgs(t *testing.T) {
 	}
 	if gotSecond != "from-flag-2" {
 		t.Fatalf("second arg value = %q, want %q", gotSecond, "from-flag-2")
+	}
+}
+
+func TestInternalArgsFlagDoesNotConflictWithUserArgs(t *testing.T) {
+	// A user command defining its own --args flag should not conflict with
+	// the internal redant-args flag.
+	var userArgs string
+
+	cmd := &Command{
+		Use:   "app",
+		Short: "test no conflict with user --args",
+		Options: OptionSet{
+			{Flag: "args", Description: "user-defined args flag", Value: StringOf(&userArgs)},
+		},
+		Handler: func(ctx context.Context, inv *Invocation) error {
+			return nil
+		},
+	}
+
+	inv := cmd.Invoke("--args", "my-value")
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+
+	err := inv.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if userArgs != "my-value" {
+		t.Fatalf("user --args = %q, want %q", userArgs, "my-value")
 	}
 }
 
@@ -739,5 +770,35 @@ func TestListCommandsFormatJSON(t *testing.T) {
 	}
 	if len(cmds) == 0 {
 		t.Fatalf("expected at least 1 command in JSON output")
+	}
+}
+
+func TestOptionSetFlagSetWarnsOnInvalidDefault(t *testing.T) {
+	opts := OptionSet{
+		{Flag: "count", Description: "a count", Value: Int64Of(new(int64)), Default: "not-a-number"},
+	}
+
+	// Redirect stderr to capture warning output.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	origStderr := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = origStderr }()
+
+	fs := opts.FlagSet("test")
+	if fs == nil {
+		t.Fatal("FlagSet returned nil")
+	}
+
+	_ = w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	_ = r.Close()
+
+	output := buf.String()
+	if !strings.Contains(output, "warning") || !strings.Contains(output, "count") {
+		t.Fatalf("expected stderr warning about flag %q, got: %q", "count", output)
 	}
 }

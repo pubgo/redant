@@ -25,7 +25,9 @@ func (s *Server) registerPrompts() {
 		Description: fmt.Sprintf("Overview of %s CLI: available commands, global flags, and usage patterns.", appName),
 	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		var buf bytes.Buffer
-		_ = llmstxtcmd.WriteLLMSTxt(&buf, s.root, 0)
+		if err := llmstxtcmd.WriteLLMSTxt(&buf, s.root, 0); err != nil {
+			return nil, fmt.Errorf("generating llms.txt for prompt: %w", err)
+		}
 		return &mcp.GetPromptResult{
 			Description: fmt.Sprintf("Overview of %s CLI", appName),
 			Messages: []*mcp.PromptMessage{{

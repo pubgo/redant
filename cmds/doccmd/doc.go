@@ -580,7 +580,7 @@ function docApp() {
             } catch (e) {
                 el.style.display = 'none';
                 if (errEl) {
-                    errEl.innerHTML = '<strong>渲染失败:</strong> ' + (e.message || e).toString().replace(/</g, '&lt;');
+                    errEl.textContent = '渲染失败: ' + (e.message || e).toString();
                     errEl.classList.remove('hidden');
                 }
                 this.diagramsRendered[tab] = true;

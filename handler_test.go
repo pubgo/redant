@@ -457,3 +457,72 @@ func TestStreamEnvelopeSeqAndTs(t *testing.T) {
 		}
 	}
 }
+
+func TestReflectTypeSchemaTimeTime(t *testing.T) {
+	schema := reflectTypeSchema(reflect.TypeOf(time.Time{}))
+	if schema == nil {
+		t.Fatal("schema is nil")
+	}
+	if got, _ := schema["type"].(string); got != "string" {
+		t.Fatalf("type = %q, want string", got)
+	}
+	if got, _ := schema["format"].(string); got != "date-time" {
+		t.Fatalf("format = %q, want date-time", got)
+	}
+}
+
+func TestReflectTypeSchemaByteSlice(t *testing.T) {
+	schema := reflectTypeSchema(reflect.TypeOf([]byte{}))
+	if schema == nil {
+		t.Fatal("schema is nil")
+	}
+	if got, _ := schema["type"].(string); got != "string" {
+		t.Fatalf("type = %q, want string", got)
+	}
+	if got, _ := schema["format"].(string); got != "byte" {
+		t.Fatalf("format = %q, want byte", got)
+	}
+}
+
+func TestReflectTypeSchemaEmbeddedStruct(t *testing.T) {
+	type Base struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	}
+	type Extended struct {
+		Base
+		Extra string `json:"extra"`
+	}
+
+	schema := reflectTypeSchema(reflect.TypeOf(Extended{}))
+	if schema == nil {
+		t.Fatal("schema is nil")
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("properties missing")
+	}
+	// Anonymous fields should be flattened.
+	for _, field := range []string{"id", "name", "extra"} {
+		if _, exists := props[field]; !exists {
+			t.Errorf("missing flattened property %q", field)
+		}
+	}
+	// Embedded struct should NOT appear as a separate key.
+	if _, exists := props["Base"]; exists {
+		t.Error("anonymous field 'Base' should be flattened, not nested")
+	}
+}
+
+func TestReflectTypeSchemaInterface(t *testing.T) {
+	schema := reflectTypeSchema(reflect.TypeOf((*any)(nil)).Elem())
+	if schema == nil {
+		t.Fatal("schema is nil")
+	}
+	if got, _ := schema["type"].(string); got != "object" {
+		t.Fatalf("type = %q, want object", got)
+	}
+	if _, ok := schema["description"]; !ok {
+		t.Fatal("interface schema should have description")
+	}
+}

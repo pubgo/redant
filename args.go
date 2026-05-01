@@ -63,7 +63,7 @@ import (
 
 // ArgValidator is a function that validates an argument.
 
-const internalArgsOverrideFlag = "args"
+const internalArgsOverrideFlag = "redant-args"
 
 type ArgSet []Arg
 
