@@ -24,6 +24,7 @@ README 仅保留“快速上手 + 能力入口”。详细设计与流程请跳�
 - Busybox 风格 argv0 调度（软链接命令入口）
 - MCP 工具暴露（将命令树映射为 Model Context Protocol Tools）
 - Web 控制台（`web` 子命令）：可视化选择命令、填写 Flags/Args、查看调用过程与执行结果
+- 可视化命令（`viz` / `doc`）：Mermaid 图生成与交互式文档站
 
 ## 仓库范围说明
 
@@ -32,6 +33,10 @@ README 仅保留“快速上手 + 能力入口”。详细设计与流程请跳�
 - 如需 Agent 交互与 Copilot 集成演示，请在迁移后的项目中使用对应目录与示例。
 
 ## 快速开始
+
+### 第一步：最小命令
+
+只需一个 `Command` + `Handler`，3 行核心代码即可跑起：
 
 ```go
 package main
@@ -64,6 +69,54 @@ func main() {
 }
 ```
 
+### 第二步：添加标志
+
+通过 `Options` 声明标志，支持命令行、环境变量、默认值三种来源：
+
+```go
+var upper bool
+cmd := redant.Command{
+    Use:   "echo <text>",
+    Short: "输出传入文本",
+    Options: redant.OptionSet{
+        {
+            Flag:        "upper",
+            Shorthand:   "u",
+            Description: "输出大写",
+            Value:       redant.BoolOf(&upper),
+        },
+    },
+    Handler: func(ctx context.Context, inv *redant.Invocation) error {
+        // upper 已由框架自动解析
+        fmt.Fprintln(inv.Stdout, inv.Args[0])
+        return nil
+    },
+}
+```
+
+### 第三步：加子命令
+
+用 `Children` 挂载子命令，标志自动继承：
+
+```go
+root := redant.Command{
+    Use:   "app",
+    Short: "我的 CLI 工具",
+    Children: []*redant.Command{
+        {
+            Use:   "greet <name>",
+            Short: "打招呼",
+            Handler: func(ctx context.Context, inv *redant.Invocation) error {
+                fmt.Fprintf(inv.Stdout, "Hello, %s!\n", inv.Args[0])
+                return nil
+            },
+        },
+    },
+}
+```
+
+更多进阶用法（中间件、结构化响应、MCP/Web 集成）见 [`docs/USAGE_AT_A_GLANCE.md`](docs/USAGE_AT_A_GLANCE.md)。
+
 ## 常用能力速览
 
 ### 参数与标志
@@ -77,9 +130,6 @@ func main() {
 - `--help, -h`
 - `--list-commands`
 - `--list-flags`
-- `--env, -e KEY=VALUE`
-- `--env-file FILE`
-- `--args VALUE`（内部隐藏，用于覆盖位置参数）
 
 详细解析规则见：[`docs/USAGE_AT_A_GLANCE.md`](docs/USAGE_AT_A_GLANCE.md)。
 
@@ -100,6 +150,15 @@ app webtty --addr 127.0.0.1:18081 --open=false
 ```
 
 `webtty` 提供最简本地 Web 终端能力（`WebSocket + PTY`），并支持文件上传/下载。详细接口与迭代路线见：[`docs/WEBTTY.md`](docs/WEBTTY.md)。
+
+### 交互式文档站
+
+```text
+app doc                           # 启动交互式文档站（类 Swagger UI）
+app doc --addr 127.0.0.1:18081 --open=false
+```
+
+`doc` 命令从命令树自动生成交互式文档站，包含命令搜索、参数/选项表格与 Mermaid 图渲染。
 
 ### Richline 交互终端（可选挂载）
 
@@ -126,20 +185,54 @@ app mcp serve --transport stdio
 
 MCP 输入/输出协议、Schema 规则与排查建议见：[`docs/MCP.md`](docs/MCP.md)。
 
+### LLM / Agent 集成
+
+Redant 内建多层 LLM 友好接口，便于 AI Agent 发现和调用命令：
+
+| 能力         | 入口                           | 说明                                                          |
+| ------------ | ------------------------------ | ------------------------------------------------------------- |
+| 命令树文档   | `app llms-txt`                 | 输出 Markdown 格式命令树（命令、参数、选项、响应类型）        |
+| MCP 工具映射 | `app mcp serve`                | 将命令树自动暴露为 MCP Tools（含 inputSchema / outputSchema） |
+| MCP 资源     | `redant://<app>/llms.txt`      | 完整命令树文档资源                                            |
+| MCP 资源     | `redant://<app>/help/<tool>`   | 单命令 Markdown 帮助                                          |
+| MCP 资源     | `redant://<app>/schema/<tool>` | 单命令 JSON Schema（input + output）                          |
+| MCP Prompts  | `<app>-overview`               | 全局命令概览提示模板                                          |
+| MCP Prompts  | `use-<tool>`                   | 单命令调用指南提示模板                                        |
+| Agent Hints  | `Metadata` 字段                | 标记命令只读/幂等/危险等语义，映射到 tool description         |
+
+**Agent Hints 用法示例**：
+
+```go
+cmd := &redant.Command{
+    Use:   "delete",
+    Short: "Delete a resource.",
+    Metadata: map[string]string{
+        "agent.destructive":          "true",
+        "agent.requires-confirmation": "true",
+    },
+    Handler: deleteHandler,
+}
+```
+
 ## 示例目录
 
-- `example/demo`：综合示例
-- `example/echo`：最小命令示例
-- `example/env-test`：环境变量示例
-- `example/globalflags`：全局标志示例
-- `example/args-test`：参数解析示例
-- `example/stream-interactive`：交互流（结构化输出 + 内建响应流）完整示例
+按学习路径推荐顺序：
+
+| 阶段 | 示例                         | 说明                                 |
+| ---- | ---------------------------- | ------------------------------------ |
+| 入门 | `example/echo`               | 最小命令（Handler + Flag + 中间件）  |
+| 基础 | `example/globalflags`        | 全局标志与环境变量回退               |
+| 基础 | `example/env-test`           | 环境变量配置示例                     |
+| 进阶 | `example/args-test`          | 四种参数形态（位置/query/form/JSON） |
+| 进阶 | `example/unary`              | 结构化响应（ResponseHandler）        |
+| 进阶 | `example/stream-interactive` | 交互流（ResponseStreamHandler）      |
+| 综合 | `example/demo`               | 子命令树 + 多模块集成                |
+| 综合 | `example/fastcommit`         | 全功能展示（Web/MCP/Viz/Doc）        |
 
 ## 开发与维护
 
 - 文档入口：[`docs/INDEX.md`](docs/INDEX.md)
 - 变更记录：[`.version/changelog/README.md`](.version/changelog/README.md)
-- 文档/变更维护提示：[`docs/CHANGELOG_LLM_PROMPT.md`](docs/CHANGELOG_LLM_PROMPT.md)
 
 ## 许可证
 

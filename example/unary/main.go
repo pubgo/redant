@@ -21,6 +21,12 @@ func main() {
 	versionCmd := &redant.Command{
 		Use:   "version",
 		Short: "返回版本信息（Unary ResponseHandler 示例）",
+		Long: `返回结构化版本信息，展示 Unary ResponseHandler 用法。
+
+响应会自动以 NDJSON envelope 输出到 stdout。
+
+Examples:
+  unary-demo version`,
 		ResponseHandler: redant.Unary(func(ctx context.Context, inv *redant.Invocation) (VersionInfo, error) {
 			return VersionInfo{
 				Version:   "1.2.3",
@@ -33,6 +39,7 @@ func main() {
 	root := &redant.Command{
 		Use:      "unary-demo",
 		Short:    "Unary 响应处理器示例",
+		Long:     "演示如何使用 ResponseHandler 返回结构化 JSON 响应。",
 		Children: []*redant.Command{versionCmd},
 	}
 

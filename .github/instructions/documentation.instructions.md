@@ -32,5 +32,4 @@ applyTo: "**/*.md"
 ## Changelog 联动
 
 - 变更日志遵循 `.version/changelog/` 现有结构：`新增 / 修复 / 变更 / 文档`。
-- 自动维护建议优先参考 `docs/CHANGELOG_LLM_PROMPT.md`。
-- 发布前落版建议通过 agent 提示词执行：`/changelog-maintenance draft|release`。
+- 建议通过 agent 提示词执行：`/changelog draft|release`。

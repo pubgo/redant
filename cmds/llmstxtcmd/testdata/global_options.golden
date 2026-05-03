@@ -1,0 +1,17 @@
+# app
+
+> App with globals.
+
+## Global Options
+
+- `-v, --verbose` — Enable verbose.
+- `--config string` — Config file path. (env: APP_CONFIG)
+
+## Commands
+
+### app run
+
+Run something.
+
+---
+

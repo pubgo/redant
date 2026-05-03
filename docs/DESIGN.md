@@ -77,7 +77,7 @@ flowchart TD
 关键点：
 
 - 参数解析发生在命令定位与标志合并之后。
-- 非 `RawArgs` 模式下，若设置隐藏内部标志 `--args`，则在参数解析前用其值覆盖 `inv.Args`（支持重复与 CSV）。
+- 非 `RawArgs` 模式下，若设置隐藏内部标志 `--redant-args`，则在参数解析前用其值覆盖 `inv.Args`（支持重复与 CSV）。
 - `RawArgs=true` 时，命令自行处理参数；框架不做常规标志解析。
 - 对于复杂参数场景，建议在处理器中显式调用 `ParseQueryArgs`、`ParseFormArgs`、`ParseJSONArgs`。
 
@@ -121,17 +121,18 @@ stateDiagram-v2
 
 ## 5. 模块职责
 
-| 模块           | 主要文件                             | 说明                                            |
-| -------------- | ------------------------------------ | ----------------------------------------------- |
-| 命令系统       | `command.go`                         | 命令树、命令查找、执行流程                      |
-| 选项系统       | `option.go`                          | 标志定义、FlagSet 构建                          |
-| 参数系统       | `args.go`                            | 多格式参数解析（查询串/表单/JSON）              |
-| 值类型系统     | `flags.go`                           | 自定义 `pflag.Value` 类型集合                   |
-| 帮助系统       | `help.go` / `help.tpl`               | 帮助渲染、命令与标志展示                        |
-| 中间件与处理器 | `handler.go`                         | 执行链组装与业务回调                            |
-| MCP 集成       | `internal/mcpserver` + `cmds/mcpcmd` | 命令树到 MCP Tools 的映射与 stdio 服务          |
-| Web 控制台     | `cmds/webcmd` + `internal/webui`     | 可视化命令调试、调用过程展示与执行回放          |
-| WebTTY         | `cmds/webttycmd`                     | 最简本地 Web 终端、文件上传/下载与 PTY 信号转发 |
+| 模块           | 主要文件                             | 说明                                               |
+| -------------- | ------------------------------------ | -------------------------------------------------- |
+| 命令系统       | `command.go`                         | 命令树、命令查找、执行流程                         |
+| 选项系统       | `option.go`                          | 标志定义、FlagSet 构建                             |
+| 参数系统       | `args.go`                            | 多格式参数解析（查询串/表单/JSON）                 |
+| 值类型系统     | `flags.go`                           | 自定义 `pflag.Value` 类型集合                      |
+| 帮助系统       | `help.go` / `help.tpl`               | 帮助渲染、命令与标志展示                           |
+| 中间件与处理器 | `handler.go`                         | 执行链组装与业务回调                               |
+| MCP 集成       | `internal/mcpserver` + `cmds/mcpcmd` | 命令树到 MCP Tools 的映射与 stdio 服务             |
+| Web 控制台     | `cmds/webcmd` + `internal/webui`     | 可视化命令调试、调用过程展示与执行回放             |
+| WebTTY         | `cmds/webttycmd`                     | 最简本地 Web 终端、文件上传/下载与 PTY 信号转发    |
+| 文档站         | `cmds/doccmd`                        | 交互式命令文档站（类 Swagger UI），内置 Mermaid 图 |
 
 ### 5.1 Web 调用过程重建（可观测性）
 

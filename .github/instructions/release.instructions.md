@@ -15,12 +15,13 @@ description: "Use when preparing a release or completing behavior-impacting chan
 
 ## 质量门槛
 
-- 至少完成相关范围测试；条件允许时执行完整测试回归。
+- 执行完整回归：`task test`、`task vet`、`task lint`，三项均通过。
 - 不以“暂时跳过测试/校验”作为发布前状态。
 - 仅基于真实改动与真实测试结果编写发布说明，不杜撰。
 
-## 落版约束提示
+## 落版流程
 
-- 若进入正式落版，版本号来源于 `.version/VERSION`。
-- 落版后应重建 `Unreleased` 模板并更新 changelog 索引。
+- 首选通过 agent 提示词执行：`/changelog release`。
+- 版本号来源于 `.version/VERSION`；若版本文件已存在，需确认是否递增。
+- 落版后重建 `Unreleased` 模板并更新 changelog 索引。
 - changelog 结构与落版细节以 `.github/instructions/changelog.instructions.md` 为准。

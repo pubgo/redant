@@ -14,6 +14,10 @@
 - [`INTERACTIVE_STREAMING.md`](INTERACTIVE_STREAMING.md)：交互式命令与结构化响应流方案。
 - [`EVALUATION.md`](EVALUATION.md)：质量评估、风险与优化建议。
 
+## 2.5) 可视化与文档生成
+
+- `cmds/doccmd/`：交互式命令文档站（`doc`），自动生成类 Swagger UI 的浏览界面，内置 Mermaid 图渲染。
+
 ## 3) PR 审查体系（聚合）
 
 - [`review/PR_REVIEW_RUBRIC.md`](review/PR_REVIEW_RUBRIC.md)：分轮审查基线（含零输入自动全量模式）。
@@ -22,12 +26,13 @@
 
 ## 4) 发布与变更维护
 
-- [`CHANGELOG_LLM_PROMPT.md`](CHANGELOG_LLM_PROMPT.md)：changelog 自动维护提示词。
+- 变更日志维护：`/changelog draft|release`。
 - 版本日志目录：`.version/changelog/`（Unreleased 与版本落版记录）。
 
 ## 5) 仓库外延入口（按需）
 
 - 项目总览：`README.md`
+- 示例分层索引：[`example/README.md`](../example/README.md)（入门 → 基础 → 进阶 → 综合）
 - 示例：`example/args-test/README.md`（参数解析示例）
 - 示例：`example/unary/README.md`（Unary 响应处理器示例）
 - 示例：`example/stream-interactive/README.md`（流式响应处理器示例）

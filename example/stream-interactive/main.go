@@ -15,6 +15,13 @@ func main() {
 	chatCmd := &redant.Command{
 		Use:   "chat [topic]",
 		Short: "交互式聊天示例（ResponseStreamHandler）",
+		Long: `交互式聊天命令，展示 ResponseStreamHandler 流式输出用法。
+
+响应以 NDJSON 流逐条输出到 stdout。
+
+Examples:
+  stream-demo chat
+  stream-demo chat --persona bot AI`,
 		Options: redant.OptionSet{
 			{
 				Flag:        "persona",

@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -769,6 +771,137 @@ func PrintFlags(rootCmd *Command) {
 	if !hasCommandFlags && len(globalFlags) == 0 {
 		fmt.Println("No flags available.")
 	}
+}
+
+// listCommandJSON is the JSON representation of a command for --list-commands --list-format json.
+type listCommandJSON struct {
+	Path       string   `json:"path"`
+	Short      string   `json:"short,omitempty"`
+	Aliases    []string `json:"aliases,omitempty"`
+	Deprecated string   `json:"deprecated,omitempty"`
+	HasHandler bool     `json:"hasHandler"`
+}
+
+// PrintCommandsJSON writes all commands as a JSON array to w.
+func PrintCommandsJSON(w io.Writer, cmd *Command) error {
+	var commands []listCommandJSON
+
+	var walk func(c *Command, prefix string)
+	walk = func(c *Command, prefix string) {
+		if c.Hidden {
+			return
+		}
+		var fullPath string
+		if prefix == "" {
+			fullPath = c.Name()
+		} else {
+			fullPath = prefix + ":" + c.Name()
+		}
+		commands = append(commands, listCommandJSON{
+			Path:       fullPath,
+			Short:      c.Short,
+			Aliases:    c.Aliases,
+			Deprecated: c.Deprecated,
+			HasHandler: c.Handler != nil || c.ResponseHandler != nil || c.ResponseStreamHandler != nil,
+		})
+		for _, child := range c.Children {
+			walk(child, fullPath)
+		}
+	}
+
+	for _, child := range cmd.Children {
+		walk(child, cmd.Name())
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(commands)
+}
+
+// listFlagJSON is the JSON representation of a flag for --list-flags --list-format json.
+type listFlagJSON struct {
+	Command     string   `json:"command"`
+	Flag        string   `json:"flag"`
+	Shorthand   string   `json:"shorthand,omitempty"`
+	Type        string   `json:"type,omitempty"`
+	Default     string   `json:"default,omitempty"`
+	Required    bool     `json:"required,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Envs        []string `json:"envs,omitempty"`
+	IsGlobal    bool     `json:"isGlobal,omitempty"`
+}
+
+// PrintFlagsJSON writes all flags as a JSON array to w.
+func PrintFlagsJSON(w io.Writer, rootCmd *Command) error {
+	var flags []listFlagJSON
+
+	// Global flags
+	for _, opt := range rootCmd.Options {
+		if opt.Flag == "" || opt.Hidden {
+			continue
+		}
+		f := listFlagJSON{
+			Command:     rootCmd.Name(),
+			Flag:        opt.Flag,
+			Shorthand:   opt.Shorthand,
+			Default:     opt.Default,
+			Required:    opt.Required,
+			Description: opt.Description,
+			Envs:        opt.Envs,
+			IsGlobal:    true,
+		}
+		if opt.Value != nil {
+			f.Type = opt.Value.Type()
+		}
+		flags = append(flags, f)
+	}
+
+	// Command-specific flags
+	globalSet := make(map[string]bool)
+	for _, opt := range rootCmd.Options {
+		if opt.Flag != "" {
+			globalSet[opt.Flag] = true
+		}
+	}
+
+	var walk func(c *Command, prefix string)
+	walk = func(c *Command, prefix string) {
+		var fullPath string
+		if prefix == "" {
+			fullPath = c.Name()
+		} else {
+			fullPath = prefix + ":" + c.Name()
+		}
+		for _, opt := range c.Options {
+			if opt.Flag == "" || opt.Hidden || globalSet[opt.Flag] {
+				continue
+			}
+			f := listFlagJSON{
+				Command:     fullPath,
+				Flag:        opt.Flag,
+				Shorthand:   opt.Shorthand,
+				Default:     opt.Default,
+				Required:    opt.Required,
+				Description: opt.Description,
+				Envs:        opt.Envs,
+			}
+			if opt.Value != nil {
+				f.Type = opt.Value.Type()
+			}
+			flags = append(flags, f)
+		}
+		for _, child := range c.Children {
+			walk(child, fullPath)
+		}
+	}
+
+	for _, child := range rootCmd.Children {
+		walk(child, "")
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(flags)
 }
 
 // DefaultHelpFn returns a function that generates usage (help)

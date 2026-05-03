@@ -26,13 +26,11 @@ testapp() {
         # Completions for testapp
         local opts="--help "
         opts+='--config '
-        opts+='--env '
-        opts+='-e '
-        opts+='--env-file '
         opts+='--help '
         opts+='-h '
         opts+='--list-commands '
         opts+='--list-flags '
+        opts+='--list-format '
         opts+='--output '
         opts+='--verbose '
         opts+='-v '
@@ -42,13 +40,11 @@ testapp() {
         # Completions for completion
         local opts="--help "
         opts+='--config '
-        opts+='--env '
-        opts+='-e '
-        opts+='--env-file '
         opts+='--help '
         opts+='-h '
         opts+='--list-commands '
         opts+='--list-flags '
+        opts+='--list-format '
         opts+='--output '
         opts+='--verbose '
         opts+='-v '
@@ -57,13 +53,11 @@ testapp() {
         # Completions for hello
         local opts="--help "
         opts+='--config '
-        opts+='--env '
-        opts+='-e '
-        opts+='--env-file '
         opts+='--help '
         opts+='-h '
         opts+='--list-commands '
         opts+='--list-flags '
+        opts+='--list-format '
         opts+='--output '
         opts+='--verbose '
         opts+='-v '
@@ -72,13 +66,11 @@ testapp() {
         # Completions for project
         local opts="--help "
         opts+='--config '
-        opts+='--env '
-        opts+='-e '
-        opts+='--env-file '
         opts+='--help '
         opts+='-h '
         opts+='--list-commands '
         opts+='--list-flags '
+        opts+='--list-format '
         opts+='--output '
         opts+='--verbose '
         opts+='-v '
@@ -90,13 +82,11 @@ testapp() {
         # Completions for repo
         local opts="--help "
         opts+='--config '
-        opts+='--env '
-        opts+='-e '
-        opts+='--env-file '
         opts+='--help '
         opts+='-h '
         opts+='--list-commands '
         opts+='--list-flags '
+        opts+='--list-format '
         opts+='--output '
         opts+='--verbose '
         opts+='-v '
@@ -110,13 +100,11 @@ testapp() {
         # Completions for create
         local opts="--help "
         opts+='--config '
-        opts+='--env '
-        opts+='-e '
-        opts+='--env-file '
         opts+='--help '
         opts+='-h '
         opts+='--list-commands '
         opts+='--list-flags '
+        opts+='--list-format '
         opts+='--output '
         opts+='--verbose '
         opts+='-v '

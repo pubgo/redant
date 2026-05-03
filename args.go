@@ -63,7 +63,7 @@ import (
 
 // ArgValidator is a function that validates an argument.
 
-const internalArgsOverrideFlag = "args"
+const internalArgsOverrideFlag = "redant-args"
 
 type ArgSet []Arg
 
@@ -248,7 +248,7 @@ func ParseJSONArgs(jsonStr string) (map[string][]string, error) {
 		return values, nil
 	}
 
-	return nil, fmt.Errorf("invalid JSON format")
+	return nil, fmt.Errorf("invalid JSON format, expected object {\"key\":\"value\"} or array [\"a\",\"b\"]")
 }
 
 // GlobalFlags returns the default global flags that should be added to every command
@@ -271,15 +271,10 @@ func GlobalFlags() OptionSet {
 			Value:       BoolOf(new(bool)),
 		},
 		{
-			Flag:        "env",
-			Shorthand:   "e",
-			Description: "Set environment variables (format: KEY=VALUE). Supports repeat and CSV.",
-			Value:       StringArrayOf(new([]string)),
-		},
-		{
-			Flag:        "env-file",
-			Description: "Load environment variables from file(s). Supports repeat and CSV.",
-			Value:       StringArrayOf(new([]string)),
+			Flag:        "list-format",
+			Description: "Output format for --list-commands and --list-flags.",
+			Default:     "text",
+			Value:       EnumOf(new(string), "text", "json"),
 		},
 		{
 			Flag:        internalArgsOverrideFlag,
