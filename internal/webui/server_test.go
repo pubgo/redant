@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -648,5 +649,45 @@ func closeResponseBody(t *testing.T, resp *http.Response) {
 	}
 	if err := resp.Body.Close(); err != nil {
 		t.Errorf("close response body: %v", err)
+	}
+}
+
+// TestRunEndpointFmtPrintln verifies that a Handler using fmt.Println
+// (which writes to os.Stdout) has its output captured and returned
+// in the HTTP /api/run response.
+func TestRunEndpointFmtPrintln(t *testing.T) {
+	root := &redant.Command{Use: "testapp"}
+	root.Children = append(root.Children, &redant.Command{
+		Use: "hello",
+		Handler: func(ctx context.Context, inv *redant.Invocation) error {
+			// Intentionally using fmt.Println instead of inv.Stdout.Write.
+			fmt.Println("hello from println")
+			return nil
+		},
+	})
+
+	ts := httptest.NewServer(New(root).Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(
+		ts.URL+"/api/run",
+		"application/json",
+		bytes.NewBufferString(`{"command":"hello"}`),
+	)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer closeResponseBody(t, resp)
+
+	var runResp RunResponse
+	if err := json.NewDecoder(resp.Body).Decode(&runResp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if !runResp.OK {
+		t.Fatalf("expected ok, got error=%s", runResp.Error)
+	}
+	if !strings.Contains(runResp.Combined, "hello from println") {
+		t.Fatalf("expected fmt.Println output in combined, got %q", runResp.Combined)
 	}
 }

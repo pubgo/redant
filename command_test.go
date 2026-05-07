@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -801,4 +803,95 @@ func TestOptionSetFlagSetWarnsOnInvalidDefault(t *testing.T) {
 	if !strings.Contains(output, "warning") || !strings.Contains(output, "count") {
 		t.Fatalf("expected stderr warning about flag %q, got: %q", "count", output)
 	}
+}
+
+func TestRedirectStdio(t *testing.T) {
+	t.Run("fmt.Println captured via pipe", func(t *testing.T) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("create pipe: %v", err)
+		}
+
+		cmd := &Command{
+			Use: "test",
+			Handler: func(ctx context.Context, inv *Invocation) error {
+				// This writes to os.Stdout, not inv.Stdout.
+				// redirectStdio should ensure it goes to the pipe.
+				fmt.Println("hello from println")
+				return nil
+			},
+		}
+
+		inv := cmd.Invoke()
+		inv.Stdout = w
+		inv.Stderr = w
+
+		runErr := inv.Run()
+		w.Close()
+
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		r.Close()
+
+		if runErr != nil {
+			t.Fatalf("unexpected error: %v", runErr)
+		}
+		if !strings.Contains(buf.String(), "hello from println") {
+			t.Fatalf("expected fmt.Println output in pipe, got %q", buf.String())
+		}
+	})
+
+	t.Run("os.Stdout restored after run", func(t *testing.T) {
+		origStdout := os.Stdout
+
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("create pipe: %v", err)
+		}
+
+		cmd := &Command{
+			Use: "test",
+			Handler: func(ctx context.Context, inv *Invocation) error {
+				return nil
+			},
+		}
+
+		inv := cmd.Invoke()
+		inv.Stdout = w
+		inv.Stderr = w
+
+		_ = inv.Run()
+		w.Close()
+		_, _ = io.ReadAll(r)
+		r.Close()
+
+		if os.Stdout != origStdout {
+			t.Fatal("os.Stdout was not restored after Run")
+		}
+	})
+
+	t.Run("no redirect for non-file writer", func(t *testing.T) {
+		origStdout := os.Stdout
+		var buf bytes.Buffer
+
+		cmd := &Command{
+			Use: "test",
+			Handler: func(ctx context.Context, inv *Invocation) error {
+				// os.Stdout should remain unchanged when inv.Stdout
+				// is not an *os.File.
+				if os.Stdout != origStdout {
+					return fmt.Errorf("os.Stdout unexpectedly changed")
+				}
+				return nil
+			},
+		}
+
+		inv := cmd.Invoke()
+		inv.Stdout = &buf // bytes.Buffer, not *os.File
+		inv.Stderr = &buf
+
+		if err := inv.Run(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }
