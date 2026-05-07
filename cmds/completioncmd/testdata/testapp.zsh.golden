@@ -27,6 +27,7 @@ _testapp() {
                 '--list-flags:LIST ALL FLAGS.'
                 '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
+                '--raw-envelope:OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'
             )
@@ -45,6 +46,7 @@ _testapp() {
                 '--list-flags:LIST ALL FLAGS.'
                 '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
+                '--raw-envelope:OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'
             )
@@ -60,6 +62,7 @@ _testapp() {
                 '--list-flags:LIST ALL FLAGS.'
                 '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
+                '--raw-envelope:OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'
             )
@@ -75,6 +78,7 @@ _testapp() {
                 '--list-flags:LIST ALL FLAGS.'
                 '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
+                '--raw-envelope:OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'
                 '--all:APPLY TO ALL PROJECTS.'
@@ -93,6 +97,7 @@ _testapp() {
                 '--list-flags:LIST ALL FLAGS.'
                 '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
+                '--raw-envelope:OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'
                 '--all:APPLY TO ALL PROJECTS.'
@@ -113,6 +118,7 @@ _testapp() {
                 '--list-flags:LIST ALL FLAGS.'
                 '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
+                '--raw-envelope:OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'
                 '--all:APPLY TO ALL PROJECTS.'

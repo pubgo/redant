@@ -32,6 +32,7 @@ testapp() {
         opts+='--list-flags '
         opts+='--list-format '
         opts+='--output '
+        opts+='--raw-envelope '
         opts+='--verbose '
         opts+='-v '
         local subcmds="completion hello project "
@@ -46,6 +47,7 @@ testapp() {
         opts+='--list-flags '
         opts+='--list-format '
         opts+='--output '
+        opts+='--raw-envelope '
         opts+='--verbose '
         opts+='-v '
         COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
@@ -59,6 +61,7 @@ testapp() {
         opts+='--list-flags '
         opts+='--list-format '
         opts+='--output '
+        opts+='--raw-envelope '
         opts+='--verbose '
         opts+='-v '
         COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
@@ -72,6 +75,7 @@ testapp() {
         opts+='--list-flags '
         opts+='--list-format '
         opts+='--output '
+        opts+='--raw-envelope '
         opts+='--verbose '
         opts+='-v '
         opts+='--all '
@@ -88,6 +92,7 @@ testapp() {
         opts+='--list-flags '
         opts+='--list-format '
         opts+='--output '
+        opts+='--raw-envelope '
         opts+='--verbose '
         opts+='-v '
         opts+='--all '
@@ -106,6 +111,7 @@ testapp() {
         opts+='--list-flags '
         opts+='--list-format '
         opts+='--output '
+        opts+='--raw-envelope '
         opts+='--verbose '
         opts+='-v '
         opts+='--all '

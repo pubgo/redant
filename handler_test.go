@@ -172,6 +172,7 @@ func TestResponseStreamHandlerFallsBackToStdIO(t *testing.T) {
 	inv.Stdin = bytes.NewBuffer(nil)
 	inv.Stdout = &stdout
 	inv.Stderr = io.Discard
+	inv.RawEnvelope = true
 
 	if err := inv.Run(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -428,6 +429,7 @@ func TestStreamEnvelopeSeqAndTs(t *testing.T) {
 	inv.Stdin = bytes.NewBuffer(nil)
 	inv.Stdout = &stdout
 	inv.Stderr = io.Discard
+	inv.RawEnvelope = true
 
 	if err := inv.Run(); err != nil {
 		t.Fatalf("unexpected error: %v", err)

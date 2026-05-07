@@ -98,7 +98,44 @@ func (s *InvocationStream) Send(data any) error {
 		return nil
 	}
 
-	seq := s.seq.Add(1) - 1 // 0-based
+	if s.inv.RawEnvelope {
+		return s.sendEnvelope(data)
+	}
+
+	// Default: plain JSON output per line.
+	switch v := data.(type) {
+	case *StreamError:
+		if v != nil && s.inv.Stderr != nil {
+			b, _ := json.Marshal(v)
+			b = append(b, '\n')
+			_, err := s.inv.Stderr.Write(b)
+			return err
+		}
+	case StreamError:
+		if s.inv.Stderr != nil {
+			b, _ := json.Marshal(v)
+			b = append(b, '\n')
+			_, err := s.inv.Stderr.Write(b)
+			return err
+		}
+	default:
+		if s.inv.Stdout != nil {
+			b, err := json.Marshal(v)
+			if err != nil {
+				_, werr := fmt.Fprintf(s.inv.Stdout, "%v\n", v)
+				return errors.Join(err, werr)
+			}
+			b = append(b, '\n')
+			_, err = s.inv.Stdout.Write(b)
+			return err
+		}
+	}
+	return nil
+}
+
+// sendEnvelope writes data with NDJSON envelope wrapping.
+func (s *InvocationStream) sendEnvelope(data any) error {
+	seq := s.seq.Add(1) - 1
 	ts := time.Now().UnixMilli()
 
 	switch v := data.(type) {
@@ -290,11 +327,23 @@ func writeUnaryResponse(inv *Invocation, resp any, typeName string) error {
 		return nil
 	}
 
-	return writeEnvelope(inv.Stdout, StreamEnvelope{
-		Kind: "resp",
-		Type: typeName,
-		Data: resp,
-	})
+	if inv.RawEnvelope {
+		return writeEnvelope(inv.Stdout, StreamEnvelope{
+			Kind: "resp",
+			Type: typeName,
+			Data: resp,
+		})
+	}
+
+	// Default: plain JSON output (data only).
+	b, err := json.Marshal(resp)
+	if err != nil {
+		_, werr := fmt.Fprintf(inv.Stdout, "%v", resp)
+		return errors.Join(err, werr)
+	}
+	b = append(b, '\n')
+	_, err = inv.Stdout.Write(b)
+	return err
 }
 
 // writeEnvelope writes a single NDJSON envelope line to w.

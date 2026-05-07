@@ -8,6 +8,7 @@
 - `--list-commands` — LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.
 - `--list-flags` — LIST ALL FLAGS.
 - `--list-format enum[text\|json]` — OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS. (default: text)
+- `--raw-envelope` — OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.
 
 ## Commands
 

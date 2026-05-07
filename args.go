@@ -64,6 +64,7 @@ import (
 // ArgValidator is a function that validates an argument.
 
 const internalArgsOverrideFlag = "redant-args"
+const rawEnvelopeFlag = "raw-envelope"
 
 type ArgSet []Arg
 
@@ -280,6 +281,11 @@ func GlobalFlags() OptionSet {
 			Description: "Output format for --list-commands and --list-flags.",
 			Default:     "text",
 			Value:       EnumOf(new(string), "text", "json"),
+		},
+		{
+			Flag:        rawEnvelopeFlag,
+			Description: "Output structured NDJSON envelope instead of plain JSON data.",
+			Value:       BoolOf(new(bool)),
 		},
 		{
 			Flag:        internalArgsOverrideFlag,

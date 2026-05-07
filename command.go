@@ -278,6 +278,12 @@ type Invocation struct {
 	Stderr io.Writer
 	Stdin  io.Reader
 
+	// RawEnvelope enables NDJSON envelope wrapping for response output.
+	// When false (default), ResponseHandler/ResponseStreamHandler write
+	// plain JSON data to Stdout. When true, output uses the structured
+	// envelope format: {"$":"resp","type":"T","data":...}
+	RawEnvelope bool
+
 	responseStream chan any
 	responseValue  any
 
@@ -840,6 +846,10 @@ func (inv *Invocation) run(state *runState) error {
 	}
 
 	if inv.Flags != nil {
+		if rawEnv, err := inv.Flags.GetBool(rawEnvelopeFlag); err == nil && rawEnv {
+			inv.RawEnvelope = true
+		}
+
 		if internalArgsFlag := inv.Flags.Lookup(internalArgsOverrideFlag); internalArgsFlag != nil && internalArgsFlag.Changed {
 			var overriddenArgs []string
 			switch v := internalArgsFlag.Value.(type) {
