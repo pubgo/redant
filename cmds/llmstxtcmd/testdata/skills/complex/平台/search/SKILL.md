@@ -1,7 +1,9 @@
 ---
 name: 平台_search
-description: "搜索资源。"
-argument-hint: "query, scope"
+description: "Search platform resources by keyword with scope filtering."
+argument-hint: "搜索关键词，如 deployment nginx"
+applyTo: "**/*.go"
+condition: "当用户需要在平台中搜索资源时使用"
 ---
 
 # 平台 search

@@ -489,7 +489,10 @@ func TestWriteSkillDir_Complex(t *testing.T) {
 			expectedName: "平台_search",
 			mustHave: []string{
 				"name: 平台_search",
-				"argument-hint: \"query, scope\"",
+				"description: \"Search platform resources by keyword with scope filtering.\"",
+				"argument-hint: \"搜索关键词，如 deployment nginx\"",
+				"applyTo:",
+				"condition:",
 				"`query`（必填）",
 				"`scope`",
 				"-n, --limit",
@@ -520,6 +523,7 @@ func TestWriteSkillDir_Complex(t *testing.T) {
 				"--private",
 				"--template",
 				"平台 project create <name> [description]",
+				"tools: \"create_file, run_in_terminal\"",
 			},
 		},
 		{
@@ -646,12 +650,18 @@ func newComplexSkillRoot() *redant.Command {
 		},
 	}
 
-	// Leaf command with Unary response + multiple args + aliases + env var
+	// Leaf command with Unary response + multiple args + aliases + env var + metadata
 	searchCmd := &redant.Command{
 		Use:     "search <query> [scope]",
 		Short:   "搜索资源。",
 		Long:    "在平台中全文搜索资源，支持按范围过滤和结果限制。",
 		Aliases: []string{"s", "find"},
+		Metadata: map[string]string{
+			"skill.description":   "Search platform resources by keyword with scope filtering.",
+			"skill.argument-hint": "搜索关键词，如 deployment nginx",
+			"skill.applyTo":       "**/*.go",
+			"skill.condition":     "当用户需要在平台中搜索资源时使用",
+		},
 		Options: redant.OptionSet{
 			{Flag: "limit", Shorthand: "n", Description: "最大返回条数。", Default: "20", Value: redant.Int64Of(&limit)},
 			{Flag: "endpoint", Description: "搜索服务地址。", Value: redant.StringOf(&endpoint), Envs: []string{"SEARCH_ENDPOINT"}, Default: "https://search.example.com"},
@@ -689,6 +699,9 @@ func newComplexSkillRoot() *redant.Command {
 		Use:   "create <name> [description]",
 		Short: "创建新项目。",
 		Long:  "创建一个新项目并初始化默认配置。支持指定模板和标签。",
+		Metadata: map[string]string{
+			"skill.tools": "create_file, run_in_terminal",
+		},
 		Options: redant.OptionSet{
 			{Flag: "private", Description: "设为私有项目。", Value: redant.BoolOf(&private)},
 			{Flag: "template", Description: "项目模板名称。", Value: redant.StringOf(&template), Default: "default"},

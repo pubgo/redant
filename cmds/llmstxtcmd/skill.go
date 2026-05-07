@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/pubgo/redant"
@@ -44,8 +45,14 @@ type skillEntry struct {
 	aliases      []string
 	args         []redant.Arg
 	options      []redant.Option
-	response     string // e.g. "Unary StatusResult" or "Stream string"
+	response     string            // e.g. "Unary StatusResult" or "Stream string"
+	metadata     map[string]string // skill.* metadata from Command.Metadata
 }
+
+// skillMetadataPrefix is the prefix for metadata keys that are emitted as
+// SKILL.md frontmatter fields. For example, Metadata["skill.applyTo"] becomes
+// the "applyTo" frontmatter field.
+const skillMetadataPrefix = "skill."
 
 func collectSkillEntries(cmd *redant.Command, path string, depth, maxDepth int, out *[]*skillEntry) {
 	if cmd.Hidden {
@@ -60,6 +67,14 @@ func collectSkillEntries(cmd *redant.Command, path string, depth, maxDepth int, 
 	isLeaf := cmd.Handler != nil || cmd.ResponseHandler != nil || cmd.ResponseStreamHandler != nil
 
 	if isLeaf {
+		// Collect skill.* metadata
+		skillMeta := make(map[string]string)
+		for k, v := range cmd.Metadata {
+			if strings.HasPrefix(k, skillMetadataPrefix) {
+				skillMeta[strings.TrimPrefix(k, skillMetadataPrefix)] = v
+			}
+		}
+
 		entry := &skillEntry{
 			name:         strings.Join(segments, "_"),
 			pathSegments: segments,
@@ -67,6 +82,7 @@ func collectSkillEntries(cmd *redant.Command, path string, depth, maxDepth int, 
 			description:  cmd.Short,
 			long:         cmd.Long,
 			aliases:      cmd.Aliases,
+			metadata:     skillMeta,
 		}
 
 		// Collect non-hidden options (skip global flags)
@@ -104,15 +120,17 @@ func collectSkillEntries(cmd *redant.Command, path string, depth, maxDepth int, 
 }
 
 func writeSkillEntry(p *printer, e *skillEntry) {
-	// Build description with "Use when:" hints
-	desc := e.description
+	// Metadata can override description and argument-hint
+	desc := e.metadata["description"]
+	if desc == "" {
+		desc = e.description
+	}
 	if desc == "" {
 		desc = fmt.Sprintf("Run %s command.", e.name)
 	}
 
-	// Build argument-hint from args
-	argHint := ""
-	if len(e.args) > 0 {
+	argHint := e.metadata["argument-hint"]
+	if argHint == "" && len(e.args) > 0 {
 		hints := make([]string, 0, len(e.args))
 		for _, arg := range e.args {
 			hints = append(hints, arg.Name)
@@ -126,6 +144,19 @@ func writeSkillEntry(p *printer, e *skillEntry) {
 	p.line("description: \"%s\"", escapeYAMLString(desc))
 	if argHint != "" {
 		p.line("argument-hint: \"%s\"", argHint)
+	}
+	// Emit additional skill.* metadata as frontmatter fields
+	// (skip description and argument-hint, already handled above)
+	extraKeys := make([]string, 0, len(e.metadata))
+	for k := range e.metadata {
+		if k == "description" || k == "argument-hint" {
+			continue
+		}
+		extraKeys = append(extraKeys, k)
+	}
+	sort.Strings(extraKeys)
+	for _, k := range extraKeys {
+		p.line("%s: \"%s\"", k, escapeYAMLString(e.metadata[k]))
 	}
 	p.line("---")
 	p.line("")
@@ -228,8 +259,10 @@ func writeSkillEntry(p *printer, e *skillEntry) {
 }
 
 func escapeYAMLString(s string) string {
+	s = strings.TrimSpace(s)
 	s = strings.ReplaceAll(s, "\\", "\\\\")
 	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "\n", "\\n")
 	return s
 }
 

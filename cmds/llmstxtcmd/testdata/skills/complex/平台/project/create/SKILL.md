@@ -2,6 +2,7 @@
 name: 平台_project_create
 description: "创建新项目。"
 argument-hint: "name, description"
+tools: "create_file, run_in_terminal"
 ---
 
 # 平台 project create
