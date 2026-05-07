@@ -74,8 +74,8 @@
                                     <div class="text-[11px] text-slate-400 mt-1 truncate" x-text="row.secondary"></div>
                                 </button>
                             </div>
-                            <div class="text-[10px] text-slate-500" x-show="row.isCommand"
-                                x-text="(row.command.flags?.length || 0) + 'F / ' + (row.command.args?.length || 0) + 'A'">
+                            <div class="text-[10px] text-slate-500" x-show="row.isCommand && row.command"
+                                x-text="(row.command?.flags?.length || 0) + 'F / ' + (row.command?.args?.length || 0) + 'A'">
                             </div>
                         </div>
                     </div>
@@ -146,7 +146,7 @@
                                             <div class="mt-1 text-xs text-slate-400"
                                                 x-show="(flag.envs || []).length > 0">env: <span
                                                     class="font-mono text-slate-200"
-                                                    x-text="flag.envs.join(', ')"></span></div>
+                                                    x-text="(flag.envs || []).join(', ')"></span></div>
                                             <div class="mt-2 text-xs text-slate-300"
                                                 x-text="flag.description || '(无描述)'"></div>
                                             <div class="mt-2 flex flex-wrap gap-1" x-show="enumValues(flag).length > 0">
@@ -377,7 +377,8 @@
 
                         <div class="text-xs text-slate-400">会展示 curl 风格请求与完整 CLI 调用过程</div>
                         <div class="text-[11px] text-cyan-300">流式运行会连接
-                            <code>/api/run/stream/ws</code>，实时展示结构化事件（stream/result）。</div>
+                            <code>/api/run/stream/ws</code>，实时展示结构化事件（stream/result）。
+                        </div>
                     </section>
 
                     <section class="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
