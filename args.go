@@ -68,17 +68,22 @@ const internalArgsOverrideFlag = "redant-args"
 type ArgSet []Arg
 
 type Arg struct {
-	Name        string `json:"name,omitempty"`
+	// Name is the argument name used for display and lookup. (required)
+	Name string `json:"name,omitempty"`
+
+	// Description is human-readable help text for this argument. (optional)
 	Description string `json:"description,omitempty"`
-	// Required means this value must be set by some means.
-	// If `Default` is set, then `Required` is ignored.
+
+	// Required means this value must be set by some means. (optional)
+	// If Default is set, the argument is always considered satisfied.
 	Required bool `json:"required,omitempty"`
 
-	// Default is the default value for this argument.
+	// Default is the default value for this argument. (optional)
 	Default string `json:"default,omitempty"`
 
-	// Value includes the types listed in values.go.
-	// Used for type determination and automatic parsing.
+	// Value holds the typed receiver for automatic parsing. (optional)
+	// Includes the types listed in values.go (String, Int, Enum, etc.).
+	// When nil, the raw string value is used as-is.
 	Value pflag.Value `json:"value,omitempty"`
 }
 

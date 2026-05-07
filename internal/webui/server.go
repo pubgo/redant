@@ -203,12 +203,16 @@ func (a *App) handleRunStreamWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pipes, pipeErr := newOutputPipes()
+	if pipeErr != nil {
+		_ = send(wsRunMessage{Type: "error", Error: pipeErr.Error()})
+		return
+	}
+
 	root := cloneCommandTree(a.root)
 	inv := root.Invoke(argv...)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	inv.Stdout = &stdout
-	inv.Stderr = &stderr
+	inv.Stdout = pipes.outW
+	inv.Stderr = pipes.errW
 	inv.Stdin = bytes.NewReader([]byte(req.Stdin))
 	inv = inv.WithContext(runCtx)
 	stream := inv.ResponseStream()
@@ -229,7 +233,9 @@ func (a *App) handleRunStreamWS(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
-		runErrCh <- inv.Run()
+		runErr := inv.Run()
+		pipes.finish()
+		runErrCh <- runErr
 	}()
 
 	runErr := <-runErrCh
@@ -244,22 +250,20 @@ func (a *App) handleRunStreamWS(w http.ResponseWriter, r *http.Request) {
 	timedOut := errors.Is(runErr, context.DeadlineExceeded) || errors.Is(runCtx.Err(), context.DeadlineExceeded)
 	displayErr := withInteractiveWSTimeoutHint(runErr, timedOut)
 
-	resp := RunResponse{
+	resultMsg := wsRunMessage{
+		Type:       "result",
 		OK:         displayErr == nil,
 		TimedOut:   timedOut,
 		Command:    meta.ID,
 		Program:    program,
 		Argv:       append([]string(nil), argv...),
 		Invocation: invocation,
-		Stdout:     stdout.String(),
-		Stderr:     stderr.String(),
-		Combined:   combineOutput(stdout.String(), stderr.String(), displayErr),
+		Data:       combineOutput(pipes.stdout.String(), pipes.stderr.String(), displayErr),
 	}
 	if displayErr != nil {
-		resp.Error = displayErr.Error()
+		resultMsg.Error = displayErr.Error()
 	}
-
-	_ = send(wsRunMessage{Type: "result", OK: resp.OK, TimedOut: resp.TimedOut, Error: resp.Error, Data: resp.Combined, Command: resp.Command, Program: resp.Program, Argv: resp.Argv, Invocation: resp.Invocation})
+	_ = send(resultMsg)
 	if displayErr != nil {
 		_ = conn.Close(websocket.StatusInternalError, "command failed")
 	} else {
@@ -301,20 +305,23 @@ func (a *App) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	pipes, pipeErr := newOutputPipes()
+	if pipeErr != nil {
+		http.Error(w, pipeErr.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	runCtx, cancel := context.WithTimeout(r.Context(), resolveRunTimeout(req.TimeoutSeconds))
 	defer cancel()
 
 	a.mu.Lock()
-	runErr := func() error {
-		root := cloneCommandTree(a.root)
-		inv := root.Invoke(argv...)
-		inv.Stdout = &stdout
-		inv.Stderr = &stderr
-		inv.Stdin = bytes.NewReader([]byte(req.Stdin))
-		return inv.WithContext(runCtx).Run()
-	}()
+	root := cloneCommandTree(a.root)
+	inv := root.Invoke(argv...)
+	inv.Stdout = pipes.outW
+	inv.Stderr = pipes.errW
+	inv.Stdin = bytes.NewReader([]byte(req.Stdin))
+	runErr := inv.WithContext(runCtx).Run()
+	pipes.finish()
 	a.mu.Unlock()
 
 	timedOut := errors.Is(runErr, context.DeadlineExceeded)
@@ -327,9 +334,9 @@ func (a *App) handleRun(w http.ResponseWriter, r *http.Request) {
 		Program:    program,
 		Argv:       append([]string(nil), argv...),
 		Invocation: invocation,
-		Stdout:     stdout.String(),
-		Stderr:     stderr.String(),
-		Combined:   combineOutput(stdout.String(), stderr.String(), displayErr),
+		Stdout:     pipes.stdout.String(),
+		Stderr:     pipes.stderr.String(),
+		Combined:   combineOutput(pipes.stdout.String(), pipes.stderr.String(), displayErr),
 	}
 	if displayErr != nil {
 		resp.Error = displayErr.Error()
@@ -458,6 +465,10 @@ func (a *App) handleRunWS(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
+		// inv.Stdout/inv.Stderr are set to pts (PTY slave).
+		// The framework's redirectStdio will redirect os.Stdout/os.Stderr
+		// to pts during handler execution, so fmt.Println output also goes
+		// through the PTY.
 		runErrCh <- inv.WithContext(runCtx).Run()
 	}()
 
@@ -1014,6 +1025,45 @@ func shellQuote(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+// outputPipes captures stdout/stderr from an invocation via os.Pipe so that
+// output written directly to os.Stdout (e.g. fmt.Println) is also collected,
+// thanks to the framework's redirectStdio in Invocation.run.
+type outputPipes struct {
+	outW, errW *os.File
+	outR, errR *os.File
+	stdout     bytes.Buffer
+	stderr     bytes.Buffer
+	wg         sync.WaitGroup
+}
+
+func newOutputPipes() (*outputPipes, error) {
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("create stdout pipe: %w", err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		outW.Close()
+		outR.Close()
+		return nil, fmt.Errorf("create stderr pipe: %w", err)
+	}
+	p := &outputPipes{outW: outW, errW: errW, outR: outR, errR: errR}
+	p.wg.Add(2)
+	go func() { defer p.wg.Done(); _, _ = io.Copy(&p.stdout, outR) }()
+	go func() { defer p.wg.Done(); _, _ = io.Copy(&p.stderr, errR) }()
+	return p, nil
+}
+
+// finish closes writers, waits for readers, then closes readers.
+// Must be called exactly once after the command finishes.
+func (p *outputPipes) finish() {
+	p.outW.Close()
+	p.errW.Close()
+	p.wg.Wait()
+	p.outR.Close()
+	p.errR.Close()
 }
 
 func combineOutput(stdout, stderr string, runErr error) string {

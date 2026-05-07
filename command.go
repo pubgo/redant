@@ -931,7 +931,14 @@ func (inv *Invocation) run(state *runState) error {
 		return DefaultHelpFn()(ctx, inv)
 	}
 
+	// Redirect os.Stdout/os.Stderr to inv.Stdout/inv.Stderr while the handler
+	// runs, so that code using fmt.Println (which writes to os.Stdout directly)
+	// has its output captured correctly — e.g. when running under the web UI.
+	// When inv.Stdout IS os.Stdout (the normal CLI case) the redirect is a no-op.
+	restoreStdio := inv.redirectStdio()
 	err := mw(handler)(ctx, inv)
+	restoreStdio()
+
 	if err != nil {
 		return &RunCommandError{
 			Cmd: inv.Command,
@@ -939,6 +946,28 @@ func (inv *Invocation) run(state *runState) error {
 		}
 	}
 	return nil
+}
+
+// redirectStdio replaces os.Stdout and os.Stderr with inv.Stdout and inv.Stderr
+// so that fmt.Print/Println output from handler code is sent to the invocation's
+// writers. Returns a function that restores the originals.
+//
+// If inv.Stdout/inv.Stderr already point to os.Stdout/os.Stderr (the normal CLI
+// case) this is effectively a no-op.
+func (inv *Invocation) redirectStdio() (restore func()) {
+	origOut, origErr := os.Stdout, os.Stderr
+
+	if w, ok := inv.Stdout.(*os.File); ok {
+		os.Stdout = w
+	}
+	if w, ok := inv.Stderr.(*os.File); ok {
+		os.Stderr = w
+	}
+
+	return func() {
+		os.Stdout = origOut
+		os.Stderr = origErr
+	}
 }
 
 type RunCommandError struct {
