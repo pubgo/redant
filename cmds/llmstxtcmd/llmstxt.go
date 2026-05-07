@@ -18,8 +18,9 @@ import (
 // and grep.
 func New() *redant.Command {
 	var (
-		depth  int64
-		format string
+		depth     int64
+		format    string
+		outputDir string
 	)
 
 	return &redant.Command{
@@ -39,7 +40,13 @@ func New() *redant.Command {
 				Shorthand:   "f",
 				Description: "Output format.",
 				Default:     "markdown",
-				Value:       redant.EnumOf(&format, "markdown", "json"),
+				Value:       redant.EnumOf(&format, "markdown", "json", "skill"),
+			},
+			{
+				Flag:        "output-dir",
+				Shorthand:   "o",
+				Description: "Output directory for skill files (one SKILL.md per command). If empty, writes all to stdout.",
+				Value:       redant.StringOf(&outputDir),
 			},
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
@@ -47,10 +54,17 @@ func New() *redant.Command {
 			for root.Parent() != nil {
 				root = root.Parent()
 			}
-			if format == "json" {
+			switch format {
+			case "json":
 				return WriteJSON(inv.Stdout, root, int(depth))
+			case "skill":
+				if outputDir != "" {
+					return WriteSkillDir(outputDir, root, int(depth))
+				}
+				return WriteSkill(inv.Stdout, root, int(depth))
+			default:
+				return WriteLLMSTxt(inv.Stdout, root, int(depth))
 			}
-			return WriteLLMSTxt(inv.Stdout, root, int(depth))
 		},
 	}
 }
