@@ -22,7 +22,7 @@ func TestCollectToolsCommandToToolDefComprehensive(t *testing.T) {
 	root := &redant.Command{
 		Use: "app",
 		Options: redant.OptionSet{
-			{Flag: "verbose", Value: redant.BoolOf(&verbose), Description: "enable verbose output"},
+			{Flag: "verbose", Value: redant.BoolOf(&verbose), Description: "enable verbose output", Inherit: true},
 			{Flag: "internal", Value: redant.StringOf(new(string)), Hidden: true},
 		},
 	}
@@ -31,7 +31,7 @@ func TestCollectToolsCommandToToolDefComprehensive(t *testing.T) {
 		Use:   "group",
 		Short: "group command",
 		Options: redant.OptionSet{
-			{Flag: "parent-flag", Value: redant.StringOf(&parentVal), Description: "inherited from parent"},
+			{Flag: "parent-flag", Value: redant.StringOf(&parentVal), Description: "inherited from parent", Inherit: true},
 		},
 	}
 
@@ -97,7 +97,7 @@ func TestCollectToolsCommandToToolDefComprehensive(t *testing.T) {
 			t.Fatalf("missing expected flag %q in schema", want)
 		}
 	}
-	for _, notWant := range []string{"internal", "hidden-child", "help", "list-commands", "list-flags", "args"} {
+	for _, notWant := range []string{"internal", "hidden-child", redant.HelpFlag, redant.ListCommandsFlag, redant.ListFlagsFlag, redant.InternalArgsOverrideFlag} {
 		if _, exists := flagProps[notWant]; exists {
 			t.Fatalf("unexpected flag %q in schema", notWant)
 		}
@@ -132,13 +132,13 @@ func TestBuildArgvDeterministicAndInheritedFlags(t *testing.T) {
 	root := &redant.Command{
 		Use: "app",
 		Options: redant.OptionSet{
-			{Flag: "verbose", Value: redant.BoolOf(&verbose)},
+			{Flag: "verbose", Value: redant.BoolOf(&verbose), Inherit: true},
 		},
 	}
 	group := &redant.Command{
 		Use: "group",
 		Options: redant.OptionSet{
-			{Flag: "parent-flag", Value: redant.StringOf(&parentVal)},
+			{Flag: "parent-flag", Value: redant.StringOf(&parentVal), Inherit: true},
 		},
 	}
 	run := &redant.Command{
@@ -206,7 +206,7 @@ func TestCallToolWithInheritedFlags(t *testing.T) {
 	group := &redant.Command{
 		Use: "group",
 		Options: redant.OptionSet{
-			{Flag: "parent-flag", Value: redant.StringOf(&parentVal)},
+			{Flag: "parent-flag", Value: redant.StringOf(&parentVal), Inherit: true},
 		},
 	}
 	run := &redant.Command{

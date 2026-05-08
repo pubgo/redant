@@ -208,29 +208,56 @@ func (c *Command) FullUsage() string {
 
 // FullOptions returns the options of the command and its parents.
 func (c *Command) FullOptions() OptionSet {
-	var opts OptionSet
-	if c.parent != nil {
-		opts = append(opts, c.parent.FullOptions()...)
+	if c == nil {
+		return nil
 	}
-	opts = append(opts, c.Options...)
+
+	var lineage []*Command
+	for cur := c; cur != nil; cur = cur.parent {
+		lineage = append(lineage, cur)
+	}
+	for i, j := 0, len(lineage)-1; i < j; i, j = i+1, j-1 {
+		lineage[i], lineage[j] = lineage[j], lineage[i]
+	}
+
+	var opts OptionSet
+	for idx, cmd := range lineage {
+		isCurrent := idx == len(lineage)-1
+		for _, opt := range cmd.Options {
+			if !isCurrent && !opt.InheritsToChildren() {
+				continue
+			}
+			opts = append(opts, opt)
+		}
+	}
+
 	return opts
 }
 
 // GetGlobalFlags returns the global flags from the root command
 // All non-hidden options in the root command are considered global flags
 func (c *Command) GetGlobalFlags() OptionSet {
+	if c == nil {
+		return nil
+	}
+
 	// Traverse to the root command
 	root := c
 	for root.parent != nil {
 		root = root.parent
 	}
+	isRootContext := c == root
 
 	// Return all non-hidden options from root command as global flags
 	var globalFlags OptionSet
 	for _, opt := range root.Options {
-		if opt.Flag != "" && !opt.Hidden {
-			globalFlags = append(globalFlags, opt)
+		if opt.Flag == "" || opt.Hidden {
+			continue
 		}
+		if !isRootContext && !opt.InheritsToChildren() {
+			continue
+		}
+		globalFlags = append(globalFlags, opt)
 	}
 	return globalFlags
 }
@@ -655,7 +682,15 @@ func (inv *Invocation) run(state *runState) error {
 	// Add flags from all parent commands to support flag inheritance
 	// This allows child commands to use flags defined in parent commands
 	for p := inv.Command.parent; p != nil; p = p.parent {
-		p.Options.FlagSet(p.Name()).VisitAll(func(f *pflag.Flag) {
+		var inheritedParentOptions OptionSet
+		for _, opt := range p.Options {
+			if !opt.InheritsToChildren() {
+				continue
+			}
+			inheritedParentOptions = append(inheritedParentOptions, opt)
+		}
+
+		inheritedParentOptions.FlagSet(p.Name()).VisitAll(func(f *pflag.Flag) {
 			if inv.Flags.Lookup(f.Name) == nil {
 				inv.Flags.AddFlag(f)
 			}
@@ -685,13 +720,13 @@ func (inv *Invocation) run(state *runState) error {
 	// Handle global flags
 	if inv.Flags != nil {
 		var listFormat string
-		if f := inv.Flags.Lookup("list-format"); f != nil {
+		if f := inv.Flags.Lookup(listFormatFlag); f != nil {
 			listFormat = f.Value.String()
 		}
 
 		// Check for --list-commands flag
-		if listCommands, err := inv.Flags.GetBool("list-commands"); err == nil && listCommands {
-			if listFormat == "json" {
+		if listCommands, err := inv.Flags.GetBool(listCommandsFlag); err == nil && listCommands {
+			if listFormat == listFormatJSON {
 				return PrintCommandsJSON(inv.Stdout, parent)
 			}
 			PrintCommands(parent) // Use parent to show full tree
@@ -699,8 +734,8 @@ func (inv *Invocation) run(state *runState) error {
 		}
 
 		// Check for --list-flags flag
-		if listFlags, err := inv.Flags.GetBool("list-flags"); err == nil && listFlags {
-			if listFormat == "json" {
+		if listFlags, err := inv.Flags.GetBool(listFlagsFlag); err == nil && listFlags {
+			if listFormat == listFormatJSON {
 				return PrintFlagsJSON(inv.Stdout, parent)
 			}
 			PrintFlags(parent)
@@ -748,9 +783,9 @@ func (inv *Invocation) run(state *runState) error {
 	// Check for help flag before validating required options
 	isHelpRequested := false
 	if inv.Flags != nil {
-		if help, err := inv.Flags.GetBool("help"); err == nil && help {
+		if help, err := inv.Flags.GetBool(helpFlag); err == nil && help {
 			isHelpRequested = true
-		} else if h, err := inv.Flags.GetBool("h"); err == nil && h {
+		} else if h, err := inv.Flags.GetBool(helpShorthand); err == nil && h {
 			isHelpRequested = true
 		}
 	}
@@ -927,7 +962,7 @@ func (inv *Invocation) run(state *runState) error {
 
 	// Check for help flag
 	if inv.Flags != nil {
-		if help, err := inv.Flags.GetBool("help"); err == nil && help {
+		if help, err := inv.Flags.GetBool(helpFlag); err == nil && help {
 			return DefaultHelpFn()(ctx, inv)
 		}
 	}

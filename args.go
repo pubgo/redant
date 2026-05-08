@@ -63,8 +63,32 @@ import (
 
 // ArgValidator is a function that validates an argument.
 
-const internalArgsOverrideFlag = "redant-args"
-const rawEnvelopeFlag = "raw-envelope"
+const (
+	HelpFlag      = "help"
+	HelpShorthand = "h"
+
+	ListCommandsFlag = "list-commands"
+	ListFlagsFlag    = "list-flags"
+	ListFormatFlag   = "list-format"
+
+	ListFormatText = "text"
+	ListFormatJSON = "json"
+
+	InternalArgsOverrideFlag = "redant-args"
+
+	internalArgsOverrideFlag = InternalArgsOverrideFlag
+	rawEnvelopeFlag          = "raw-envelope"
+
+	helpFlag      = HelpFlag
+	helpShorthand = HelpShorthand
+
+	listCommandsFlag = ListCommandsFlag
+	listFlagsFlag    = ListFlagsFlag
+	listFormatFlag   = ListFormatFlag
+
+	listFormatText = ListFormatText
+	listFormatJSON = ListFormatJSON
+)
 
 type ArgSet []Arg
 
@@ -261,37 +285,43 @@ func ParseJSONArgs(jsonStr string) (map[string][]string, error) {
 func GlobalFlags() OptionSet {
 	return OptionSet{
 		{
-			Flag:        "help",
-			Shorthand:   "h",
+			Flag:        helpFlag,
+			Shorthand:   helpShorthand,
 			Description: "Show help for command.",
 			Value:       BoolOf(new(bool)),
+			Inherit:     true,
 		},
 		{
-			Flag:        "list-commands",
+			Flag:        listCommandsFlag,
 			Description: "List all commands, including subcommands.",
 			Value:       BoolOf(new(bool)),
+			Inherit:     false,
 		},
 		{
-			Flag:        "list-flags",
+			Flag:        listFlagsFlag,
 			Description: "List all flags.",
 			Value:       BoolOf(new(bool)),
+			Inherit:     false,
 		},
 		{
-			Flag:        "list-format",
-			Description: "Output format for --list-commands and --list-flags.",
-			Default:     "text",
-			Value:       EnumOf(new(string), "text", "json"),
+			Flag:        listFormatFlag,
+			Description: fmt.Sprintf("Output format for --%s and --%s.", listCommandsFlag, listFlagsFlag),
+			Default:     listFormatText,
+			Value:       EnumOf(new(string), listFormatText, listFormatJSON),
+			Inherit:     false,
 		},
 		{
 			Flag:        rawEnvelopeFlag,
 			Description: "Output structured NDJSON envelope instead of plain JSON data.",
 			Value:       BoolOf(new(bool)),
+			Inherit:     true,
 		},
 		{
 			Flag:        internalArgsOverrideFlag,
 			Description: "Internal: override parsed args using repeated/CSV values.",
 			Value:       StringArrayOf(new([]string)),
 			Hidden:      true,
+			Inherit:     true,
 		},
 	}
 }

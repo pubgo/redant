@@ -1463,7 +1463,7 @@ func commandDescription(cmd *redant.Command) string {
 
 func isSystemFlag(flag string) bool {
 	switch flag {
-	case "help", "list-commands", "list-flags", "args":
+	case redant.HelpFlag, redant.ListCommandsFlag, redant.ListFlagsFlag, redant.InternalArgsOverrideFlag:
 		return true
 	default:
 		return false
