@@ -6,8 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pubgo/redant"
 )
@@ -27,6 +29,9 @@ func WriteSkill(w io.Writer, root *redant.Command, maxDepth int) error {
 	}
 
 	for i, entry := range commands {
+		if err := validateSkillEntry(entry); err != nil {
+			return err
+		}
 		if i > 0 {
 			p.line("")
 		}
@@ -49,10 +54,90 @@ type skillEntry struct {
 	metadata     map[string]string // skill.* metadata from Command.Metadata
 }
 
-// skillMetadataPrefix is the prefix for metadata keys that are emitted as
-// SKILL.md frontmatter fields. For example, Metadata["skill.applyTo"] becomes
-// the "applyTo" frontmatter field.
+// skillMetadataPrefix is the prefix for Metadata keys recognised by the skill
+// generator. Keys matching this prefix are stripped and mapped to SKILL.md
+// frontmatter according to the Agent Skills specification:
+//
+//   - Standard top-level fields: name, description, license, compatibility,
+//     allowed-tools — emitted directly.
+//   - Everything else is placed in the nested "metadata:" YAML map.
+//
+// Reference: https://agentskills.io/specification
 const skillMetadataPrefix = "skill."
+
+// skillStandardFields lists frontmatter keys defined in the Agent Skills spec
+// that may appear as top-level YAML fields. Any skill.* metadata key NOT in
+// this set is written under the nested "metadata:" map.
+var skillStandardFields = map[string]bool{
+	"name":          true,
+	"description":   true,
+	"license":       true,
+	"compatibility": true,
+	"allowed-tools": true,
+}
+
+// skillNamePattern matches valid skill names per the Agent Skills specification:
+// 1-64 chars, lowercase a-z / 0-9 / hyphens, no leading/trailing hyphen,
+// no consecutive hyphens.
+// Reference: https://agentskills.io/specification
+var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// SkillValidationError collects one or more validation problems for a skill entry.
+type SkillValidationError struct {
+	Name   string   // skill name (may be invalid itself)
+	Errors []string // human-readable error descriptions
+}
+
+func (e *SkillValidationError) Error() string {
+	return fmt.Sprintf("skill %q: %s", e.Name, strings.Join(e.Errors, "; "))
+}
+
+// validateSkillEntry checks a skillEntry against the Agent Skills specification.
+// Returns nil when all fields are valid.
+func validateSkillEntry(e *skillEntry) error {
+	name := e.metadata["name"]
+	if name == "" {
+		name = e.name
+	}
+
+	desc := e.metadata["description"]
+	if desc == "" {
+		desc = e.description
+	}
+
+	var errs []string
+
+	// --- name ---
+	if name == "" {
+		errs = append(errs, "name is required")
+	} else {
+		if n := utf8.RuneCountInString(name); n > 64 {
+			errs = append(errs, fmt.Sprintf("name exceeds 64 characters (%d)", n))
+		}
+		if !skillNamePattern.MatchString(name) {
+			errs = append(errs, fmt.Sprintf("name %q must contain only lowercase a-z, 0-9, hyphens; must not start/end with hyphen or contain consecutive hyphens", name))
+		}
+	}
+
+	// --- description ---
+	if desc == "" {
+		errs = append(errs, "description is required")
+	} else if n := utf8.RuneCountInString(desc); n > 1024 {
+		errs = append(errs, fmt.Sprintf("description exceeds 1024 characters (%d)", n))
+	}
+
+	// --- compatibility (optional, max 500 chars) ---
+	if v, ok := e.metadata["compatibility"]; ok && v != "" {
+		if n := utf8.RuneCountInString(v); n > 500 {
+			errs = append(errs, fmt.Sprintf("compatibility exceeds 500 characters (%d)", n))
+		}
+	}
+
+	if len(errs) > 0 {
+		return &SkillValidationError{Name: name, Errors: errs}
+	}
+	return nil
+}
 
 func normalizeSkillName(name string) string {
 	name = strings.TrimSpace(name)
@@ -138,43 +223,49 @@ func collectSkillEntries(cmd *redant.Command, path string, depth, maxDepth int, 
 }
 
 func writeSkillEntry(p *printer, e *skillEntry) {
-	// Metadata can override description and argument-hint
+	// --- resolve standard fields ---
+
+	// name: metadata override > generated name
+	name := e.metadata["name"]
+	if name == "" {
+		name = e.name
+	}
+
+	// description: metadata override > Short
 	desc := e.metadata["description"]
 	if desc == "" {
 		desc = e.description
 	}
 	if desc == "" {
-		desc = fmt.Sprintf("Run %s command.", e.name)
+		desc = fmt.Sprintf("Run %s command.", name)
 	}
 
-	argHint := e.metadata["argument-hint"]
-	if argHint == "" && len(e.args) > 0 {
-		hints := make([]string, 0, len(e.args))
-		for _, arg := range e.args {
-			hints = append(hints, arg.Name)
-		}
-		argHint = strings.Join(hints, ", ")
-	}
-
-	// --- YAML frontmatter ---
+	// --- YAML frontmatter (spec fields) ---
 	p.line("---")
-	p.line("name: %s", e.name)
+	p.line("name: %s", name)
 	p.line("description: \"%s\"", escapeYAMLString(desc))
-	if argHint != "" {
-		p.line("argument-hint: \"%s\"", argHint)
+
+	// Optional spec top-level fields: license, compatibility, allowed-tools
+	for _, key := range []string{"license", "compatibility", "allowed-tools"} {
+		if v, ok := e.metadata[key]; ok && v != "" {
+			p.line("%s: \"%s\"", key, escapeYAMLString(v))
+		}
 	}
-	// Emit additional skill.* metadata as frontmatter fields
-	// (skip description and argument-hint, already handled above)
-	extraKeys := make([]string, 0, len(e.metadata))
+
+	// Build nested metadata map from non-standard skill.* keys
+	var metaKeys []string
 	for k := range e.metadata {
-		if k == "description" || k == "argument-hint" {
+		if skillStandardFields[k] {
 			continue
 		}
-		extraKeys = append(extraKeys, k)
+		metaKeys = append(metaKeys, k)
 	}
-	sort.Strings(extraKeys)
-	for _, k := range extraKeys {
-		p.line("%s: \"%s\"", k, escapeYAMLString(e.metadata[k]))
+	if len(metaKeys) > 0 {
+		sort.Strings(metaKeys)
+		p.line("metadata:")
+		for _, k := range metaKeys {
+			p.line("  %s: \"%s\"", k, escapeYAMLString(e.metadata[k]))
+		}
 	}
 	p.line("---")
 	p.line("")
@@ -290,13 +381,24 @@ func escapeYAMLString(s string) string {
 //	<dir>/<skill-name>/SKILL.md
 //
 // The SKILL.md name field uses full command path joined by hyphens.
+// The directory name matches the name field per the Agent Skills specification.
 func WriteSkillDir(dir string, root *redant.Command, maxDepth int) error {
 	var commands []*skillEntry
 	collectSkillEntries(root, root.Name(), 0, maxDepth, &commands)
 
 	for _, entry := range commands {
-		// Build directory path from generated skill name
-		skillDir := filepath.Join(dir, entry.name)
+		if err := validateSkillEntry(entry); err != nil {
+			return err
+		}
+
+		// Resolve effective name (metadata override > generated)
+		// The directory name must match the name field per the spec.
+		effectiveName := entry.metadata["name"]
+		if effectiveName == "" {
+			effectiveName = entry.name
+		}
+
+		skillDir := filepath.Join(dir, effectiveName)
 		if err := os.MkdirAll(skillDir, 0o755); err != nil {
 			return fmt.Errorf("creating skill dir %s: %w", skillDir, err)
 		}
@@ -305,7 +407,7 @@ func WriteSkillDir(dir string, root *redant.Command, maxDepth int) error {
 		p := &printer{w: &buf}
 		writeSkillEntry(p, entry)
 		if p.err != nil {
-			return fmt.Errorf("writing skill %s: %w", entry.name, p.err)
+			return fmt.Errorf("writing skill %s: %w", effectiveName, p.err)
 		}
 
 		path := filepath.Join(skillDir, "SKILL.md")

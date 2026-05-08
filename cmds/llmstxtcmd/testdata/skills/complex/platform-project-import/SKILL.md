@@ -1,10 +1,9 @@
 ---
-name: 平台-project-import
+name: platform-project-import
 description: "从 URL 导入项目。"
-argument-hint: "url"
 ---
 
-# 平台 project import
+# platform project import
 
 ## 使用场景
 
@@ -14,7 +13,7 @@ argument-hint: "url"
 ## 用法
 
 ```sh
-平台 project import <url>
+platform project import <url>
 ```
 
 ### 参数

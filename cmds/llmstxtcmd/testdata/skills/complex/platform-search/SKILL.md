@@ -1,12 +1,14 @@
 ---
-name: 平台-search
+name: platform-search
 description: "Search platform resources by keyword with scope filtering."
-argument-hint: "搜索关键词，如 deployment nginx"
-applyTo: "**/*.go"
-condition: "当用户需要在平台中搜索资源时使用"
+allowed-tools: "Bash(grep:*) Read"
+metadata:
+  apply-to: "**/*.go"
+  argument-hint: "Describe what to search, e.g. deployment nginx"
+  condition: "Use when searching resources on the platform"
 ---
 
-# 平台 search
+# platform search
 
 ## 使用场景
 
@@ -17,7 +19,7 @@ condition: "当用户需要在平台中搜索资源时使用"
 ## 用法
 
 ```sh
-平台 search <query> [scope]
+platform search <query> [scope]
 ```
 
 ### 参数

@@ -1,10 +1,9 @@
 ---
-name: 平台-project-delete
+name: platform-project-delete
 description: "删除项目。"
-argument-hint: "project-id"
 ---
 
-# 平台 project delete
+# platform project delete
 
 ## 使用场景
 
@@ -13,7 +12,7 @@ argument-hint: "project-id"
 ## 用法
 
 ```sh
-平台 project delete <project-id>
+platform project delete <project-id>
 ```
 
 ### 参数

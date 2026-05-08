@@ -469,6 +469,156 @@ func TestWriteSkillDir(t *testing.T) {
 	}
 }
 
+func TestSkillValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		root    *redant.Command
+		wantErr string // substring expected in error, empty means no error
+	}{
+		{
+			name: "valid_name",
+			root: func() *redant.Command {
+				r := &redant.Command{Use: "app", Short: "App."}
+				r.Children = append(r.Children, &redant.Command{
+					Use: "deploy", Short: "Deploy it.",
+					Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+				})
+				return r
+			}(),
+		},
+		{
+			name: "name_with_uppercase",
+			root: func() *redant.Command {
+				r := &redant.Command{Use: "App", Short: "App."}
+				r.Children = append(r.Children, &redant.Command{
+					Use: "Deploy", Short: "Deploy it.",
+					Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+				})
+				return r
+			}(),
+			wantErr: "must contain only lowercase",
+		},
+		{
+			name: "name_with_non_ascii",
+			root: func() *redant.Command {
+				r := &redant.Command{Use: "平台", Short: "平台。"}
+				r.Children = append(r.Children, &redant.Command{
+					Use: "search", Short: "搜索。",
+					Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+				})
+				return r
+			}(),
+			wantErr: "must contain only lowercase",
+		},
+		{
+			name: "name_override_fixes_non_ascii",
+			root: func() *redant.Command {
+				r := &redant.Command{Use: "平台", Short: "平台。"}
+				r.Children = append(r.Children, &redant.Command{
+					Use: "search", Short: "Search resources.",
+					Metadata: map[string]string{
+						"skill.name": "platform-search",
+					},
+					Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+				})
+				return r
+			}(),
+		},
+		{
+			name: "name_starts_with_hyphen",
+			root: func() *redant.Command {
+				r := &redant.Command{Use: "app", Short: "App."}
+				r.Children = append(r.Children, &redant.Command{
+					Use: "deploy", Short: "Deploy.",
+					Metadata: map[string]string{
+						"skill.name": "-bad-name",
+					},
+					Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+				})
+				return r
+			}(),
+			wantErr: "must not start/end with hyphen",
+		},
+		{
+			name: "name_consecutive_hyphens",
+			root: func() *redant.Command {
+				r := &redant.Command{Use: "app", Short: "App."}
+				r.Children = append(r.Children, &redant.Command{
+					Use: "deploy", Short: "Deploy.",
+					Metadata: map[string]string{
+						"skill.name": "bad--name",
+					},
+					Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+				})
+				return r
+			}(),
+			wantErr: "must not start/end with hyphen",
+		},
+		{
+			name: "name_too_long",
+			root: func() *redant.Command {
+				r := &redant.Command{Use: "app", Short: "App."}
+				r.Children = append(r.Children, &redant.Command{
+					Use: "deploy", Short: "Deploy.",
+					Metadata: map[string]string{
+						"skill.name": strings.Repeat("a", 65),
+					},
+					Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+				})
+				return r
+			}(),
+			wantErr: "exceeds 64 characters",
+		},
+		{
+			name: "description_too_long",
+			root: func() *redant.Command {
+				r := &redant.Command{Use: "app", Short: "App."}
+				r.Children = append(r.Children, &redant.Command{
+					Use: "deploy", Short: strings.Repeat("x", 1025),
+					Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+				})
+				return r
+			}(),
+			wantErr: "description exceeds 1024 characters",
+		},
+		{
+			name: "compatibility_too_long",
+			root: func() *redant.Command {
+				r := &redant.Command{Use: "app", Short: "App."}
+				r.Children = append(r.Children, &redant.Command{
+					Use: "deploy", Short: "Deploy.",
+					Metadata: map[string]string{
+						"skill.compatibility": strings.Repeat("x", 501),
+					},
+					Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+				})
+				return r
+			}(),
+			wantErr: "compatibility exceeds 500 characters",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := WriteSkill(&buf, tt.root, 0)
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected validation error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error %q does not contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestWriteSkillDir_Complex(t *testing.T) {
 	root := newComplexSkillRoot()
 
@@ -485,14 +635,16 @@ func TestWriteSkillDir_Complex(t *testing.T) {
 		mustNotHave  []string
 	}{
 		{
-			relPath:      filepath.Join("平台-search", "SKILL.md"),
-			expectedName: "平台-search",
+			relPath:      filepath.Join("platform-search", "SKILL.md"),
+			expectedName: "platform-search",
 			mustHave: []string{
-				"name: 平台-search",
+				"name: platform-search",
 				"description: \"Search platform resources by keyword with scope filtering.\"",
-				"argument-hint: \"搜索关键词，如 deployment nginx\"",
-				"applyTo:",
-				"condition:",
+				"allowed-tools: \"Bash(grep:*) Read\"",
+				"metadata:",
+				"  apply-to:",
+				"  argument-hint:",
+				"  condition:",
 				"`query`（必填）",
 				"`scope`",
 				"-n, --limit",
@@ -500,47 +652,48 @@ func TestWriteSkillDir_Complex(t *testing.T) {
 				"Unary",
 				"## 使用场景",
 				"## 用法",
-				"平台 search <query> [scope]",
+				"platform search <query> [scope]",
 				"别名: s, find",
 			},
 		},
 		{
-			relPath:      filepath.Join("平台-watch", "SKILL.md"),
-			expectedName: "平台-watch",
+			relPath:      filepath.Join("platform-watch", "SKILL.md"),
+			expectedName: "platform-watch",
 			mustHave: []string{
-				"name: 平台-watch",
+				"name: platform-watch",
 				"Stream",
 				"## 用法",
 			},
 		},
 		{
-			relPath:      filepath.Join("平台-project-create", "SKILL.md"),
-			expectedName: "平台-project-create",
+			relPath:      filepath.Join("platform-project-create", "SKILL.md"),
+			expectedName: "platform-project-create",
 			mustHave: []string{
-				"name: 平台-project-create",
+				"name: platform-project-create",
 				"`name`（必填）",
 				"`description`",
 				"--private",
 				"--template",
-				"平台 project create <name> [description]",
-				"tools: \"create_file, run_in_terminal\"",
+				"platform project create <name> [description]",
+				"allowed-tools: \"create_file run_in_terminal\"",
+				"license: \"Apache-2.0\"",
 			},
 		},
 		{
-			relPath:      filepath.Join("平台-project-delete", "SKILL.md"),
-			expectedName: "平台-project-delete",
+			relPath:      filepath.Join("platform-project-delete", "SKILL.md"),
+			expectedName: "platform-project-delete",
 			mustHave: []string{
-				"name: 平台-project-delete",
+				"name: platform-project-delete",
 				"`project-id`（必填）",
 				"--force",
 				"--dry-run",
 			},
 		},
 		{
-			relPath:      filepath.Join("平台-project-import", "SKILL.md"),
-			expectedName: "平台-project-import",
+			relPath:      filepath.Join("platform-project-import", "SKILL.md"),
+			expectedName: "platform-project-import",
 			mustHave: []string{
-				"name: 平台-project-import",
+				"name: platform-project-import",
 				"别名: im",
 			},
 		},
@@ -569,7 +722,7 @@ func TestWriteSkillDir_Complex(t *testing.T) {
 	}
 
 	// hidden command should NOT produce a skill file
-	hiddenPath := filepath.Join(dir, "平台-internal-gc", "SKILL.md")
+	hiddenPath := filepath.Join(dir, "platform-internal-gc", "SKILL.md")
 	if _, err := os.Stat(hiddenPath); err == nil {
 		t.Fatal("hidden command 'internal-gc' should not have a skill file")
 	}
@@ -641,7 +794,7 @@ func newComplexSkillRoot() *redant.Command {
 	)
 
 	root := &redant.Command{
-		Use:   "平台",
+		Use:   "platform",
 		Short: "统一资源管理平台。",
 		Long:  "支持搜索、监控、项目管理等多种操作的 CLI 工具。",
 		Options: redant.OptionSet{
@@ -658,9 +811,10 @@ func newComplexSkillRoot() *redant.Command {
 		Aliases: []string{"s", "find"},
 		Metadata: map[string]string{
 			"skill.description":   "Search platform resources by keyword with scope filtering.",
-			"skill.argument-hint": "搜索关键词，如 deployment nginx",
-			"skill.applyTo":       "**/*.go",
-			"skill.condition":     "当用户需要在平台中搜索资源时使用",
+			"skill.allowed-tools": "Bash(grep:*) Read",
+			"skill.argument-hint": "Describe what to search, e.g. deployment nginx",
+			"skill.apply-to":      "**/*.go",
+			"skill.condition":     "Use when searching resources on the platform",
 		},
 		Options: redant.OptionSet{
 			{Flag: "limit", Shorthand: "n", Description: "最大返回条数。", Default: "20", Value: redant.Int64Of(&limit)},
@@ -700,7 +854,8 @@ func newComplexSkillRoot() *redant.Command {
 		Short: "创建新项目。",
 		Long:  "创建一个新项目并初始化默认配置。支持指定模板和标签。",
 		Metadata: map[string]string{
-			"skill.tools": "create_file, run_in_terminal",
+			"skill.allowed-tools": "create_file run_in_terminal",
+			"skill.license":       "Apache-2.0",
 		},
 		Options: redant.OptionSet{
 			{Flag: "private", Description: "设为私有项目。", Value: redant.BoolOf(&private)},

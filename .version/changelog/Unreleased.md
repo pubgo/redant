@@ -4,7 +4,8 @@
 
 ## 新增
 
-暂无
+- `llms-txt --format skill`：支持生成符合 [Agent Skills 规范](https://agentskills.io/specification) 的 SKILL.md 文件，含 YAML frontmatter 校验（`name`、`description`、`compatibility` 字段约束）。
+- `Command.Metadata` 的 `skill.*` 前缀约定：可通过 Metadata 配置 SKILL.md 的标准字段（`name`、`description`、`license`、`compatibility`、`allowed-tools`）及自定义 `metadata:` 嵌套属性。
 
 ## 修复
 

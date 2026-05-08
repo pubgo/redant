@@ -1,11 +1,11 @@
 ---
-name: 平台-project-create
+name: platform-project-create
 description: "创建新项目。"
-argument-hint: "name, description"
-tools: "create_file, run_in_terminal"
+license: "Apache-2.0"
+allowed-tools: "create_file run_in_terminal"
 ---
 
-# 平台 project create
+# platform project create
 
 ## 使用场景
 
@@ -14,7 +14,7 @@ tools: "create_file, run_in_terminal"
 ## 用法
 
 ```sh
-平台 project create <name> [description]
+platform project create <name> [description]
 ```
 
 ### 参数

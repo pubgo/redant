@@ -1,9 +1,9 @@
 ---
-name: 平台-watch
+name: platform-watch
 description: "监听资源变更事件流。"
 ---
 
-# 平台 watch
+# platform watch
 
 ## 使用场景
 
@@ -13,7 +13,7 @@ description: "监听资源变更事件流。"
 ## 用法
 
 ```sh
-平台 watch
+platform watch
 ```
 
 ### 选项
