@@ -61,6 +61,12 @@ flowchart TD
 | 环境变量回退 | `GIT_AUTHOR=alice app repo commit` | `Envs` 配置生效      |
 | 默认值       | 未传值时自动应用                   | 由 `Default` 指定    |
 
+Flag 继承规则：
+
+- 默认不继承（`Inherit` 零值为 `false`）。
+- 需要向子命令下沉时，显式设置 `Inherit: true`。
+- 内建 `--list-commands` / `--list-flags` / `--list-format` 仅在根命令可见与可用。
+
 > **内部标志**：`--redant-args VALUE` 为框架内部保留标志（隐藏），仅用于 MCP/Web 等集成场景覆盖位置参数。业务代码无需关注。
 
 ## 4) 通用输入模板
