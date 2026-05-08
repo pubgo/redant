@@ -284,7 +284,7 @@ func GlobalFlags() OptionSet {
 		},
 		{
 			Flag:        rawEnvelopeFlag,
-			Description: "Output structured NDJSON envelope instead of plain JSON data.",
+			Description: "Output structured NDJSON envelope for ResponseHandler/ResponseStreamHandler instead of plain JSON data.",
 			Value:       BoolOf(new(bool)),
 		},
 		{

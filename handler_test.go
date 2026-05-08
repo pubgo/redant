@@ -36,6 +36,85 @@ func TestRun_NoResponseHandler(t *testing.T) {
 	}
 }
 
+func TestRun_NoResponseHandler_RawEnvelopeNoop(t *testing.T) {
+	cmd := &Command{
+		Use: "app",
+		Children: []*Command{
+			{
+				Use: "echo",
+				Handler: func(ctx context.Context, inv *Invocation) error {
+					_, _ = inv.Stdout.Write([]byte(`{"ok":true}` + "\n"))
+					return nil
+				},
+			},
+		},
+	}
+
+	var stdout bytes.Buffer
+	inv := cmd.Invoke("echo", "--raw-envelope")
+	inv.Stdout = &stdout
+	inv.Stderr = io.Discard
+
+	if err := inv.Run(); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	got := strings.TrimSpace(stdout.String())
+	if strings.Contains(got, `"$":"resp"`) {
+		t.Fatalf("plain handler output should not be envelope-wrapped, got: %s", got)
+	}
+	if got != `{"ok":true}` {
+		t.Fatalf("got=%q, want=%q", got, `{"ok":true}`)
+	}
+}
+
+func TestRawEnvelopeFlag_EnableUnaryEnvelopeViaCLI(t *testing.T) {
+	type reply struct {
+		Message string `json:"message"`
+	}
+
+	cmd := &Command{
+		Use: "app",
+		Children: []*Command{
+			{
+				Use: "status",
+				ResponseHandler: Unary(func(ctx context.Context, inv *Invocation) (reply, error) {
+					return reply{Message: "ok"}, nil
+				}),
+			},
+		},
+	}
+
+	var stdout bytes.Buffer
+	inv := cmd.Invoke("status", "--raw-envelope")
+	inv.Stdout = &stdout
+	inv.Stderr = io.Discard
+
+	if err := inv.Run(); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	line := strings.TrimSpace(stdout.String())
+	var env StreamEnvelope
+	if err := json.Unmarshal([]byte(line), &env); err != nil {
+		t.Fatalf("invalid NDJSON envelope: %v\nline=%s", err, line)
+	}
+
+	if env.Kind != "resp" {
+		t.Fatalf("env kind = %q, want %q", env.Kind, "resp")
+	}
+	if env.Type == "" {
+		t.Fatalf("env type should not be empty")
+	}
+	data, ok := env.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("env data type = %T, want object", env.Data)
+	}
+	if msg, ok := data["message"].(string); !ok || msg != "ok" {
+		t.Fatalf("env data.message = %v, want %q", data["message"], "ok")
+	}
+}
+
 func TestRunCallback_UnaryTyped(t *testing.T) {
 	type reply struct{ Message string }
 
