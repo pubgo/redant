@@ -1,5 +1,5 @@
 ---
-name: 平台_project_create
+name: 平台-project-create
 description: "创建新项目。"
 argument-hint: "name, description"
 tools: "create_file, run_in_terminal"

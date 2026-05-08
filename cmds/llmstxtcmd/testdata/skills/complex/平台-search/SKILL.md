@@ -1,5 +1,5 @@
 ---
-name: 平台_search
+name: 平台-search
 description: "Search platform resources by keyword with scope filtering."
 argument-hint: "搜索关键词，如 deployment nginx"
 applyTo: "**/*.go"

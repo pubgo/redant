@@ -1,5 +1,5 @@
 ---
-name: myctl_deploy
+name: myctl-deploy
 description: "Deploy to environment."
 argument-hint: "target"
 ---

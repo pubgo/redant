@@ -429,8 +429,8 @@ func TestNewCommand_IntegrationSkill(t *testing.T) {
 
 	got := buf.String()
 	// Verify it contains skill frontmatter markers
-	if !strings.Contains(got, "name: app_hello") {
-		t.Fatalf("skill output missing 'name: app_hello':\n%s", got)
+	if !strings.Contains(got, "name: app-hello") {
+		t.Fatalf("skill output missing 'name: app-hello':\n%s", got)
 	}
 	if !strings.Contains(got, "## 用法") {
 		t.Fatalf("skill output missing '## 用法':\n%s", got)
@@ -445,13 +445,13 @@ func TestWriteSkillDir(t *testing.T) {
 		t.Fatalf("WriteSkillDir error: %v", err)
 	}
 
-	// Should create nested dirs: <dir>/myctl/deploy/ and <dir>/myctl/deploy/rollback/
+	// Should create flattened dirs by generated skill name
 	expected := []struct {
 		path    string
 		nameVal string
 	}{
-		{filepath.Join("myctl", "deploy", "SKILL.md"), "name: myctl_deploy"},
-		{filepath.Join("myctl", "deploy", "rollback", "SKILL.md"), "name: myctl_deploy_rollback"},
+		{filepath.Join("myctl-deploy", "SKILL.md"), "name: myctl-deploy"},
+		{filepath.Join("myctl-deploy-rollback", "SKILL.md"), "name: myctl-deploy-rollback"},
 	}
 	for _, tt := range expected {
 		path := filepath.Join(dir, tt.path)
@@ -477,7 +477,7 @@ func TestWriteSkillDir_Complex(t *testing.T) {
 		t.Fatalf("WriteSkillDir error: %v", err)
 	}
 
-	// Verify expected skill files were created (nested directory structure)
+	// Verify expected skill files were created (flattened name-based structure)
 	expectedSkills := []struct {
 		relPath      string // relative path from dir to SKILL.md
 		expectedName string // name field in frontmatter
@@ -485,10 +485,10 @@ func TestWriteSkillDir_Complex(t *testing.T) {
 		mustNotHave  []string
 	}{
 		{
-			relPath:      filepath.Join("平台", "search", "SKILL.md"),
-			expectedName: "平台_search",
+			relPath:      filepath.Join("平台-search", "SKILL.md"),
+			expectedName: "平台-search",
 			mustHave: []string{
-				"name: 平台_search",
+				"name: 平台-search",
 				"description: \"Search platform resources by keyword with scope filtering.\"",
 				"argument-hint: \"搜索关键词，如 deployment nginx\"",
 				"applyTo:",
@@ -505,19 +505,19 @@ func TestWriteSkillDir_Complex(t *testing.T) {
 			},
 		},
 		{
-			relPath:      filepath.Join("平台", "watch", "SKILL.md"),
-			expectedName: "平台_watch",
+			relPath:      filepath.Join("平台-watch", "SKILL.md"),
+			expectedName: "平台-watch",
 			mustHave: []string{
-				"name: 平台_watch",
+				"name: 平台-watch",
 				"Stream",
 				"## 用法",
 			},
 		},
 		{
-			relPath:      filepath.Join("平台", "project", "create", "SKILL.md"),
-			expectedName: "平台_project_create",
+			relPath:      filepath.Join("平台-project-create", "SKILL.md"),
+			expectedName: "平台-project-create",
 			mustHave: []string{
-				"name: 平台_project_create",
+				"name: 平台-project-create",
 				"`name`（必填）",
 				"`description`",
 				"--private",
@@ -527,20 +527,20 @@ func TestWriteSkillDir_Complex(t *testing.T) {
 			},
 		},
 		{
-			relPath:      filepath.Join("平台", "project", "delete", "SKILL.md"),
-			expectedName: "平台_project_delete",
+			relPath:      filepath.Join("平台-project-delete", "SKILL.md"),
+			expectedName: "平台-project-delete",
 			mustHave: []string{
-				"name: 平台_project_delete",
+				"name: 平台-project-delete",
 				"`project-id`（必填）",
 				"--force",
 				"--dry-run",
 			},
 		},
 		{
-			relPath:      filepath.Join("平台", "project", "import", "SKILL.md"),
-			expectedName: "平台_project_import",
+			relPath:      filepath.Join("平台-project-import", "SKILL.md"),
+			expectedName: "平台-project-import",
 			mustHave: []string{
-				"name: 平台_project_import",
+				"name: 平台-project-import",
 				"别名: im",
 			},
 		},
@@ -569,7 +569,7 @@ func TestWriteSkillDir_Complex(t *testing.T) {
 	}
 
 	// hidden command should NOT produce a skill file
-	hiddenPath := filepath.Join(dir, "平台", "internal-gc", "SKILL.md")
+	hiddenPath := filepath.Join(dir, "平台-internal-gc", "SKILL.md")
 	if _, err := os.Stat(hiddenPath); err == nil {
 		t.Fatal("hidden command 'internal-gc' should not have a skill file")
 	}

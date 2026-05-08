@@ -1,5 +1,5 @@
 ---
-name: myapp_echo
+name: myapp-echo
 description: "Prints a message."
 argument-hint: "message"
 ---

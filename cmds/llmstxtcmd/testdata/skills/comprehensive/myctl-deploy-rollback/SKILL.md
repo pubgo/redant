@@ -1,5 +1,5 @@
 ---
-name: myctl_deploy_rollback
+name: myctl-deploy-rollback
 description: "Rollback deployment."
 ---
 

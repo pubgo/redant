@@ -37,7 +37,7 @@ func WriteSkill(w io.Writer, root *redant.Command, maxDepth int) error {
 }
 
 type skillEntry struct {
-	name         string   // underscore-joined unique name (e.g. "平台_project_create")
+	name         string   // skill name, includes full command path in hyphen style (e.g. "平台-project-create")
 	pathSegments []string // command path segments from root (e.g. ["平台", "project", "create"])
 	fullPath     string   // space-joined command path (e.g. "平台 project create")
 	description  string
@@ -53,6 +53,24 @@ type skillEntry struct {
 // SKILL.md frontmatter fields. For example, Metadata["skill.applyTo"] becomes
 // the "applyTo" frontmatter field.
 const skillMetadataPrefix = "skill."
+
+func normalizeSkillName(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.ReplaceAll(name, "_", "-")
+	name = strings.ReplaceAll(name, " ", "-")
+	return name
+}
+
+func skillNameFromPathSegments(segments []string) string {
+	if len(segments) == 0 {
+		return ""
+	}
+	norm := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		norm = append(norm, normalizeSkillName(seg))
+	}
+	return strings.Join(norm, "-")
+}
 
 func collectSkillEntries(cmd *redant.Command, path string, depth, maxDepth int, out *[]*skillEntry) {
 	if cmd.Hidden {
@@ -76,7 +94,7 @@ func collectSkillEntries(cmd *redant.Command, path string, depth, maxDepth int, 
 		}
 
 		entry := &skillEntry{
-			name:         strings.Join(segments, "_"),
+			name:         skillNameFromPathSegments(segments),
 			pathSegments: segments,
 			fullPath:     path,
 			description:  cmd.Short,
@@ -267,18 +285,18 @@ func escapeYAMLString(s string) string {
 }
 
 // WriteSkillDir writes each leaf command as a separate SKILL.md file under dir.
-// Directory structure follows the command tree:
+// Directory structure follows generated skill names:
 //
-//	<dir>/<root>/<sub1>/<sub2>/SKILL.md
+//	<dir>/<skill-name>/SKILL.md
 //
-// The SKILL.md name field uses underscore-joined path to ensure uniqueness.
+// The SKILL.md name field uses full command path joined by hyphens.
 func WriteSkillDir(dir string, root *redant.Command, maxDepth int) error {
 	var commands []*skillEntry
 	collectSkillEntries(root, root.Name(), 0, maxDepth, &commands)
 
 	for _, entry := range commands {
-		// Build nested directory path from path segments
-		skillDir := filepath.Join(dir, filepath.Join(entry.pathSegments...))
+		// Build directory path from generated skill name
+		skillDir := filepath.Join(dir, entry.name)
 		if err := os.MkdirAll(skillDir, 0o755); err != nil {
 			return fmt.Errorf("creating skill dir %s: %w", skillDir, err)
 		}

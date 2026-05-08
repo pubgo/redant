@@ -1,5 +1,5 @@
 ---
-name: 平台_watch
+name: 平台-watch
 description: "监听资源变更事件流。"
 ---
 

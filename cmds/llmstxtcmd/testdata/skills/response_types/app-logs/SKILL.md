@@ -1,5 +1,5 @@
 ---
-name: app_logs
+name: app-logs
 description: "Stream logs."
 ---
 

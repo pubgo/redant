@@ -1,5 +1,5 @@
 ---
-name: app_status
+name: app-status
 description: "Get status."
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: 平台_project_delete
+name: 平台-project-delete
 description: "删除项目。"
 argument-hint: "project-id"
 ---

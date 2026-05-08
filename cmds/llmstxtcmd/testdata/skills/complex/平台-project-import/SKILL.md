@@ -1,5 +1,5 @@
 ---
-name: 平台_project_import
+name: 平台-project-import
 description: "从 URL 导入项目。"
 argument-hint: "url"
 ---
