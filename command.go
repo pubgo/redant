@@ -670,9 +670,17 @@ func (inv *Invocation) run(state *runState) error {
 		inv.Flags.Usage = func() {}
 	}
 
-	// Add global flags to the flag set
+	// Add global flags to the flag set.
+	// For subcommands, only add flags with Inherit=true.
 	globalFlags := inv.Command.GetGlobalFlags()
-	globalFlagSet := globalFlags.FlagSet(inv.Command.Name())
+	isRoot := inv.Command.parent == nil
+	var applicableGlobalFlags OptionSet
+	for _, opt := range globalFlags {
+		if isRoot || opt.InheritsToChildren() {
+			applicableGlobalFlags = append(applicableGlobalFlags, opt)
+		}
+	}
+	globalFlagSet := applicableGlobalFlags.FlagSet(inv.Command.Name())
 	globalFlagSet.VisitAll(func(f *pflag.Flag) {
 		if inv.Flags.Lookup(f.Name) == nil {
 			inv.Flags.AddFlag(f)

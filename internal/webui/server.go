@@ -26,6 +26,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/pubgo/redant"
+	"github.com/pubgo/redant/internal/mcpclient"
 )
 
 type ArgMeta struct {
@@ -118,6 +119,7 @@ type App struct {
 	commands []CommandMeta
 	byID     map[string]CommandMeta
 	mu       sync.Mutex
+	mcpSess  *mcpclient.Session
 }
 
 func New(root *redant.Command) *App {
@@ -137,6 +139,11 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/run/ws", a.handleRunWS)
 	mux.HandleFunc("/api/run/stream/ws", a.handleRunStreamWS)
 	mux.HandleFunc("/api/terminal/ws", a.handleTerminalWS)
+	mux.HandleFunc("/api/mcp/info", a.handleMCPInfo)
+	mux.HandleFunc("/api/mcp/tools", a.handleMCPTools)
+	mux.HandleFunc("/api/mcp/resources", a.handleMCPResources)
+	mux.HandleFunc("/api/mcp/prompts", a.handleMCPPrompts)
+	mux.HandleFunc("/api/mcp/call", a.handleMCPCall)
 	return mux
 }
 

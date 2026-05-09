@@ -23,23 +23,26 @@ func TestAddMCPCommand(t *testing.T) {
 		t.Fatalf("child name = %q, want %q", mcp.Name(), "mcp")
 	}
 
-	if len(mcp.Children) != 2 {
-		t.Fatalf("mcp children len = %d, want 2", len(mcp.Children))
+	if len(mcp.Children) != 3 {
+		t.Fatalf("mcp children len = %d, want 3", len(mcp.Children))
 	}
 
 	hasList := false
 	hasServe := false
+	hasClient := false
 	for _, child := range mcp.Children {
 		switch child.Name() {
 		case "list":
 			hasList = true
 		case "serve":
 			hasServe = true
+		case "client":
+			hasClient = true
 		}
 	}
 
-	if !hasList || !hasServe {
-		t.Fatalf("expected mcp list and mcp serve subcommands")
+	if !hasList || !hasServe || !hasClient {
+		t.Fatalf("expected mcp list, mcp serve, and mcp client subcommands")
 	}
 }
 

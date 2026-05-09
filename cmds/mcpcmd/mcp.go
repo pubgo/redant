@@ -92,6 +92,7 @@ func New() *redant.Command {
 		Children: []*redant.Command{
 			listCmd,
 			serveCmd,
+			newClientCommand(),
 		},
 	}
 }

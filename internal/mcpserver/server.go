@@ -88,6 +88,14 @@ func (s *Server) ServeStdio(ctx context.Context, r io.Reader, w io.Writer) error
 	return s.server.Run(ctx, transport)
 }
 
+// ServeTransport runs the MCP server on the given transport.
+func (s *Server) ServeTransport(ctx context.Context, transport mcp.Transport) error {
+	if s == nil || s.root == nil || s.server == nil {
+		return errors.New("mcp server root command is nil")
+	}
+	return s.server.Run(ctx, transport)
+}
+
 func (s *Server) registerTools() {
 	if s == nil || s.server == nil {
 		return
