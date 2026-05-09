@@ -44,9 +44,19 @@ func (s *Server) registerPrompts() {
 
 		args := buildPromptArgs(tool)
 
+		promptDesc := fmt.Sprintf("Usage guide for %s.", strings.Join(tool.PathTokens, " "))
+		if tool.Description != "" {
+			// Use the first line of the description as a concise summary.
+			if first, _, ok := strings.Cut(tool.Description, "\n"); ok {
+				promptDesc = first
+			} else {
+				promptDesc = tool.Description
+			}
+		}
+
 		s.server.AddPrompt(&mcp.Prompt{
 			Name:        promptName,
-			Description: fmt.Sprintf("How to call %q with correct flags and args.", strings.Join(tool.PathTokens, " ")),
+			Description: promptDesc,
 			Arguments:   args,
 		}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 			var buf bytes.Buffer
