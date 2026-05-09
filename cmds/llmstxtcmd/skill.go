@@ -158,7 +158,7 @@ func skillNameFromPathSegments(segments []string) string {
 }
 
 func collectSkillEntries(cmd *redant.Command, path string, depth, maxDepth int, out *[]*skillEntry) {
-	if cmd.Hidden {
+	if cmd.Hidden || cmd.Meta(redant.AgentExcludeKey) == "true" {
 		return
 	}
 

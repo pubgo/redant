@@ -335,7 +335,37 @@ cmd := &redant.Command{
 
 未设置时不施加超时（继承上游 context 的 deadline）。值格式遵循 Go `time.ParseDuration`，支持 `"5s"`、`"2m"`、`"1h30m"` 等。
 
-## 15. Stream Envelope 序号与时间戳
+## 15. 排除不需要暴露的命令
+
+通过 `Command.Metadata` 设置 `agent.exclude`，可将基础设施命令从 MCP tools/resources/prompts 中排除：
+
+```go
+cmd := &redant.Command{
+    Use:   "completion",
+    Short: "Generate shell completion scripts.",
+    Metadata: map[string]string{
+        "agent.exclude": "true",
+    },
+    // ...
+}
+```
+
+设置 `agent.exclude` 后，该命令及其所有子命令都不会出现在 MCP 工具列表中。
+
+redant 内置的基础设施命令已默认标记排除：
+
+| 命令         | 说明                       |
+| ------------ | -------------------------- |
+| `mcp`        | MCP 服务自身（serve/list） |
+| `completion` | Shell 补全脚本生成         |
+| `doc`        | 交互式命令文档站           |
+| `llms-txt`   | 命令树文档生成             |
+| `readline`   | 交互式 readline REPL       |
+| `richline`   | Bubble Tea 交互式命令行    |
+| `web`        | Web 控制台                 |
+| `webtty`     | WebTTY 终端                |
+
+## 16. Stream Envelope 序号与时间戳
 
 Stream 响应的 NDJSON envelope 自动包含 `seq`（0-based 递增序号）和 `ts`（Unix 毫秒时间戳）：
 
@@ -348,7 +378,7 @@ Stream 响应的 NDJSON envelope 自动包含 `seq`（0-based 递增序号）和
 - `ts`：发送时刻的 Unix 毫秒时间戳。
 - Unary 响应不包含这两个字段（保持向后兼容）。
 
-## 16. `--list-commands` / `--list-flags` JSON 输出
+## 17. `--list-commands` / `--list-flags` JSON 输出
 
 全局 flag `--list-format` 支持 `text`（默认）和 `json` 两种格式：
 
@@ -359,7 +389,7 @@ app --list-flags --list-format json
 
 JSON 输出结构便于工具链消费，`--list-commands` 输出命令数组，`--list-flags` 输出 flag 数组（含 `isGlobal` 标记）。
 
-## 17. llms-txt Skill 格式输出
+## 18. llms-txt Skill 格式输出
 
 `llms-txt` 子命令支持 `--format skill` 输出符合 [Agent Skills 规范](https://agentskills.io/specification) 的 SKILL.md 文件：
 
@@ -426,7 +456,7 @@ cmd := &redant.Command{
 
 校验失败时返回 `SkillValidationError`，包含具体问题描述。
 
-## 18. 相关文档
+## 19. 相关文档
 
 - 总览：[`../README.md`](../README.md)
 - 设计：[`DESIGN.md`](DESIGN.md)

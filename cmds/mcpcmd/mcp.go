@@ -85,9 +85,10 @@ func New() *redant.Command {
 	}
 
 	return &redant.Command{
-		Use:   "mcp",
-		Short: "Model Context Protocol integration commands.",
-		Long:  "Expose redant CLI definitions (commands/flags/args) as MCP tools.",
+		Use:      "mcp",
+		Short:    "Model Context Protocol integration commands.",
+		Long:     "Expose redant CLI definitions (commands/flags/args) as MCP tools.",
+		Metadata: redant.InfraMetadata,
 		Children: []*redant.Command{
 			listCmd,
 			serveCmd,

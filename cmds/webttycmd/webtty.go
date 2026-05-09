@@ -62,9 +62,10 @@ func New() *redant.Command {
 	var autoOpen bool
 
 	return &redant.Command{
-		Use:   "webtty",
-		Short: "打开 WebTTY 交互终端页面",
-		Long:  "启动最简 WebTTY：仅暴露本地 shell（WebSocket + PTY），不复用 webui。",
+		Use:      "webtty",
+		Short:    "打开 WebTTY 交互终端页面",
+		Long:     "启动最简 WebTTY：仅暴露本地 shell（WebSocket + PTY），不复用 webui。",
+		Metadata: redant.InfraMetadata,
 		Options: redant.OptionSet{
 			{
 				Flag:        "addr",

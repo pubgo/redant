@@ -348,8 +348,8 @@ func TestNewCommand_IntegrationJSON(t *testing.T) {
 	if doc.Name != "app" {
 		t.Fatalf("root name = %q, want %q", doc.Name, "app")
 	}
-	if len(doc.Children) != 2 {
-		t.Fatalf("children count = %d, want 2", len(doc.Children))
+	if len(doc.Children) != 1 {
+		t.Fatalf("children count = %d, want 1 (llms-txt excluded by agent.exclude)", len(doc.Children))
 	}
 }
 
@@ -904,4 +904,63 @@ func newComplexSkillRoot() *redant.Command {
 	projectCmd.Children = append(projectCmd.Children, createCmd, deleteCmd, importCmd)
 	root.Children = append(root.Children, searchCmd, watchCmd, projectCmd, hiddenCmd)
 	return root
+}
+
+func TestAgentExcludeFiltering(t *testing.T) {
+	root := &redant.Command{Use: "app", Short: "Test app."}
+	root.Children = append(root.Children,
+		&redant.Command{
+			Use:     "deploy",
+			Short:   "Deploy the app.",
+			Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+		},
+		&redant.Command{
+			Use:      "infra-tool",
+			Short:    "Infrastructure tool.",
+			Metadata: redant.InfraMetadata,
+			Handler:  func(ctx context.Context, inv *redant.Invocation) error { return nil },
+		},
+	)
+
+	t.Run("markdown", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := WriteLLMSTxt(&buf, root, 0); err != nil {
+			t.Fatalf("WriteLLMSTxt error: %v", err)
+		}
+		got := buf.String()
+		if !strings.Contains(got, "deploy") {
+			t.Fatalf("expected deploy in output:\n%s", got)
+		}
+		if strings.Contains(got, "infra-tool") {
+			t.Fatalf("infra-tool should be excluded by agent.exclude:\n%s", got)
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := WriteJSON(&buf, root, 0); err != nil {
+			t.Fatalf("WriteJSON error: %v", err)
+		}
+		got := buf.String()
+		if !strings.Contains(got, "deploy") {
+			t.Fatalf("expected deploy in output:\n%s", got)
+		}
+		if strings.Contains(got, "infra-tool") {
+			t.Fatalf("infra-tool should be excluded by agent.exclude:\n%s", got)
+		}
+	})
+
+	t.Run("skill", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := WriteSkill(&buf, root, 0); err != nil {
+			t.Fatalf("WriteSkill error: %v", err)
+		}
+		got := buf.String()
+		if !strings.Contains(got, "app-deploy") {
+			t.Fatalf("expected app-deploy in output:\n%s", got)
+		}
+		if strings.Contains(got, "infra-tool") {
+			t.Fatalf("infra-tool should be excluded by agent.exclude:\n%s", got)
+		}
+	})
 }

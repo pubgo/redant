@@ -20,9 +20,10 @@ func New() *redant.Command {
 	var autoOpen bool
 
 	return &redant.Command{
-		Use:   "web",
-		Short: "打开可视化命令执行页面",
-		Long:  "启动本地 Web 控制台：左侧命令列表，右侧 flags/args 输入，并展示完整调用过程与执行结果。",
+		Use:      "web",
+		Short:    "打开可视化命令执行页面",
+		Long:     "启动本地 Web 控制台：左侧命令列表，右侧 flags/args 输入，并展示完整调用过程与执行结果。",
+		Metadata: redant.InfraMetadata,
 		Options: redant.OptionSet{
 			{
 				Flag:        "addr",

@@ -76,6 +76,10 @@ const (
 
 	InternalArgsOverrideFlag = "redant-args"
 
+	// AgentExcludeKey is the Metadata key used to exclude a command (and its
+	// children) from MCP tool/resource/prompt exposure.
+	AgentExcludeKey = "agent.exclude"
+
 	internalArgsOverrideFlag = InternalArgsOverrideFlag
 	rawEnvelopeFlag          = "raw-envelope"
 
@@ -89,6 +93,13 @@ const (
 	listFormatText = ListFormatText
 	listFormatJSON = ListFormatJSON
 )
+
+// InfraMetadata is the standard Metadata map for built-in infrastructure
+// commands (e.g. mcp, completion, doc) that should be excluded from
+// MCP tool exposure. Use it as the Metadata field of infrastructure commands:
+//
+//	&redant.Command{Use: "mcp", Metadata: redant.InfraMetadata, ...}
+var InfraMetadata = map[string]string{AgentExcludeKey: "true"}
 
 type ArgSet []Arg
 

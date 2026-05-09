@@ -823,3 +823,121 @@ func TestToolTimeoutInCallTool(t *testing.T) {
 		t.Fatalf("result should not be nil")
 	}
 }
+
+func TestCollectToolsExcludesAgentExclude(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children,
+		&redant.Command{
+			Use:     "deploy",
+			Short:   "Deploy the app.",
+			Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+		},
+		&redant.Command{
+			Use:      "mcp",
+			Short:    "MCP commands.",
+			Metadata: map[string]string{"agent.exclude": "true"},
+			Children: []*redant.Command{
+				{
+					Use:     "serve",
+					Short:   "Start MCP server.",
+					Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+				},
+			},
+		},
+		&redant.Command{
+			Use:      "completion",
+			Short:    "Shell completion.",
+			Metadata: map[string]string{"agent.exclude": "true"},
+			Handler:  func(ctx context.Context, inv *redant.Invocation) error { return nil },
+		},
+		&redant.Command{
+			Use:     "status",
+			Short:   "Show status.",
+			Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+		},
+	)
+
+	tools := collectTools(root)
+
+	names := make(map[string]bool)
+	for _, td := range tools {
+		names[td.Name] = true
+	}
+
+	// Business commands should be present.
+	for _, want := range []string{"deploy", "status"} {
+		if !names[want] {
+			t.Errorf("expected tool %q to be present, got tools: %v", want, names)
+		}
+	}
+
+	// Excluded commands (and their children) should be absent.
+	for _, notWant := range []string{"mcp", "mcp.serve", "completion"} {
+		if names[notWant] {
+			t.Errorf("tool %q should be excluded by agent.exclude", notWant)
+		}
+	}
+
+	if len(tools) != 2 {
+		t.Errorf("expected 2 tools, got %d: %v", len(tools), names)
+	}
+}
+
+func TestCallToolResponseHandlerNoDuplicateOutput(t *testing.T) {
+	type Result struct {
+		OK      bool   `json:"ok"`
+		Message string `json:"message"`
+	}
+
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "delete",
+		Short: "Delete a page.",
+		ResponseHandler: redant.Unary(func(ctx context.Context, inv *redant.Invocation) (Result, error) {
+			return Result{OK: true, Message: "deleted page: Test-2026"}, nil
+		}),
+	})
+
+	srv := New(root)
+	result, err := srv.callTool(context.Background(), toolsCallParams{
+		Name:      "delete",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("callTool error: %v", err)
+	}
+
+	structured, ok := result["structuredContent"].(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent missing")
+	}
+
+	// The structured response should be present.
+	resp, ok := structured["response"]
+	if !ok {
+		t.Fatalf("structured response field missing")
+	}
+	// Response may be the Go struct or a JSON-decoded map; marshal+unmarshal to normalize.
+	respJSON, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	var respMap map[string]any
+	if err := json.Unmarshal(respJSON, &respMap); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if respMap["ok"] != true || respMap["message"] != "deleted page: Test-2026" {
+		t.Fatalf("unexpected response: %v", respMap)
+	}
+
+	// stdout should NOT contain the duplicated response JSON.
+	stdout, _ := structured["stdout"].(string)
+	if strings.Contains(stdout, "deleted page") {
+		t.Errorf("stdout should not contain response JSON (already in response field), got: %q", stdout)
+	}
+
+	combined, _ := structured["combined"].(string)
+	if strings.Contains(combined, "deleted page") {
+		t.Errorf("combined should not contain response JSON (already in response field), got: %q", combined)
+	}
+}

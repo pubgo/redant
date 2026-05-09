@@ -700,9 +700,10 @@ func TestCallToolWithStreamHandler(t *testing.T) {
 	if !ok {
 		t.Fatalf("structuredContent missing")
 	}
+	// stdout should be empty — response data is only in the response field.
 	stdout, _ := structured["stdout"].(string)
-	if !strings.Contains(stdout, "chunk-1") || !strings.Contains(stdout, "chunk-2") {
-		t.Fatalf("stdout = %q, want contains chunk-1 and chunk-2", stdout)
+	if stdout != "" {
+		t.Fatalf("stdout should be empty when response is captured, got %q", stdout)
 	}
 	// Verify typed response array is collected.
 	responses, ok := structured["response"].([]any)
@@ -744,9 +745,10 @@ func TestCallToolWithResponseHandler(t *testing.T) {
 	if !ok {
 		t.Fatalf("structuredContent missing")
 	}
+	// stdout should be empty — response data is only in the response field.
 	stdout, _ := structured["stdout"].(string)
-	if !strings.Contains(stdout, "hello-unary") {
-		t.Fatalf("stdout = %q, want contains hello-unary", stdout)
+	if stdout != "" {
+		t.Fatalf("stdout should be empty when response is captured, got %q", stdout)
 	}
 	// Verify typed unary response is collected (single value, not array).
 	respVal, ok := structured["response"]
@@ -811,9 +813,19 @@ func TestServeSDKClientCallStreamTool(t *testing.T) {
 		t.Fatalf("expected success, got error: %q", firstText(callRes.Content))
 	}
 
+	// Content text should contain the serialized response.
 	text := firstText(callRes.Content)
 	if !strings.Contains(text, "hello") || !strings.Contains(text, "world") {
 		t.Fatalf("content text = %q, want contains hello and world", text)
+	}
+	// Verify structured content has response but not duplicated in stdout.
+	if callRes.StructuredContent != nil {
+		sc, _ := callRes.StructuredContent.(map[string]any)
+		if sc != nil {
+			if so, _ := sc["stdout"].(string); so != "" {
+				t.Fatalf("stdout should be empty when response is captured, got %q", so)
+			}
+		}
 	}
 
 	cancel()

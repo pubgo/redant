@@ -24,9 +24,10 @@ func New() *redant.Command {
 	)
 
 	return &redant.Command{
-		Use:   "llms-txt",
-		Short: "Print command tree documentation in llms.txt format for LLM consumption.",
-		Long:  "Generate a structured overview of all commands, flags, and arguments. Supports Markdown (default, optimised for grep) and JSON (optimised for programmatic consumption).",
+		Use:      "llms-txt",
+		Short:    "Print command tree documentation in llms.txt format for LLM consumption.",
+		Long:     "Generate a structured overview of all commands, flags, and arguments. Supports Markdown (default, optimised for grep) and JSON (optimised for programmatic consumption).",
+		Metadata: redant.InfraMetadata,
 		Options: redant.OptionSet{
 			{
 				Flag:        "depth",
@@ -113,7 +114,7 @@ func WriteLLMSTxt(w io.Writer, root *redant.Command, maxDepth int) error {
 }
 
 func writeCommandTree(p *printer, cmd *redant.Command, parentPath string, depth, maxDepth int) {
-	if cmd.Hidden {
+	if cmd.Hidden || cmd.Meta(redant.AgentExcludeKey) == "true" {
 		return
 	}
 
@@ -362,7 +363,7 @@ func buildJSONTree(cmd *redant.Command, depth, maxDepth int) jsonCommand {
 
 	if maxDepth == 0 || depth < maxDepth {
 		for _, child := range cmd.Children {
-			if child.Hidden {
+			if child.Hidden || child.Meta(redant.AgentExcludeKey) == "true" {
 				continue
 			}
 			jc.Children = append(jc.Children, buildJSONTree(child, depth+1, maxDepth))
