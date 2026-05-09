@@ -1292,8 +1292,15 @@ func collectCommands(root *redant.Command) []CommandMeta {
 			out = append(out, toCommandMeta(cmd, path, effective))
 		}
 
+		// Only pass down inheritable options to children.
+		var childInherited redant.OptionSet
+		for _, opt := range effective {
+			if opt.InheritsToChildren() {
+				childInherited = append(childInherited, opt)
+			}
+		}
 		for _, child := range cmd.Children {
-			walk(child, append(path, child.Name()), effective)
+			walk(child, append(path, child.Name()), childInherited)
 		}
 	}
 
@@ -1470,7 +1477,7 @@ func commandDescription(cmd *redant.Command) string {
 
 func isSystemFlag(flag string) bool {
 	switch flag {
-	case redant.HelpFlag, redant.ListCommandsFlag, redant.ListFlagsFlag, redant.InternalArgsOverrideFlag:
+	case redant.HelpFlag, redant.ListCommandsFlag, redant.ListFlagsFlag, redant.ListFormatFlag, redant.InternalArgsOverrideFlag:
 		return true
 	default:
 		return false

@@ -91,7 +91,14 @@ func collectTools(root *redant.Command) []toolDef {
 		}
 
 		for _, child := range cmd.Children {
-			walk(child, append(path, child.Name()), effectiveOptions)
+			// Only pass down inheritable options to children.
+			var childOptions redant.OptionSet
+			for _, opt := range effectiveOptions {
+				if opt.InheritsToChildren() {
+					childOptions = append(childOptions, opt)
+				}
+			}
+			walk(child, append(path, child.Name()), childOptions)
 		}
 	}
 
@@ -713,7 +720,7 @@ func buildCallToolResult(stdout, stderr string, runErr error, tr *ToolResult) *m
 
 func isSystemFlag(flag string) bool {
 	switch flag {
-	case redant.HelpFlag, redant.ListCommandsFlag, redant.ListFlagsFlag, redant.InternalArgsOverrideFlag:
+	case redant.HelpFlag, redant.ListCommandsFlag, redant.ListFlagsFlag, redant.ListFormatFlag, redant.InternalArgsOverrideFlag:
 		return true
 	default:
 		return false
