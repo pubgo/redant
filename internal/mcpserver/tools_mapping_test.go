@@ -240,12 +240,13 @@ func TestCallToolWithInheritedFlags(t *testing.T) {
 		t.Fatalf("callTool error: %v", err)
 	}
 
-	structured, ok := result.StructuredContent.(*ToolResult)
-	if !ok {
-		t.Fatalf("StructuredContent is not *ToolResult: %T", result.StructuredContent)
+	// Plain Handler: no StructuredContent, check Content text.
+	text := firstText(result.Content)
+	if !strings.Contains(text, "parent=pv run=rv target=svc") {
+		t.Fatalf("content text = %q", text)
 	}
-	if !strings.Contains(structured.Output, "parent=pv run=rv target=svc") {
-		t.Fatalf("output = %q", structured.Output)
+	if result.StructuredContent != nil {
+		t.Fatalf("plain handler should not have StructuredContent")
 	}
 }
 

@@ -184,8 +184,10 @@ func TestServeSDKClientListAndCallTool(t *testing.T) {
 		t.Fatalf("content text = %q, want contains HELLO", text.Text)
 	}
 
-	// StructuredContent goes through JSON round-trip via SDK, so it's map[string]any.
-	assertJSONSubset(t, callRes.StructuredContent, `{"output": "HELLO"}`)
+	// Plain Handler: no StructuredContent, stdout is in Content text only.
+	if callRes.StructuredContent != nil {
+		t.Fatalf("plain handler should not have StructuredContent, got %v", callRes.StructuredContent)
+	}
 
 	cancel()
 	if err := <-serverErrCh; err != nil && !strings.Contains(err.Error(), "context canceled") {
@@ -321,9 +323,10 @@ func TestServeSDKClientValidatesToolDescriptionAndParameters(t *testing.T) {
 		t.Fatalf("content text = %q", text.Text)
 	}
 
-	assertJSONSubset(t, callRes.StructuredContent, `{
-	  "output": "dry-run deploy api to dev"
-	}`)
+	// Plain Handler: no StructuredContent.
+	if callRes.StructuredContent != nil {
+		t.Fatalf("plain handler should not have StructuredContent, got %v", callRes.StructuredContent)
+	}
 
 	cancel()
 	if err := <-serverErrCh; err != nil && !strings.Contains(err.Error(), "context canceled") {
@@ -457,9 +460,10 @@ func TestServeSDKClientStructFlagAndArg(t *testing.T) {
 		t.Fatalf("content text = %q", text.Text)
 	}
 
-	assertJSONSubset(t, callRes.StructuredContent, `{
-	  "output": "arg=api:8080 flag=prod:9000"
-	}`)
+	// Plain Handler: no StructuredContent.
+	if callRes.StructuredContent != nil {
+		t.Fatalf("plain handler should not have StructuredContent, got %v", callRes.StructuredContent)
+	}
 
 	cancel()
 	if err := <-serverErrCh; err != nil && !strings.Contains(err.Error(), "context canceled") {

@@ -677,10 +677,11 @@ func errorsNew(msg string) error {
 	return errors.New(msg)
 }
 
-// buildCallToolResult constructs a *mcp.CallToolResult with a ToolResult as
-// its StructuredContent. The content text combines stdout, stderr and error
-// for human / LLM consumption.
+// buildCallToolResult constructs a *mcp.CallToolResult.
+// When tr has a typed Result, use StructuredContent for the data and Content
+// as a brief summary. Otherwise only Content carries the stdout/stderr text.
 func buildCallToolResult(stdout, stderr string, runErr error, tr *ToolResult) *mcp.CallToolResult {
+	// Build combined text from stdout + stderr + error for Content.
 	var out bytes.Buffer
 	if stdout != "" {
 		_, _ = out.WriteString(stdout)
@@ -703,19 +704,25 @@ func buildCallToolResult(stdout, stderr string, runErr error, tr *ToolResult) *m
 		_, _ = out.WriteString("ok")
 	}
 
-	if tr == nil {
-		tr = &ToolResult{}
-	}
-	tr.Output = stdout
-	if runErr != nil {
-		tr.Error = runErr.Error()
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: out.String()}},
+		IsError: runErr != nil,
 	}
 
-	return &mcp.CallToolResult{
-		Content:           []mcp.Content{&mcp.TextContent{Text: out.String()}},
-		StructuredContent: tr,
-		IsError:           runErr != nil,
+	// Only set StructuredContent when there is a typed result from
+	// ResponseHandler / ResponseStreamHandler. Plain Handler output
+	// is fully represented by Content text — no need to duplicate.
+	if tr != nil && tr.Result != nil {
+		tr.Output = stdout
+		if runErr != nil {
+			tr.Error = runErr.Error()
+		}
+		result.StructuredContent = tr
+		// Content text becomes a brief summary since data lives in StructuredContent.
+		result.Content = []mcp.Content{&mcp.TextContent{Text: "ok"}}
 	}
+
+	return result
 }
 
 func isSystemFlag(flag string) bool {
