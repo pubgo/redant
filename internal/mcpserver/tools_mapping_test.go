@@ -240,13 +240,12 @@ func TestCallToolWithInheritedFlags(t *testing.T) {
 		t.Fatalf("callTool error: %v", err)
 	}
 
-	structured, ok := result["structuredContent"].(map[string]any)
+	structured, ok := result.StructuredContent.(*ToolResult)
 	if !ok {
-		t.Fatalf("structuredContent missing: %#v", result)
+		t.Fatalf("StructuredContent is not *ToolResult: %T", result.StructuredContent)
 	}
-	stdout, _ := structured["stdout"].(string)
-	if !strings.Contains(stdout, "parent=pv run=rv target=svc") {
-		t.Fatalf("stdout = %q", stdout)
+	if !strings.Contains(structured.Output, "parent=pv run=rv target=svc") {
+		t.Fatalf("output = %q", structured.Output)
 	}
 }
 
@@ -618,9 +617,9 @@ func TestOutputSchemaWithTypedResponse(t *testing.T) {
 	tool := mustFindToolByName(t, tools, "status")
 
 	props, _ := tool.OutputSchema["properties"].(map[string]any)
-	respProp, ok := props["response"]
+	respProp, ok := props["result"]
 	if !ok {
-		t.Fatalf("output schema should have response property")
+		t.Fatalf("output schema should have result property")
 	}
 
 	respMap, _ := respProp.(map[string]any)
@@ -634,10 +633,10 @@ func TestOutputSchemaWithTypedResponse(t *testing.T) {
 	// Should have properties from struct reflection
 	respProps, _ := respMap["properties"].(map[string]any)
 	if _, ok := respProps["ok"]; !ok {
-		t.Fatalf("response schema should have 'ok' property")
+		t.Fatalf("result schema should have 'ok' property")
 	}
 	if _, ok := respProps["message"]; !ok {
-		t.Fatalf("response schema should have 'message' property")
+		t.Fatalf("result schema should have 'message' property")
 	}
 }
 
@@ -654,14 +653,14 @@ func TestOutputSchemaStreamTyped(t *testing.T) {
 	tool := mustFindToolByName(t, tools, "logs")
 
 	props, _ := tool.OutputSchema["properties"].(map[string]any)
-	respProp, ok := props["response"]
+	respProp, ok := props["result"]
 	if !ok {
-		t.Fatalf("output schema should have response property")
+		t.Fatalf("output schema should have result property")
 	}
 
 	respMap, _ := respProp.(map[string]any)
 	if got, _ := respMap["type"].(string); got != "array" {
-		t.Fatalf("stream response type = %q, want array", got)
+		t.Fatalf("stream result type = %q, want array", got)
 	}
 }
 
@@ -907,37 +906,30 @@ func TestCallToolResponseHandlerNoDuplicateOutput(t *testing.T) {
 		t.Fatalf("callTool error: %v", err)
 	}
 
-	structured, ok := result["structuredContent"].(map[string]any)
+	tr, ok := result.StructuredContent.(*ToolResult)
 	if !ok {
-		t.Fatalf("structuredContent missing")
+		t.Fatalf("StructuredContent is not *ToolResult: %T", result.StructuredContent)
 	}
 
-	// The structured response should be present.
-	resp, ok := structured["response"]
-	if !ok {
-		t.Fatalf("structured response field missing")
+	// The typed result should be present.
+	if tr.Result == nil {
+		t.Fatalf("result field missing")
 	}
-	// Response may be the Go struct or a JSON-decoded map; marshal+unmarshal to normalize.
-	respJSON, err := json.Marshal(resp)
+	// Result may be the Go struct or a JSON-decoded map; marshal+unmarshal to normalize.
+	respJSON, err := json.Marshal(tr.Result)
 	if err != nil {
-		t.Fatalf("marshal response: %v", err)
+		t.Fatalf("marshal result: %v", err)
 	}
 	var respMap map[string]any
 	if err := json.Unmarshal(respJSON, &respMap); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
+		t.Fatalf("unmarshal result: %v", err)
 	}
 	if respMap["ok"] != true || respMap["message"] != "deleted page: Test-2026" {
-		t.Fatalf("unexpected response: %v", respMap)
+		t.Fatalf("unexpected result: %v", respMap)
 	}
 
-	// stdout should NOT contain the duplicated response JSON.
-	stdout, _ := structured["stdout"].(string)
-	if strings.Contains(stdout, "deleted page") {
-		t.Errorf("stdout should not contain response JSON (already in response field), got: %q", stdout)
-	}
-
-	combined, _ := structured["combined"].(string)
-	if strings.Contains(combined, "deleted page") {
-		t.Errorf("combined should not contain response JSON (already in response field), got: %q", combined)
+	// output should NOT contain the duplicated response JSON.
+	if strings.Contains(tr.Output, "deleted page") {
+		t.Errorf("output should not contain response JSON (already in result field), got: %q", tr.Output)
 	}
 }

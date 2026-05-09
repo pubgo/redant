@@ -12,7 +12,7 @@ import (
 
 // mcpSession returns a lazily-initialized in-process MCP client session.
 // The session is reused across requests and recreated if closed.
-func (a *App) mcpSession(ctx context.Context) (*mcpclient.Session, error) {
+func (a *App) mcpSession() (*mcpclient.Session, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -20,7 +20,8 @@ func (a *App) mcpSession(ctx context.Context) (*mcpclient.Session, error) {
 		return a.mcpSess, nil
 	}
 
-	sess, err := mcpclient.ConnectInProcess(ctx, a.root)
+	// Use background context so the session outlives individual HTTP requests.
+	sess, err := mcpclient.ConnectInProcess(context.Background(), a.root)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +30,7 @@ func (a *App) mcpSession(ctx context.Context) (*mcpclient.Session, error) {
 }
 
 func (a *App) handleMCPInfo(w http.ResponseWriter, r *http.Request) {
-	sess, err := a.mcpSession(r.Context())
+	sess, err := a.mcpSession()
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -40,7 +41,7 @@ func (a *App) handleMCPInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleMCPTools(w http.ResponseWriter, r *http.Request) {
-	sess, err := a.mcpSession(r.Context())
+	sess, err := a.mcpSession()
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -56,7 +57,7 @@ func (a *App) handleMCPTools(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleMCPResources(w http.ResponseWriter, r *http.Request) {
-	sess, err := a.mcpSession(r.Context())
+	sess, err := a.mcpSession()
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -72,7 +73,7 @@ func (a *App) handleMCPResources(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleMCPPrompts(w http.ResponseWriter, r *http.Request) {
-	sess, err := a.mcpSession(r.Context())
+	sess, err := a.mcpSession()
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -109,7 +110,7 @@ func (a *App) handleMCPCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := a.mcpSession(r.Context())
+	sess, err := a.mcpSession()
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -138,42 +138,8 @@ func (s *Server) registerTools() {
 					IsError: true,
 				}, nil
 			}
-
-			return mapToolResultToSDK(result), nil
+			return result, nil
 		})
-	}
-}
-
-func mapToolResultToSDK(result map[string]any) *mcp.CallToolResult {
-	text := "ok"
-	var structured any
-	if content, ok := result["content"]; ok {
-		switch vv := content.(type) {
-		case []map[string]any:
-			if len(vv) > 0 {
-				if t, ok := vv[0]["text"].(string); ok && t != "" {
-					text = t
-				}
-			}
-		case []any:
-			if len(vv) > 0 {
-				if m, ok := vv[0].(map[string]any); ok {
-					if t, ok := m["text"].(string); ok && t != "" {
-						text = t
-					}
-				}
-			}
-		}
-	}
-	if sc, ok := result["structuredContent"]; ok {
-		structured = sc
-	}
-
-	isErr, _ := result["isError"].(bool)
-	return &mcp.CallToolResult{
-		Content:           []mcp.Content{&mcp.TextContent{Text: text}},
-		StructuredContent: structured,
-		IsError:           isErr,
 	}
 }
 

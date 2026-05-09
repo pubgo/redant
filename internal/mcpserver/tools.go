@@ -11,8 +11,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/pubgo/redant"
 )
+
+// ToolResult is the structured content returned by an MCP tool call.
+// It consolidates command output into three clear fields.
+type ToolResult struct {
+	Output string `json:"output,omitempty"` // stdout text from the command
+	Error  string `json:"error,omitempty"`  // error description when isError = true
+	Result any    `json:"result,omitempty"` // typed response from ResponseHandler / ResponseStreamHandler
+}
 
 type toolDef struct {
 	Name           string
@@ -187,23 +197,15 @@ func buildInputSchema(args redant.ArgSet, options redant.OptionSet) map[string]a
 
 func buildOutputSchema(respType *redant.ResponseTypeInfo, isStream bool) map[string]any {
 	props := map[string]any{
-		"ok": map[string]any{
-			"type": "boolean",
-		},
-		"stdout": map[string]any{
-			"type": "string",
-		},
-		"stderr": map[string]any{
-			"type": "string",
+		"output": map[string]any{
+			"type":        "string",
+			"description": "stdout text from the command",
 		},
 		"error": map[string]any{
-			"type": "string",
-		},
-		"combined": map[string]any{
-			"type": "string",
+			"type":        "string",
+			"description": "error description when isError is true",
 		},
 	}
-	required := []string{"ok", "stdout", "stderr", "error", "combined"}
 
 	if respType != nil && respType.TypeName != "" {
 		respSchema := map[string]any{
@@ -211,7 +213,6 @@ func buildOutputSchema(respType *redant.ResponseTypeInfo, isStream bool) map[str
 			"x-redant-type": respType.TypeName,
 		}
 		if len(respType.Schema) > 0 {
-			// Merge generated schema into respSchema.
 			for k, v := range respType.Schema {
 				respSchema[k] = v
 			}
@@ -224,14 +225,13 @@ func buildOutputSchema(respType *redant.ResponseTypeInfo, isStream bool) map[str
 				"x-redant-type": respType.TypeName,
 			}
 		}
-		props["response"] = respSchema
+		props["result"] = respSchema
 	}
 
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
 		"properties":           props,
-		"required":             required,
 	}
 }
 
@@ -413,7 +413,7 @@ func splitEnumChoices(raw string) []string {
 	return out
 }
 
-func (s *Server) callTool(ctx context.Context, params toolsCallParams) (map[string]any, error) {
+func (s *Server) callTool(ctx context.Context, params toolsCallParams) (*mcp.CallToolResult, error) {
 	if params.Name == "" {
 		return nil, errorsNew("missing tool name")
 	}
@@ -452,25 +452,23 @@ func (s *Server) callTool(ctx context.Context, params toolsCallParams) (map[stri
 		})
 		// The ResponseHandler also writes the response JSON to stdout by default.
 		// Since we capture it structurally via callback, clear stdout to avoid
-		// duplicating the response in both "stdout"/"combined" and "response".
+		// duplicating the response in both output and result.
 		if len(responses) > 0 {
 			stdout.Reset()
 		}
-		result := buildToolResult(stdout.String(), stderr.String(), runErr)
-		if structured, ok := result["structuredContent"].(map[string]any); ok && len(responses) > 0 {
-			var resp any
+		tr := &ToolResult{}
+		if len(responses) > 0 {
 			if tool.SupportsStream {
-				resp = responses
+				tr.Result = responses
 			} else {
-				resp = responses[0]
+				tr.Result = responses[0]
 			}
-			structured["response"] = resp
 		}
-		return result, nil
+		return buildCallToolResult(stdout.String(), stderr.String(), runErr, tr), nil
 	}
 
 	runErr := inv.WithContext(ctx).Run()
-	return buildToolResult(stdout.String(), stderr.String(), runErr), nil
+	return buildCallToolResult(stdout.String(), stderr.String(), runErr, nil), nil
 }
 
 func (s *Server) findTool(name string) (toolDef, error) {
@@ -672,9 +670,11 @@ func errorsNew(msg string) error {
 	return errors.New(msg)
 }
 
-func buildToolResult(stdout, stderr string, runErr error) map[string]any {
+// buildCallToolResult constructs a *mcp.CallToolResult with a ToolResult as
+// its StructuredContent. The content text combines stdout, stderr and error
+// for human / LLM consumption.
+func buildCallToolResult(stdout, stderr string, runErr error, tr *ToolResult) *mcp.CallToolResult {
 	var out bytes.Buffer
-	errText := ""
 	if stdout != "" {
 		_, _ = out.WriteString(stdout)
 	}
@@ -686,33 +686,28 @@ func buildToolResult(stdout, stderr string, runErr error) map[string]any {
 		_, _ = out.WriteString(stderr)
 	}
 	if runErr != nil {
-		errText = runErr.Error()
 		if out.Len() > 0 {
 			_, _ = out.WriteString("\n")
 		}
 		_, _ = out.WriteString("error:\n")
-		_, _ = out.WriteString(errText)
+		_, _ = out.WriteString(runErr.Error())
 	}
 	if out.Len() == 0 {
 		_, _ = out.WriteString("ok")
 	}
 
-	combined := out.String()
-	structured := map[string]any{
-		"ok":       runErr == nil,
-		"stdout":   stdout,
-		"stderr":   stderr,
-		"error":    errText,
-		"combined": combined,
+	if tr == nil {
+		tr = &ToolResult{}
+	}
+	tr.Output = stdout
+	if runErr != nil {
+		tr.Error = runErr.Error()
 	}
 
-	return map[string]any{
-		"content": []map[string]any{{
-			"type": "text",
-			"text": combined,
-		}},
-		"isError":           runErr != nil,
-		"structuredContent": structured,
+	return &mcp.CallToolResult{
+		Content:           []mcp.Content{&mcp.TextContent{Text: out.String()}},
+		StructuredContent: tr,
+		IsError:           runErr != nil,
 	}
 }
 

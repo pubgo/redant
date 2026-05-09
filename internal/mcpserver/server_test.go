@@ -92,17 +92,11 @@ func TestCallToolSuccess(t *testing.T) {
 		t.Fatalf("callTool error: %v", err)
 	}
 
-	content, ok := result["content"].([]map[string]any)
-	if !ok || len(content) == 0 {
-		t.Fatalf("invalid content payload: %#v", result["content"])
-	}
-	text, _ := content[0]["text"].(string)
+	text := firstText(result.Content)
 	if !strings.Contains(text, "HELLO") {
 		t.Fatalf("content text = %q, want contains HELLO", text)
 	}
-
-	isError, _ := result["isError"].(bool)
-	if isError {
+	if result.IsError {
 		t.Fatalf("expected success result, got error")
 	}
 }
@@ -190,16 +184,8 @@ func TestServeSDKClientListAndCallTool(t *testing.T) {
 		t.Fatalf("content text = %q, want contains HELLO", text.Text)
 	}
 
-	structured, ok := callRes.StructuredContent.(map[string]any)
-	if !ok {
-		t.Fatalf("structured content is not object: %#v", callRes.StructuredContent)
-	}
-	if okVal, _ := structured["ok"].(bool); !okVal {
-		t.Fatalf("structured ok = %#v, want true", structured["ok"])
-	}
-	if stdout, _ := structured["stdout"].(string); !strings.Contains(stdout, "HELLO") {
-		t.Fatalf("structured stdout = %q, want contains HELLO", stdout)
-	}
+	// StructuredContent goes through JSON round-trip via SDK, so it's map[string]any.
+	assertJSONSubset(t, callRes.StructuredContent, `{"output": "HELLO"}`)
 
 	cancel()
 	if err := <-serverErrCh; err != nil && !strings.Contains(err.Error(), "context canceled") {
@@ -302,13 +288,9 @@ func TestServeSDKClientValidatesToolDescriptionAndParameters(t *testing.T) {
 
 	assertJSONSubset(t, deployTool.OutputSchema, `{
 	  "type": "object",
-	  "required": ["ok", "stdout", "stderr", "error", "combined"],
 	  "properties": {
-	    "ok": {"type": "boolean"},
-	    "stdout": {"type": "string"},
-	    "stderr": {"type": "string"},
-	    "error": {"type": "string"},
-	    "combined": {"type": "string"}
+	    "output": {"type": "string"},
+	    "error": {"type": "string"}
 	  }
 	}`)
 
@@ -340,11 +322,7 @@ func TestServeSDKClientValidatesToolDescriptionAndParameters(t *testing.T) {
 	}
 
 	assertJSONSubset(t, callRes.StructuredContent, `{
-	  "ok": true,
-	  "stdout": "dry-run deploy api to dev",
-	  "stderr": "",
-	  "error": "",
-	  "combined": "dry-run deploy api to dev"
+	  "output": "dry-run deploy api to dev"
 	}`)
 
 	cancel()
@@ -480,11 +458,7 @@ func TestServeSDKClientStructFlagAndArg(t *testing.T) {
 	}
 
 	assertJSONSubset(t, callRes.StructuredContent, `{
-	  "ok": true,
-	  "stdout": "arg=api:8080 flag=prod:9000",
-	  "stderr": "",
-	  "error": "",
-	  "combined": "arg=api:8080 flag=prod:9000"
+	  "output": "arg=api:8080 flag=prod:9000"
 	}`)
 
 	cancel()
@@ -617,13 +591,13 @@ func TestCollectToolsIncludesStreamHandler(t *testing.T) {
 	if props == nil {
 		t.Fatalf("output schema properties missing")
 	}
-	respProp, ok := props["response"]
+	respProp, ok := props["result"]
 	if !ok {
-		t.Fatalf("output schema should have response property for stream tool")
+		t.Fatalf("output schema should have result property for stream tool")
 	}
 	respMap, _ := respProp.(map[string]any)
 	if respMap["type"] != "array" {
-		t.Fatalf("response schema type = %v, want array for stream", respMap["type"])
+		t.Fatalf("result schema type = %v, want array for stream", respMap["type"])
 	}
 }
 
@@ -657,16 +631,16 @@ func TestCollectToolsIncludesResponseHandler(t *testing.T) {
 	}
 	// Output schema should include response field with type info for unary.
 	props, _ := tool.OutputSchema["properties"].(map[string]any)
-	respProp, ok := props["response"]
+	respProp, ok := props["result"]
 	if !ok {
-		t.Fatalf("output schema should have response property for unary tool")
+		t.Fatalf("output schema should have result property for unary tool")
 	}
 	respMap, _ := respProp.(map[string]any)
 	if respMap["type"] == "array" {
-		t.Fatalf("unary response schema should not be array type")
+		t.Fatalf("unary result schema should not be array type")
 	}
 	if _, hasXType := respMap["x-redant-type"]; !hasXType {
-		t.Fatalf("unary response schema should have x-redant-type")
+		t.Fatalf("unary result schema should have x-redant-type")
 	}
 }
 
@@ -691,30 +665,28 @@ func TestCallToolWithStreamHandler(t *testing.T) {
 		t.Fatalf("callTool error: %v", err)
 	}
 
-	isError, _ := result["isError"].(bool)
-	if isError {
+	if result.IsError {
 		t.Fatalf("expected success result, got error")
 	}
 
-	structured, ok := result["structuredContent"].(map[string]any)
+	tr, ok := result.StructuredContent.(*ToolResult)
 	if !ok {
-		t.Fatalf("structuredContent missing")
+		t.Fatalf("StructuredContent is not *ToolResult: %T", result.StructuredContent)
 	}
-	// stdout should be empty — response data is only in the response field.
-	stdout, _ := structured["stdout"].(string)
-	if stdout != "" {
-		t.Fatalf("stdout should be empty when response is captured, got %q", stdout)
+	// output should be empty — response data is only in the result field.
+	if tr.Output != "" {
+		t.Fatalf("output should be empty when response is captured, got %q", tr.Output)
 	}
 	// Verify typed response array is collected.
-	responses, ok := structured["response"].([]any)
+	responses, ok := tr.Result.([]any)
 	if !ok {
-		t.Fatalf("structured response should be an array, got %T", structured["response"])
+		t.Fatalf("result should be an array, got %T", tr.Result)
 	}
 	if len(responses) != 2 {
 		t.Fatalf("expected 2 response chunks, got %d", len(responses))
 	}
 	if responses[0] != "chunk-1" || responses[1] != "chunk-2" {
-		t.Fatalf("response = %v, want [chunk-1, chunk-2]", responses)
+		t.Fatalf("result = %v, want [chunk-1, chunk-2]", responses)
 	}
 }
 
@@ -736,27 +708,24 @@ func TestCallToolWithResponseHandler(t *testing.T) {
 		t.Fatalf("callTool error: %v", err)
 	}
 
-	isError, _ := result["isError"].(bool)
-	if isError {
+	if result.IsError {
 		t.Fatalf("expected success result, got error")
 	}
 
-	structured, ok := result["structuredContent"].(map[string]any)
+	tr, ok := result.StructuredContent.(*ToolResult)
 	if !ok {
-		t.Fatalf("structuredContent missing")
+		t.Fatalf("StructuredContent is not *ToolResult: %T", result.StructuredContent)
 	}
-	// stdout should be empty — response data is only in the response field.
-	stdout, _ := structured["stdout"].(string)
-	if stdout != "" {
-		t.Fatalf("stdout should be empty when response is captured, got %q", stdout)
+	// output should be empty — response data is only in the result field.
+	if tr.Output != "" {
+		t.Fatalf("output should be empty when response is captured, got %q", tr.Output)
 	}
 	// Verify typed unary response is collected (single value, not array).
-	respVal, ok := structured["response"]
-	if !ok {
-		t.Fatalf("structured response should exist for unary handler")
+	if tr.Result == nil {
+		t.Fatalf("result should exist for unary handler")
 	}
-	if respVal != "hello-unary" {
-		t.Fatalf("response = %v, want hello-unary", respVal)
+	if tr.Result != "hello-unary" {
+		t.Fatalf("result = %v, want hello-unary", tr.Result)
 	}
 }
 
@@ -818,24 +787,22 @@ func TestServeSDKClientCallStreamTool(t *testing.T) {
 	if text != "ok" {
 		t.Fatalf("content text = %q, want %q", text, "ok")
 	}
-	// Verify structured content has response but not duplicated in stdout.
-	if callRes.StructuredContent == nil {
-		t.Fatalf("structuredContent should not be nil")
-	}
+	// StructuredContent goes through JSON round-trip via SDK, so assert as map.
 	sc, _ := callRes.StructuredContent.(map[string]any)
 	if sc == nil {
-		t.Fatalf("structuredContent is not a map")
+		t.Fatalf("structuredContent should not be nil")
 	}
-	if so, _ := sc["stdout"].(string); so != "" {
-		t.Fatalf("stdout should be empty when response is captured, got %q", so)
+	// output should be omitted (empty) when response is captured.
+	if so, _ := sc["output"].(string); so != "" {
+		t.Fatalf("output should be empty when response is captured, got %q", so)
 	}
-	resp, ok := sc["response"]
+	resp, ok := sc["result"]
 	if !ok {
-		t.Fatalf("structuredContent.response missing")
+		t.Fatalf("result missing in structuredContent")
 	}
 	respJSON, _ := json.Marshal(resp)
 	if !strings.Contains(string(respJSON), "hello") || !strings.Contains(string(respJSON), "world") {
-		t.Fatalf("response = %s, want contains hello and world", respJSON)
+		t.Fatalf("result = %s, want contains hello and world", respJSON)
 	}
 
 	cancel()
