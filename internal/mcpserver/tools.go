@@ -465,14 +465,6 @@ func (s *Server) callTool(ctx context.Context, params toolsCallParams) (map[stri
 				resp = responses[0]
 			}
 			structured["response"] = resp
-
-			// Also set content text from the serialized response so SDK
-			// clients that read only Content[0].Text get useful output.
-			if b, err := json.Marshal(resp); err == nil {
-				if content, ok := result["content"].([]map[string]any); ok && len(content) > 0 {
-					content[0]["text"] = string(b)
-				}
-			}
 		}
 		return result, nil
 	}

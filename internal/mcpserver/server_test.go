@@ -813,19 +813,29 @@ func TestServeSDKClientCallStreamTool(t *testing.T) {
 		t.Fatalf("expected success, got error: %q", firstText(callRes.Content))
 	}
 
-	// Content text should contain the serialized response.
+	// Content text should be "ok" — response data lives in structuredContent only.
 	text := firstText(callRes.Content)
-	if !strings.Contains(text, "hello") || !strings.Contains(text, "world") {
-		t.Fatalf("content text = %q, want contains hello and world", text)
+	if text != "ok" {
+		t.Fatalf("content text = %q, want %q", text, "ok")
 	}
 	// Verify structured content has response but not duplicated in stdout.
-	if callRes.StructuredContent != nil {
-		sc, _ := callRes.StructuredContent.(map[string]any)
-		if sc != nil {
-			if so, _ := sc["stdout"].(string); so != "" {
-				t.Fatalf("stdout should be empty when response is captured, got %q", so)
-			}
-		}
+	if callRes.StructuredContent == nil {
+		t.Fatalf("structuredContent should not be nil")
+	}
+	sc, _ := callRes.StructuredContent.(map[string]any)
+	if sc == nil {
+		t.Fatalf("structuredContent is not a map")
+	}
+	if so, _ := sc["stdout"].(string); so != "" {
+		t.Fatalf("stdout should be empty when response is captured, got %q", so)
+	}
+	resp, ok := sc["response"]
+	if !ok {
+		t.Fatalf("structuredContent.response missing")
+	}
+	respJSON, _ := json.Marshal(resp)
+	if !strings.Contains(string(respJSON), "hello") || !strings.Contains(string(respJSON), "world") {
+		t.Fatalf("response = %s, want contains hello and world", respJSON)
 	}
 
 	cancel()
