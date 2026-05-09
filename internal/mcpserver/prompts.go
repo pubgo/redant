@@ -46,8 +46,14 @@ func (s *Server) registerPrompts() {
 
 		promptDesc := buildPromptDescription(tool)
 
+		promptTitle := strings.Join(tool.PathTokens, " ")
+		if short := strings.TrimSpace(tool.Command.Short); short != "" {
+			promptTitle = short
+		}
+
 		s.server.AddPrompt(&mcp.Prompt{
 			Name:        promptName,
+			Title:       promptTitle,
 			Description: promptDesc,
 			Arguments:   args,
 		}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
