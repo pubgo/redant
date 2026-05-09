@@ -44,15 +44,7 @@ func (s *Server) registerPrompts() {
 
 		args := buildPromptArgs(tool)
 
-		promptDesc := fmt.Sprintf("Usage guide for %s.", strings.Join(tool.PathTokens, " "))
-		if tool.Description != "" {
-			// Use the first line of the description as a concise summary.
-			if first, _, ok := strings.Cut(tool.Description, "\n"); ok {
-				promptDesc = first
-			} else {
-				promptDesc = tool.Description
-			}
-		}
+		promptDesc := buildPromptDescription(tool)
 
 		s.server.AddPrompt(&mcp.Prompt{
 			Name:        promptName,
@@ -79,6 +71,46 @@ func (s *Server) registerPrompts() {
 			}, nil
 		})
 	}
+}
+
+// buildPromptDescription builds a rich description for a per-command prompt,
+// including the command description, positional args and visible flags.
+func buildPromptDescription(tool toolDef) string {
+	var b strings.Builder
+
+	path := strings.Join(tool.PathTokens, " ")
+	if tool.Description != "" {
+		b.WriteString(tool.Description)
+	} else {
+		fmt.Fprintf(&b, "Usage guide for %s.", path)
+	}
+
+	// Append args summary.
+	if len(tool.Command.Args) > 0 {
+		b.WriteString("\n\nArgs:")
+		for _, arg := range tool.Command.Args {
+			b.WriteString(" ")
+			if arg.Required {
+				fmt.Fprintf(&b, "<%s>", arg.Name)
+			} else {
+				fmt.Fprintf(&b, "[%s]", arg.Name)
+			}
+		}
+	}
+
+	// Append flags summary.
+	var flags []string
+	for _, opt := range tool.Options {
+		if opt.Flag == "" || opt.Hidden || isSystemFlag(opt.Flag) {
+			continue
+		}
+		flags = append(flags, "--"+opt.Flag)
+	}
+	if len(flags) > 0 {
+		fmt.Fprintf(&b, "\nFlags: %s", strings.Join(flags, ", "))
+	}
+
+	return b.String()
 }
 
 // buildPromptArgs creates MCP prompt arguments from a tool's flags and args.
