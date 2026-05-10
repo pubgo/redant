@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -712,17 +713,34 @@ func buildCallToolResult(stdout, stderr string, runErr error, tr *ToolResult) *m
 	// Only set StructuredContent when there is a typed result from
 	// ResponseHandler / ResponseStreamHandler. Plain Handler output
 	// is fully represented by Content text — no need to duplicate.
-	if tr != nil && tr.Result != nil {
+	if tr != nil && !isNilValue(tr.Result) {
 		tr.Output = stdout
 		if runErr != nil {
 			tr.Error = runErr.Error()
 		}
 		result.StructuredContent = tr
-		// Content text becomes a brief summary since data lives in StructuredContent.
-		result.Content = []mcp.Content{&mcp.TextContent{Text: "ok"}}
+		// Content text carries JSON of the result as a text fallback for
+		// clients that don't support StructuredContent (per MCP spec convention).
+		if data, err := json.Marshal(tr.Result); err == nil {
+			result.Content = []mcp.Content{&mcp.TextContent{Text: string(data)}}
+		}
 	}
 
 	return result
+}
+
+// isNilValue reports whether v is nil or an interface wrapping a nil pointer/slice/map.
+func isNilValue(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 func isSystemFlag(flag string) bool {

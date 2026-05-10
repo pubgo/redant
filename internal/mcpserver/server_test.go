@@ -786,10 +786,10 @@ func TestServeSDKClientCallStreamTool(t *testing.T) {
 		t.Fatalf("expected success, got error: %q", firstText(callRes.Content))
 	}
 
-	// Content text should be "ok" — response data lives in structuredContent only.
+	// Content text should be JSON of the result (text fallback per MCP spec).
 	text := firstText(callRes.Content)
-	if text != "ok" {
-		t.Fatalf("content text = %q, want %q", text, "ok")
+	if !strings.Contains(text, "hello") || !strings.Contains(text, "world") {
+		t.Fatalf("content text = %q, want contains hello and world", text)
 	}
 	// StructuredContent goes through JSON round-trip via SDK, so assert as map.
 	sc, _ := callRes.StructuredContent.(map[string]any)
