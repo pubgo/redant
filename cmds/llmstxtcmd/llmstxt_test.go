@@ -374,7 +374,7 @@ func TestWriteSkill_Golden(t *testing.T) {
 
 			// Walk all generated SKILL.md files, compare with golden dir
 			goldenBase := filepath.Join("testdata", "skills", tt.name)
-			filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 				if err != nil || info.IsDir() || info.Name() != "SKILL.md" {
 					return nil
 				}
@@ -729,7 +729,7 @@ func TestWriteSkillDir_Complex(t *testing.T) {
 
 	// Verify each generated SKILL.md matches golden files in nested dir structure
 	goldenBase := filepath.Join("testdata", "skills", "complex")
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || info.Name() != "SKILL.md" {
 			return nil
 		}

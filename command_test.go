@@ -979,11 +979,11 @@ func TestRedirectStdio(t *testing.T) {
 		inv.Stderr = w
 
 		runErr := inv.Run()
-		w.Close()
+		_ = w.Close()
 
 		var buf bytes.Buffer
 		_, _ = buf.ReadFrom(r)
-		r.Close()
+		_ = r.Close()
 
 		if runErr != nil {
 			t.Fatalf("unexpected error: %v", runErr)
@@ -1013,9 +1013,9 @@ func TestRedirectStdio(t *testing.T) {
 		inv.Stderr = w
 
 		_ = inv.Run()
-		w.Close()
+		_ = w.Close()
 		_, _ = io.ReadAll(r)
-		r.Close()
+		_ = r.Close()
 
 		if os.Stdout != origStdout {
 			t.Fatal("os.Stdout was not restored after Run")

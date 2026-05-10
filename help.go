@@ -53,7 +53,7 @@ func getOptionGroupsByCommand(cmd *Command) []optionGroup {
 				// Root command: show all options as global options.
 				// For subcommand help, hide root-only options (e.g. list-introspection flags).
 				for _, opt := range c.Options {
-					if opt.Flag != "" && !opt.Hidden && !(isSubcommandHelp && !opt.InheritsToChildren()) {
+					if opt.Flag != "" && !opt.Hidden && (!isSubcommandHelp || opt.InheritsToChildren()) {
 						opts = append(opts, opt)
 					}
 				}

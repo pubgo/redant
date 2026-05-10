@@ -25,7 +25,7 @@ func TestConnectInProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConnectInProcess: %v", err)
 	}
-	defer sess.Close()
+	defer sess.Close() //nolint:errcheck // best-effort cleanup in test
 
 	info := sess.ServerInfo()
 	if info == nil {

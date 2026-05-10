@@ -55,7 +55,7 @@ func newClientCommand() *redant.Command {
 			if err != nil {
 				return err
 			}
-			defer sess.Close()
+			defer sess.Close() //nolint:errcheck // best-effort cleanup
 
 			tools, err := sess.ListTools(ctx)
 			if err != nil {
@@ -90,7 +90,7 @@ func newClientCommand() *redant.Command {
 			if err != nil {
 				return err
 			}
-			defer sess.Close()
+			defer sess.Close() //nolint:errcheck // best-effort cleanup
 
 			resources, err := sess.ListResources(ctx)
 			if err != nil {
@@ -128,7 +128,7 @@ func newClientCommand() *redant.Command {
 			if err != nil {
 				return err
 			}
-			defer sess.Close()
+			defer sess.Close() //nolint:errcheck // best-effort cleanup
 
 			prompts, err := sess.ListPrompts(ctx)
 			if err != nil {
@@ -182,7 +182,7 @@ func newClientCommand() *redant.Command {
 			if err != nil {
 				return err
 			}
-			defer sess.Close()
+			defer sess.Close() //nolint:errcheck // best-effort cleanup
 
 			var args map[string]any
 			if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
@@ -212,7 +212,7 @@ func newClientCommand() *redant.Command {
 		},
 	}
 
-	var serverInfoCmd = &redant.Command{
+	serverInfoCmd := &redant.Command{
 		Use:     "info",
 		Short:   "Show MCP server info (name, version, capabilities).",
 		Options: connectOpts,
@@ -221,7 +221,7 @@ func newClientCommand() *redant.Command {
 			if err != nil {
 				return err
 			}
-			defer sess.Close()
+			defer sess.Close() //nolint:errcheck // best-effort cleanup
 
 			info := sess.ServerInfo()
 			if info == nil {

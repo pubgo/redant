@@ -1052,8 +1052,8 @@ func newOutputPipes() (*outputPipes, error) {
 	}
 	errR, errW, err := os.Pipe()
 	if err != nil {
-		outW.Close()
-		outR.Close()
+		_ = outW.Close()
+		_ = outR.Close()
 		return nil, fmt.Errorf("create stderr pipe: %w", err)
 	}
 	p := &outputPipes{outW: outW, errW: errW, outR: outR, errR: errR}
@@ -1066,11 +1066,11 @@ func newOutputPipes() (*outputPipes, error) {
 // finish closes writers, waits for readers, then closes readers.
 // Must be called exactly once after the command finishes.
 func (p *outputPipes) finish() {
-	p.outW.Close()
-	p.errW.Close()
+	_ = p.outW.Close()
+	_ = p.errW.Close()
 	p.wg.Wait()
-	p.outR.Close()
-	p.errR.Close()
+	_ = p.outR.Close()
+	_ = p.errR.Close()
 }
 
 func combineOutput(stdout, stderr string, runErr error) string {
