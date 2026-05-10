@@ -14,7 +14,7 @@
 
 ## 修复
 
-- MCP 工具调用重复响应：修复 `ResponseHandler` / `ResponseStreamHandler` 的返回值同时出现在 `stdout`/`combined` 和 `response` 字段的问题。结构化响应现在仅出现在 `structuredContent.response` 字段，`content.text` 固定为 `"ok"`。
+- MCP 工具调用重复响应：修复 `ResponseHandler` / `ResponseStreamHandler` 的返回值同时出现在 Content text 和 StructuredContent 的问题。响应统一为 `{data, message}` 信封，仅通过 Content text 输出。
 - 全局 flag 继承未生效：修复 `GlobalFlags()` 中设置了 `Inherit: false` 的 flag（如 `--list-format`）仍然被无条件注册到子命令的问题。
 
 ## 变更
@@ -23,7 +23,10 @@
 - 将 `--list-commands`、`--list-flags`、`--list-format` 调整为 `Inherit=false`，仅保留根命令可见/可用，避免扩散到子命令。
 - 移除冗余 `DefaultOptionInherit` 常量；继承控制统一由 `Inherit` 字段显式声明。
 - 移除未使用的 `Option.Category` 字段；flag 继承行为统一由 `Inherit` 控制。
+- MCP 工具调用响应统一为 `{data, message}` JSON 信封：`data` 承载类型化结果或 stdout 文本，`message` 承载错误详情；移除原有 `structuredContent` 与 `ok/stdout/stderr/error/combined` 冗余字段。
+- MCP `outputSchema` 字段从 `output`/`error`/`result` 收敛为 `data`/`message`，与响应信封保持一致。
 
 ## 文档
 
-暂无
+- 同步 MCP.md 输出结构（section 3/5/11）：反映 `{data, message}` 统一信封与 `outputSchema` 字段变更。
+- 同步 DESIGN.md 执行上下文矩阵：更新 MCP callTool 节点描述。

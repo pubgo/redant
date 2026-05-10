@@ -269,7 +269,7 @@ flowchart TD
     CMD[命令] --> CTX{执行上下文}
     CTX -- CLI 直接调用 --> CLI[stdout 自动输出]
     CTX -- RunCallback --> RCB[泛型回调分发]
-    CTX -- MCP callTool --> MCP[RunCallback → structuredContent]
+    CTX -- MCP callTool --> MCP[RunCallback → {data, message} 信封]
     CTX -- WebUI Stream WS --> WS[WebSocket 事件推送]
     CTX -- readline / richline --> REPL[降级: stdout 纯文本]
 ```

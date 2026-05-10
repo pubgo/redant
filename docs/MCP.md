@@ -89,7 +89,7 @@ flowchart TD
     D -- 是 --> F[生成 MCP Tool]
     F --> G[Name=路径点分，如 group.run]
     F --> H[InputSchema=flags+args]
-    F --> I[OutputSchema=ok/stdout/stderr/error/combined]
+    F --> I[OutputSchema={data, message}]
 ```
 
 ## 4. `tools/call` 输入结构
@@ -145,28 +145,26 @@ flowchart TD
 
 ## 5. `tools/call` 输出结构
 
-Redant 返回 MCP 标准 `content`，同时通过 `structuredContent` 暴露结构化结果：
+Redant 返回 MCP 标准 `content`，内容为统一 JSON 信封：
 
 ```json
 {
-  "content": [{"type": "text", "text": "..."}],
-  "isError": false,
-  "structuredContent": {
-    "ok": true,
-    "stdout": "...",
-    "stderr": "...",
-    "error": "",
-    "combined": "..."
-  }
+  "content": [{"type": "text", "text": "{\"data\":\"...\",\"message\":\"\"}"}],
+  "isError": false
 }
 ```
 
-字段语义：
+信封字段：
 
-- `ok`：命令是否执行成功。
-- `stdout` / `stderr`：标准输出与错误输出。
-- `error`：运行错误文本（成功时为空）。
-- `combined`：便于展示的合并输出。
+```json
+{
+  "data": "...",
+  "message": ""
+}
+```
+
+- `data`：命令执行结果。普通 Handler 为 stdout 文本；`ResponseHandler` / `ResponseStreamHandler` 为类型化 JSON 值（对象、数组等）。
+- `message`：错误详情（成功时省略）。同时 `isError` 为 `true`。
 
 ## 6. 类型映射速览
 
@@ -267,11 +265,11 @@ cmd := &redant.Command{
 
 ## 11. Typed Response Schema
 
-当命令使用 `Unary` 或 `Stream` 类型化响应时，`outputSchema` 的 `response` 字段会包含完整 JSON Schema：
+当命令使用 `Unary` 或 `Stream` 类型化响应时，`outputSchema` 的 `data` 字段会包含完整 JSON Schema：
 
 ```json
 {
-  "response": {
+  "data": {
     "type": "object",
     "properties": {
       "ok": {"type": "boolean"},
@@ -283,7 +281,7 @@ cmd := &redant.Command{
 }
 ```
 
-Stream 类型响应 schema 中 `response` 的 `type` 为 `array`，`items` 为元素 schema。
+Stream 类型响应 schema 中 `data` 的 `type` 为 `array`，`items` 为元素 schema。
 
 ## 12. 参数输入模式（x-redant-arg-modes）
 
