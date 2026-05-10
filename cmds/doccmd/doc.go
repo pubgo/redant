@@ -25,9 +25,10 @@ func New() *redant.Command {
 	)
 
 	return &redant.Command{
-		Use:   "doc",
-		Short: "启动交互式命令文档站",
-		Long:  "从命令树自动生成交互式文档站（类似 Swagger UI），包含命令结构、参数 Schema、Mermaid 流程图、调用示例，支持实时搜索与导航。",
+		Use:      "doc",
+		Short:    "启动交互式命令文档站",
+		Long:     "从命令树自动生成交互式文档站（类似 Swagger UI），包含命令结构、参数 Schema、Mermaid 流程图、调用示例，支持实时搜索与导航。",
+		Metadata: redant.InfraMetadata,
 		Options: redant.OptionSet{
 			{
 				Flag:        "addr",

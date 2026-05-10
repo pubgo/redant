@@ -99,9 +99,10 @@ func New() *redant.Command {
 	)
 
 	return &redant.Command{
-		Use:   "richline",
-		Short: "基于 Bubble Tea 的交互命令行（竖向补全列表）",
-		Long:  "启动交互式 richline，使用 Bubble Tea 提供竖向补全候选和描述信息展示。",
+		Use:      "richline",
+		Short:    "基于 Bubble Tea 的交互命令行（竖向补全列表）",
+		Long:     "启动交互式 richline，使用 Bubble Tea 提供竖向补全候选和描述信息展示。",
+		Metadata: redant.InfraMetadata,
 		Options: redant.OptionSet{
 			{Flag: "prompt", Description: "交互提示符", Value: redant.StringOf(&prompt), Default: "richline> "},
 			{Flag: "history-file", Description: "历史记录文件路径（为空自动使用 ~/.redant_richline_history）", Value: redant.StringOf(&history)},

@@ -16,7 +16,7 @@ README 仅保留“快速上手 + 能力入口”。详细设计与流程请跳�
 
 ## 核心能力
 
-- 命令树与子命令继承（支持嵌套）
+- 命令树与可控子命令继承（支持嵌套）
 - 选项多来源配置（命令行、环境变量、默认值）
 - 中间件链式编排
 - 自动帮助信息与全局标志
@@ -96,7 +96,7 @@ cmd := redant.Command{
 
 ### 第三步：加子命令
 
-用 `Children` 挂载子命令，标志自动继承：
+用 `Children` 挂载子命令。标志默认不继承，需显式设置 `Inherit: true` 才会向子命令下沉：
 
 ```go
 root := redant.Command{
@@ -113,6 +113,11 @@ root := redant.Command{
         },
     },
 }
+
+root.Options = redant.OptionSet{
+    // 显式允许子命令继承
+    {Flag: "verbose", Value: redant.BoolOf(new(bool)), Inherit: true},
+}
 ```
 
 更多进阶用法（中间件、结构化响应、MCP/Web 集成）见 [`docs/USAGE_AT_A_GLANCE.md`](docs/USAGE_AT_A_GLANCE.md)。
@@ -128,8 +133,8 @@ root := redant.Command{
 常用全局标志：
 
 - `--help, -h`
-- `--list-commands`
-- `--list-flags`
+- `--list-commands`（根命令）
+- `--list-flags`（根命令）
 
 详细解析规则见：[`docs/USAGE_AT_A_GLANCE.md`](docs/USAGE_AT_A_GLANCE.md)。
 

@@ -22,7 +22,7 @@ func TestCollectToolsCommandToToolDefComprehensive(t *testing.T) {
 	root := &redant.Command{
 		Use: "app",
 		Options: redant.OptionSet{
-			{Flag: "verbose", Value: redant.BoolOf(&verbose), Description: "enable verbose output"},
+			{Flag: "verbose", Value: redant.BoolOf(&verbose), Description: "enable verbose output", Inherit: true},
 			{Flag: "internal", Value: redant.StringOf(new(string)), Hidden: true},
 		},
 	}
@@ -31,7 +31,7 @@ func TestCollectToolsCommandToToolDefComprehensive(t *testing.T) {
 		Use:   "group",
 		Short: "group command",
 		Options: redant.OptionSet{
-			{Flag: "parent-flag", Value: redant.StringOf(&parentVal), Description: "inherited from parent"},
+			{Flag: "parent-flag", Value: redant.StringOf(&parentVal), Description: "inherited from parent", Inherit: true},
 		},
 	}
 
@@ -97,7 +97,7 @@ func TestCollectToolsCommandToToolDefComprehensive(t *testing.T) {
 			t.Fatalf("missing expected flag %q in schema", want)
 		}
 	}
-	for _, notWant := range []string{"internal", "hidden-child", "help", "list-commands", "list-flags", "args"} {
+	for _, notWant := range []string{"internal", "hidden-child", redant.HelpFlag, redant.ListCommandsFlag, redant.ListFlagsFlag, redant.InternalArgsOverrideFlag} {
 		if _, exists := flagProps[notWant]; exists {
 			t.Fatalf("unexpected flag %q in schema", notWant)
 		}
@@ -132,13 +132,13 @@ func TestBuildArgvDeterministicAndInheritedFlags(t *testing.T) {
 	root := &redant.Command{
 		Use: "app",
 		Options: redant.OptionSet{
-			{Flag: "verbose", Value: redant.BoolOf(&verbose)},
+			{Flag: "verbose", Value: redant.BoolOf(&verbose), Inherit: true},
 		},
 	}
 	group := &redant.Command{
 		Use: "group",
 		Options: redant.OptionSet{
-			{Flag: "parent-flag", Value: redant.StringOf(&parentVal)},
+			{Flag: "parent-flag", Value: redant.StringOf(&parentVal), Inherit: true},
 		},
 	}
 	run := &redant.Command{
@@ -206,7 +206,7 @@ func TestCallToolWithInheritedFlags(t *testing.T) {
 	group := &redant.Command{
 		Use: "group",
 		Options: redant.OptionSet{
-			{Flag: "parent-flag", Value: redant.StringOf(&parentVal)},
+			{Flag: "parent-flag", Value: redant.StringOf(&parentVal), Inherit: true},
 		},
 	}
 	run := &redant.Command{
@@ -240,13 +240,13 @@ func TestCallToolWithInheritedFlags(t *testing.T) {
 		t.Fatalf("callTool error: %v", err)
 	}
 
-	structured, ok := result["structuredContent"].(map[string]any)
-	if !ok {
-		t.Fatalf("structuredContent missing: %#v", result)
+	// Unified envelope: no StructuredContent, check Content text.
+	text := firstText(result.Content)
+	if !strings.Contains(text, "parent=pv run=rv target=svc") {
+		t.Fatalf("content text = %q", text)
 	}
-	stdout, _ := structured["stdout"].(string)
-	if !strings.Contains(stdout, "parent=pv run=rv target=svc") {
-		t.Fatalf("stdout = %q", stdout)
+	if result.StructuredContent != nil {
+		t.Fatalf("should not have StructuredContent")
 	}
 }
 
@@ -618,9 +618,9 @@ func TestOutputSchemaWithTypedResponse(t *testing.T) {
 	tool := mustFindToolByName(t, tools, "status")
 
 	props, _ := tool.OutputSchema["properties"].(map[string]any)
-	respProp, ok := props["response"]
+	respProp, ok := props["data"]
 	if !ok {
-		t.Fatalf("output schema should have response property")
+		t.Fatalf("output schema should have data property")
 	}
 
 	respMap, _ := respProp.(map[string]any)
@@ -634,10 +634,10 @@ func TestOutputSchemaWithTypedResponse(t *testing.T) {
 	// Should have properties from struct reflection
 	respProps, _ := respMap["properties"].(map[string]any)
 	if _, ok := respProps["ok"]; !ok {
-		t.Fatalf("response schema should have 'ok' property")
+		t.Fatalf("result schema should have 'ok' property")
 	}
 	if _, ok := respProps["message"]; !ok {
-		t.Fatalf("response schema should have 'message' property")
+		t.Fatalf("result schema should have 'message' property")
 	}
 }
 
@@ -654,14 +654,14 @@ func TestOutputSchemaStreamTyped(t *testing.T) {
 	tool := mustFindToolByName(t, tools, "logs")
 
 	props, _ := tool.OutputSchema["properties"].(map[string]any)
-	respProp, ok := props["response"]
+	respProp, ok := props["data"]
 	if !ok {
-		t.Fatalf("output schema should have response property")
+		t.Fatalf("output schema should have data property")
 	}
 
 	respMap, _ := respProp.(map[string]any)
 	if got, _ := respMap["type"].(string); got != "array" {
-		t.Fatalf("stream response type = %q, want array", got)
+		t.Fatalf("stream result type = %q, want array", got)
 	}
 }
 
@@ -821,5 +821,103 @@ func TestToolTimeoutInCallTool(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatalf("result should not be nil")
+	}
+}
+
+func TestCollectToolsExcludesAgentExclude(t *testing.T) {
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children,
+		&redant.Command{
+			Use:     "deploy",
+			Short:   "Deploy the app.",
+			Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+		},
+		&redant.Command{
+			Use:      "mcp",
+			Short:    "MCP commands.",
+			Metadata: map[string]string{"agent.exclude": "true"},
+			Children: []*redant.Command{
+				{
+					Use:     "serve",
+					Short:   "Start MCP server.",
+					Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+				},
+			},
+		},
+		&redant.Command{
+			Use:      "completion",
+			Short:    "Shell completion.",
+			Metadata: map[string]string{"agent.exclude": "true"},
+			Handler:  func(ctx context.Context, inv *redant.Invocation) error { return nil },
+		},
+		&redant.Command{
+			Use:     "status",
+			Short:   "Show status.",
+			Handler: func(ctx context.Context, inv *redant.Invocation) error { return nil },
+		},
+	)
+
+	tools := collectTools(root)
+
+	names := make(map[string]bool)
+	for _, td := range tools {
+		names[td.Name] = true
+	}
+
+	// Business commands should be present.
+	for _, want := range []string{"deploy", "status"} {
+		if !names[want] {
+			t.Errorf("expected tool %q to be present, got tools: %v", want, names)
+		}
+	}
+
+	// Excluded commands (and their children) should be absent.
+	for _, notWant := range []string{"mcp", "mcp.serve", "completion"} {
+		if names[notWant] {
+			t.Errorf("tool %q should be excluded by agent.exclude", notWant)
+		}
+	}
+
+	if len(tools) != 2 {
+		t.Errorf("expected 2 tools, got %d: %v", len(tools), names)
+	}
+}
+
+func TestCallToolResponseHandlerNoDuplicateOutput(t *testing.T) {
+	type Result struct {
+		OK      bool   `json:"ok"`
+		Message string `json:"message"`
+	}
+
+	root := &redant.Command{Use: "app"}
+	root.Children = append(root.Children, &redant.Command{
+		Use:   "delete",
+		Short: "Delete a page.",
+		ResponseHandler: redant.Unary(func(ctx context.Context, inv *redant.Invocation) (Result, error) {
+			return Result{OK: true, Message: "deleted page: Test-2026"}, nil
+		}),
+	})
+
+	srv := New(root)
+	result, err := srv.callTool(context.Background(), toolsCallParams{
+		Name:      "delete",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("callTool error: %v", err)
+	}
+
+	// No StructuredContent — unified envelope in Content text only.
+	if result.StructuredContent != nil {
+		t.Fatalf("should not have StructuredContent")
+	}
+
+	// Content text should contain the result in envelope.
+	text := firstText(result.Content)
+	if !strings.Contains(text, "deleted page: Test-2026") {
+		t.Fatalf("content text should contain result message, got: %q", text)
+	}
+	if !strings.Contains(text, `"ok":true`) && !strings.Contains(text, `"ok": true`) {
+		t.Fatalf("content text should contain ok:true, got: %q", text)
 	}
 }

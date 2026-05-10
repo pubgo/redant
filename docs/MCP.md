@@ -89,7 +89,7 @@ flowchart TD
     D -- 是 --> F[生成 MCP Tool]
     F --> G[Name=路径点分，如 group.run]
     F --> H[InputSchema=flags+args]
-    F --> I[OutputSchema=ok/stdout/stderr/error/combined]
+    F --> I[OutputSchema={data, message}]
 ```
 
 ## 4. `tools/call` 输入结构
@@ -145,28 +145,26 @@ flowchart TD
 
 ## 5. `tools/call` 输出结构
 
-Redant 返回 MCP 标准 `content`，同时通过 `structuredContent` 暴露结构化结果：
+Redant 返回 MCP 标准 `content`，内容为统一 JSON 信封：
 
 ```json
 {
-  "content": [{"type": "text", "text": "..."}],
-  "isError": false,
-  "structuredContent": {
-    "ok": true,
-    "stdout": "...",
-    "stderr": "...",
-    "error": "",
-    "combined": "..."
-  }
+  "content": [{"type": "text", "text": "{\"data\":\"...\",\"message\":\"\"}"}],
+  "isError": false
 }
 ```
 
-字段语义：
+信封字段：
 
-- `ok`：命令是否执行成功。
-- `stdout` / `stderr`：标准输出与错误输出。
-- `error`：运行错误文本（成功时为空）。
-- `combined`：便于展示的合并输出。
+```json
+{
+  "data": "...",
+  "message": ""
+}
+```
+
+- `data`：命令执行结果。普通 Handler 为 stdout 文本；`ResponseHandler` / `ResponseStreamHandler` 为类型化 JSON 值（对象、数组等）。
+- `message`：错误详情（成功时省略）。同时 `isError` 为 `true`。
 
 ## 6. 类型映射速览
 
@@ -267,11 +265,11 @@ cmd := &redant.Command{
 
 ## 11. Typed Response Schema
 
-当命令使用 `Unary` 或 `Stream` 类型化响应时，`outputSchema` 的 `response` 字段会包含完整 JSON Schema：
+当命令使用 `Unary` 或 `Stream` 类型化响应时，`outputSchema` 的 `data` 字段会包含完整 JSON Schema：
 
 ```json
 {
-  "response": {
+  "data": {
     "type": "object",
     "properties": {
       "ok": {"type": "boolean"},
@@ -283,7 +281,7 @@ cmd := &redant.Command{
 }
 ```
 
-Stream 类型响应 schema 中 `response` 的 `type` 为 `array`，`items` 为元素 schema。
+Stream 类型响应 schema 中 `data` 的 `type` 为 `array`，`items` 为元素 schema。
 
 ## 12. 参数输入模式（x-redant-arg-modes）
 
@@ -335,7 +333,37 @@ cmd := &redant.Command{
 
 未设置时不施加超时（继承上游 context 的 deadline）。值格式遵循 Go `time.ParseDuration`，支持 `"5s"`、`"2m"`、`"1h30m"` 等。
 
-## 15. Stream Envelope 序号与时间戳
+## 15. 排除不需要暴露的命令
+
+通过 `Command.Metadata` 设置 `agent.exclude`，可将基础设施命令从 MCP tools/resources/prompts 中排除：
+
+```go
+cmd := &redant.Command{
+    Use:   "completion",
+    Short: "Generate shell completion scripts.",
+    Metadata: map[string]string{
+        "agent.exclude": "true",
+    },
+    // ...
+}
+```
+
+设置 `agent.exclude` 后，该命令及其所有子命令都不会出现在 MCP 工具列表中。
+
+redant 内置的基础设施命令已默认标记排除：
+
+| 命令         | 说明                       |
+| ------------ | -------------------------- |
+| `mcp`        | MCP 服务自身（serve/list） |
+| `completion` | Shell 补全脚本生成         |
+| `doc`        | 交互式命令文档站           |
+| `llms-txt`   | 命令树文档生成             |
+| `readline`   | 交互式 readline REPL       |
+| `richline`   | Bubble Tea 交互式命令行    |
+| `web`        | Web 控制台                 |
+| `webtty`     | WebTTY 终端                |
+
+## 16. Stream Envelope 序号与时间戳
 
 Stream 响应的 NDJSON envelope 自动包含 `seq`（0-based 递增序号）和 `ts`（Unix 毫秒时间戳）：
 
@@ -348,7 +376,7 @@ Stream 响应的 NDJSON envelope 自动包含 `seq`（0-based 递增序号）和
 - `ts`：发送时刻的 Unix 毫秒时间戳。
 - Unary 响应不包含这两个字段（保持向后兼容）。
 
-## 16. `--list-commands` / `--list-flags` JSON 输出
+## 17. `--list-commands` / `--list-flags` JSON 输出
 
 全局 flag `--list-format` 支持 `text`（默认）和 `json` 两种格式：
 
@@ -359,7 +387,74 @@ app --list-flags --list-format json
 
 JSON 输出结构便于工具链消费，`--list-commands` 输出命令数组，`--list-flags` 输出 flag 数组（含 `isGlobal` 标记）。
 
-## 17. 相关文档
+## 18. llms-txt Skill 格式输出
+
+`llms-txt` 子命令支持 `--format skill` 输出符合 [Agent Skills 规范](https://agentskills.io/specification) 的 SKILL.md 文件：
+
+```bash
+# 输出到 stdout（所有 skill 拼接）
+app llms-txt --format skill
+
+# 输出到目录（每个叶命令一个 skill 目录）
+app llms-txt --format skill -o ./skills
+```
+
+### 目录结构
+
+使用 `-o` 时，每个叶命令生成独立的 `<skill-name>/SKILL.md`：
+
+```
+skills/
+├── app-deploy/
+│   └── SKILL.md
+├── app-project-create/
+│   └── SKILL.md
+└── app-project-delete/
+    └── SKILL.md
+```
+
+### Frontmatter 字段
+
+生成的 SKILL.md 遵循 Agent Skills 规范，frontmatter 包含：
+
+| 字段            | 类型 | 来源                                               |
+| --------------- | ---- | -------------------------------------------------- |
+| `name`          | 必填 | 命令路径连字符拼接，或 `skill.name` 元数据覆盖     |
+| `description`   | 必填 | `Short`，或 `skill.description` 元数据覆盖         |
+| `license`       | 可选 | `skill.license` 元数据                             |
+| `compatibility` | 可选 | `skill.compatibility` 元数据                       |
+| `allowed-tools` | 可选 | `skill.allowed-tools` 元数据                       |
+| `metadata`      | 可选 | 所有非规范 `skill.*` 元数据键，输出为嵌套 YAML map |
+
+### 通过 Metadata 配置
+
+在 `Command.Metadata` 中以 `skill.` 为前缀设置键值，自动映射到 SKILL.md frontmatter：
+
+```go
+cmd := &redant.Command{
+    Use:   "deploy",
+    Short: "Deploy services.",
+    Metadata: map[string]string{
+        "skill.allowed-tools": "Bash(git:*) Read",
+        "skill.license":       "Apache-2.0",
+        "skill.compatibility": "Requires Docker and kubectl",
+        "skill.author":        "platform-team",  // → metadata.author
+    },
+    Handler: deployHandler,
+}
+```
+
+### 字段校验
+
+生成时自动按规范校验：
+
+- `name`：仅允许 `a-z0-9-`，1-64 字符，不能以连字符开头/结尾，不能有连续连字符
+- `description`：不能为空，最多 1024 字符
+- `compatibility`：最多 500 字符
+
+校验失败时返回 `SkillValidationError`，包含具体问题描述。
+
+## 19. 相关文档
 
 - 总览：[`../README.md`](../README.md)
 - 设计：[`DESIGN.md`](DESIGN.md)

@@ -27,9 +27,10 @@ func New() *redant.Command {
 	)
 
 	return &redant.Command{
-		Use:   "readline",
-		Short: "启动交互式 readline 命令行",
-		Long:  "进入多轮交互 REPL，支持命令补全、flag 补全、参数提示与循环执行。输入 exit/quit 退出。",
+		Use:      "readline",
+		Short:    "启动交互式 readline 命令行",
+		Long:     "进入多轮交互 REPL，支持命令补全、flag 补全、参数提示与循环执行。输入 exit/quit 退出。",
+		Metadata: redant.InfraMetadata,
 		Options: redant.OptionSet{
 			{Flag: "prompt", Description: "交互提示符", Value: redant.StringOf(&prompt), Default: "redant> "},
 			{Flag: "history-file", Description: "历史记录文件路径（为空自动使用 ~/.redant_readline_history）", Value: redant.StringOf(&history)},

@@ -88,6 +88,14 @@ func (s *Server) ServeStdio(ctx context.Context, r io.Reader, w io.Writer) error
 	return s.server.Run(ctx, transport)
 }
 
+// ServeTransport runs the MCP server on the given transport.
+func (s *Server) ServeTransport(ctx context.Context, transport mcp.Transport) error {
+	if s == nil || s.root == nil || s.server == nil {
+		return errors.New("mcp server root command is nil")
+	}
+	return s.server.Run(ctx, transport)
+}
+
 func (s *Server) registerTools() {
 	if s == nil || s.server == nil {
 		return
@@ -130,42 +138,8 @@ func (s *Server) registerTools() {
 					IsError: true,
 				}, nil
 			}
-
-			return mapToolResultToSDK(result), nil
+			return result, nil
 		})
-	}
-}
-
-func mapToolResultToSDK(result map[string]any) *mcp.CallToolResult {
-	text := "ok"
-	var structured any
-	if content, ok := result["content"]; ok {
-		switch vv := content.(type) {
-		case []map[string]any:
-			if len(vv) > 0 {
-				if t, ok := vv[0]["text"].(string); ok && t != "" {
-					text = t
-				}
-			}
-		case []any:
-			if len(vv) > 0 {
-				if m, ok := vv[0].(map[string]any); ok {
-					if t, ok := m["text"].(string); ok && t != "" {
-						text = t
-					}
-				}
-			}
-		}
-	}
-	if sc, ok := result["structuredContent"]; ok {
-		structured = sc
-	}
-
-	isErr, _ := result["isError"].(bool)
-	return &mcp.CallToolResult{
-		Content:           []mcp.Content{&mcp.TextContent{Text: text}},
-		StructuredContent: structured,
-		IsError:           isErr,
 	}
 }
 

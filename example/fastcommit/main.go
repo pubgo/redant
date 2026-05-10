@@ -41,6 +41,13 @@ type RepoPolicy struct {
 	MinApprovals      int      `json:"minApprovals" yaml:"minApprovals"`
 }
 
+type DetailedCommitResult struct {
+	Args    []string `json:"args"`
+	Author  string   `json:"author"`
+	Verbose bool     `json:"verbose"`
+	Mode    string   `json:"mode"`
+}
+
 func toJSON(v any) string {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -196,10 +203,14 @@ func main() {
 		Args: redant.ArgSet{
 			{Name: "files", Description: "Files to commit.", Value: redant.StringOf(new(string))},
 		},
-		Handler: func(ctx context.Context, inv *redant.Invocation) error {
-			fmt.Printf("[commit detailed] args=%v author=%q verbose=%v mode=%s\n", inv.Args, detailedAuthor, detailedVerbose, detailedMode)
-			return nil
-		},
+		ResponseHandler: redant.Unary(func(ctx context.Context, inv *redant.Invocation) (DetailedCommitResult, error) {
+			return DetailedCommitResult{
+				Args:    inv.Args,
+				Author:  detailedAuthor,
+				Verbose: detailedVerbose,
+				Mode:    detailedMode,
+			}, nil
+		}),
 	}
 
 	var (

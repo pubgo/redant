@@ -68,7 +68,8 @@
 
 - 参数形态支持：位置参数、query（`&`）、form（空格分隔 `k=v`）、JSON。
 - 测试优先使用表驱动与子测试，覆盖 flag 继承、argv0 分发、参数解析边界。
-- Unary/Stream 响应输出采用 NDJSON envelope：`{"$":"resp|error","type":"...","data":...}`。
+- `Handler` / `ResponseHandler` / `ResponseStreamHandler` 在能力语义上本质一致；差异主要是编程模型与输出组织方式，不应改变业务语义判断。
+- `--raw-envelope` 仅作用于 `ResponseHandler` / `ResponseStreamHandler` 的输出包装；普通 `Handler` 的手动 stdout/stderr 输出不会被自动 envelope 化。
 
 ## 集成点与依赖
 

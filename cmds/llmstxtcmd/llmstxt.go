@@ -18,14 +18,16 @@ import (
 // and grep.
 func New() *redant.Command {
 	var (
-		depth  int64
-		format string
+		depth     int64
+		format    string
+		outputDir string
 	)
 
 	return &redant.Command{
-		Use:   "llms-txt",
-		Short: "Print command tree documentation in llms.txt format for LLM consumption.",
-		Long:  "Generate a structured overview of all commands, flags, and arguments. Supports Markdown (default, optimised for grep) and JSON (optimised for programmatic consumption).",
+		Use:      "llms-txt",
+		Short:    "Print command tree documentation in llms.txt format for LLM consumption.",
+		Long:     "Generate a structured overview of all commands, flags, and arguments. Supports Markdown (default, optimised for grep) and JSON (optimised for programmatic consumption).",
+		Metadata: redant.InfraMetadata,
 		Options: redant.OptionSet{
 			{
 				Flag:        "depth",
@@ -39,7 +41,13 @@ func New() *redant.Command {
 				Shorthand:   "f",
 				Description: "Output format.",
 				Default:     "markdown",
-				Value:       redant.EnumOf(&format, "markdown", "json"),
+				Value:       redant.EnumOf(&format, "markdown", "json", "skill"),
+			},
+			{
+				Flag:        "output-dir",
+				Shorthand:   "o",
+				Description: "Output directory for skill files (one SKILL.md per command). If empty, writes all to stdout.",
+				Value:       redant.StringOf(&outputDir),
 			},
 		},
 		Handler: func(ctx context.Context, inv *redant.Invocation) error {
@@ -47,10 +55,17 @@ func New() *redant.Command {
 			for root.Parent() != nil {
 				root = root.Parent()
 			}
-			if format == "json" {
+			switch format {
+			case "json":
 				return WriteJSON(inv.Stdout, root, int(depth))
+			case "skill":
+				if outputDir != "" {
+					return WriteSkillDir(outputDir, root, int(depth))
+				}
+				return WriteSkill(inv.Stdout, root, int(depth))
+			default:
+				return WriteLLMSTxt(inv.Stdout, root, int(depth))
 			}
-			return WriteLLMSTxt(inv.Stdout, root, int(depth))
 		},
 	}
 }
@@ -99,7 +114,7 @@ func WriteLLMSTxt(w io.Writer, root *redant.Command, maxDepth int) error {
 }
 
 func writeCommandTree(p *printer, cmd *redant.Command, parentPath string, depth, maxDepth int) {
-	if cmd.Hidden {
+	if cmd.Hidden || cmd.Meta(redant.AgentExcludeKey) == "true" {
 		return
 	}
 
@@ -348,7 +363,7 @@ func buildJSONTree(cmd *redant.Command, depth, maxDepth int) jsonCommand {
 
 	if maxDepth == 0 || depth < maxDepth {
 		for _, child := range cmd.Children {
-			if child.Hidden {
+			if child.Hidden || child.Meta(redant.AgentExcludeKey) == "true" {
 				continue
 			}
 			jc.Children = append(jc.Children, buildJSONTree(child, depth+1, maxDepth))

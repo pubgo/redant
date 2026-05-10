@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -209,7 +211,7 @@ func TestCommandWithSubcommands(t *testing.T) {
 	}
 }
 
-func TestFlagInheritance(t *testing.T) {
+func TestFlagInheritanceWithExplicitInherit(t *testing.T) {
 	var parentFlag string
 	var childFlag string
 
@@ -226,6 +228,7 @@ func TestFlagInheritance(t *testing.T) {
 				Flag:        "parent-flag",
 				Description: "Parent flag",
 				Value:       StringOf(&parentFlag),
+				Inherit:     true,
 			},
 		},
 	}
@@ -266,6 +269,40 @@ func TestFlagInheritance(t *testing.T) {
 	}
 	if childFlag != "cvalue" {
 		t.Errorf("childFlag = %q, want %q", childFlag, "cvalue")
+	}
+}
+
+func TestParentFlagNotInheritedByDefault(t *testing.T) {
+	var parentFlag string
+
+	rootCmd := &Command{Use: "app"}
+	parentCmd := &Command{
+		Use: "parent",
+		Options: OptionSet{
+			{
+				Flag:  "parent-flag",
+				Value: StringOf(&parentFlag),
+			},
+		},
+	}
+	childCmd := &Command{
+		Use:     "child",
+		Handler: func(ctx context.Context, inv *Invocation) error { return nil },
+	}
+
+	parentCmd.Children = append(parentCmd.Children, childCmd)
+	rootCmd.Children = append(rootCmd.Children, parentCmd)
+
+	inv := rootCmd.Invoke("parent", "child", "--parent-flag", "pvalue")
+	inv.Stdout = &bytes.Buffer{}
+	inv.Stderr = &bytes.Buffer{}
+
+	err := inv.Run()
+	if err == nil {
+		t.Fatalf("expected unknown flag error for non-inherited parent flag")
+	}
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("expected unknown flag error, got: %v", err)
 	}
 }
 
@@ -348,6 +385,123 @@ func TestHelpFlag(t *testing.T) {
 	}
 	if !strings.Contains(output, "A test command") {
 		t.Error("help output should contain short description")
+	}
+}
+
+func TestSubcommandHelpHidesRootOnlyGlobalFlags(t *testing.T) {
+	root := &Command{Use: "app"}
+	root.Children = append(root.Children, &Command{
+		Use:     "run",
+		Short:   "Run command",
+		Handler: func(ctx context.Context, inv *Invocation) error { return nil },
+	})
+
+	var stdout bytes.Buffer
+	inv := root.Invoke("run", "--help")
+	inv.Stdout = &stdout
+	inv.Stderr = &bytes.Buffer{}
+
+	if err := inv.Run(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := stdout.String()
+	if strings.Contains(out, "--"+listCommandsFlag) {
+		t.Fatalf("subcommand help should hide %q", listCommandsFlag)
+	}
+	if strings.Contains(out, "--"+listFlagsFlag) {
+		t.Fatalf("subcommand help should hide %q", listFlagsFlag)
+	}
+	if strings.Contains(out, "--"+listFormatFlag) {
+		t.Fatalf("subcommand help should hide %q", listFormatFlag)
+	}
+
+	if !strings.Contains(out, "--"+helpFlag) {
+		t.Fatalf("subcommand help should still contain %q", helpFlag)
+	}
+}
+
+func TestSubcommandHelpHonorsInheritFalseGlobalFlag(t *testing.T) {
+	var customRootOnly string
+	root := &Command{
+		Use: "app",
+		Options: OptionSet{
+			{
+				Flag:        "telemetry-bootstrap",
+				Description: "Bootstrap telemetry exporter.",
+				Value:       StringOf(&customRootOnly),
+				Inherit:     false,
+			},
+		},
+	}
+	root.Children = append(root.Children, &Command{
+		Use:     "run",
+		Short:   "Run command",
+		Handler: func(ctx context.Context, inv *Invocation) error { return nil },
+	})
+
+	var childHelp bytes.Buffer
+	childInv := root.Invoke("run", "--help")
+	childInv.Stdout = &childHelp
+	childInv.Stderr = &bytes.Buffer{}
+
+	if err := childInv.Run(); err != nil {
+		t.Fatalf("subcommand help run error: %v", err)
+	}
+
+	if strings.Contains(childHelp.String(), "--telemetry-bootstrap") {
+		t.Fatalf("subcommand help should hide root-only custom global flag")
+	}
+
+	var rootHelp bytes.Buffer
+	rootInv := root.Invoke("--help")
+	rootInv.Stdout = &rootHelp
+	rootInv.Stderr = &bytes.Buffer{}
+
+	if err := rootInv.Run(); err != nil {
+		t.Fatalf("root help run error: %v", err)
+	}
+
+	if !strings.Contains(rootHelp.String(), "--telemetry-bootstrap") {
+		t.Fatalf("root help should show root-only custom global flag")
+	}
+}
+
+func TestNonInheritedGlobalFlagNotAcceptedOnSubcommand(t *testing.T) {
+	var boot string
+	root := &Command{
+		Use: "app",
+		Options: OptionSet{
+			{
+				Flag:    "bootstrap-token",
+				Value:   StringOf(&boot),
+				Inherit: false,
+			},
+		},
+	}
+	root.Children = append(root.Children, &Command{
+		Use:     "run",
+		Handler: func(ctx context.Context, inv *Invocation) error { return nil },
+	})
+
+	childInv := root.Invoke("run", "--bootstrap-token", "abc")
+	childInv.Stdout = &bytes.Buffer{}
+	childInv.Stderr = &bytes.Buffer{}
+
+	childErr := childInv.Run()
+	if childErr == nil {
+		t.Fatalf("expected unknown flag error on subcommand for non-inherited global flag")
+	}
+	if !strings.Contains(childErr.Error(), "unknown flag") {
+		t.Fatalf("expected unknown flag error, got: %v", childErr)
+	}
+
+	rootInv := root.Invoke("--bootstrap-token", "abc")
+	rootInv.Stdout = &bytes.Buffer{}
+	rootInv.Stderr = &bytes.Buffer{}
+
+	if err := rootInv.Run(); err != nil {
+		t.Fatalf("root command should accept non-inherited root flag: %v", err)
 	}
 }
 
@@ -801,4 +955,95 @@ func TestOptionSetFlagSetWarnsOnInvalidDefault(t *testing.T) {
 	if !strings.Contains(output, "warning") || !strings.Contains(output, "count") {
 		t.Fatalf("expected stderr warning about flag %q, got: %q", "count", output)
 	}
+}
+
+func TestRedirectStdio(t *testing.T) {
+	t.Run("fmt.Println captured via pipe", func(t *testing.T) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("create pipe: %v", err)
+		}
+
+		cmd := &Command{
+			Use: "test",
+			Handler: func(ctx context.Context, inv *Invocation) error {
+				// This writes to os.Stdout, not inv.Stdout.
+				// redirectStdio should ensure it goes to the pipe.
+				fmt.Println("hello from println")
+				return nil
+			},
+		}
+
+		inv := cmd.Invoke()
+		inv.Stdout = w
+		inv.Stderr = w
+
+		runErr := inv.Run()
+		_ = w.Close()
+
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		_ = r.Close()
+
+		if runErr != nil {
+			t.Fatalf("unexpected error: %v", runErr)
+		}
+		if !strings.Contains(buf.String(), "hello from println") {
+			t.Fatalf("expected fmt.Println output in pipe, got %q", buf.String())
+		}
+	})
+
+	t.Run("os.Stdout restored after run", func(t *testing.T) {
+		origStdout := os.Stdout
+
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("create pipe: %v", err)
+		}
+
+		cmd := &Command{
+			Use: "test",
+			Handler: func(ctx context.Context, inv *Invocation) error {
+				return nil
+			},
+		}
+
+		inv := cmd.Invoke()
+		inv.Stdout = w
+		inv.Stderr = w
+
+		_ = inv.Run()
+		_ = w.Close()
+		_, _ = io.ReadAll(r)
+		_ = r.Close()
+
+		if os.Stdout != origStdout {
+			t.Fatal("os.Stdout was not restored after Run")
+		}
+	})
+
+	t.Run("no redirect for non-file writer", func(t *testing.T) {
+		origStdout := os.Stdout
+		var buf bytes.Buffer
+
+		cmd := &Command{
+			Use: "test",
+			Handler: func(ctx context.Context, inv *Invocation) error {
+				// os.Stdout should remain unchanged when inv.Stdout
+				// is not an *os.File.
+				if os.Stdout != origStdout {
+					return fmt.Errorf("os.Stdout unexpectedly changed")
+				}
+				return nil
+			},
+		}
+
+		inv := cmd.Invoke()
+		inv.Stdout = &buf // bytes.Buffer, not *os.File
+		inv.Stderr = &buf
+
+		if err := inv.Run(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }

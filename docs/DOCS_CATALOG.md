@@ -17,6 +17,7 @@
 ## 2.5) 可视化与文档生成
 
 - `cmds/doccmd/`：交互式命令文档站（`doc`），自动生成类 Swagger UI 的浏览界面，内置 Mermaid 图渲染。
+- `cmds/llmstxtcmd/`：`llms-txt` 子命令，支持 `--format markdown|json|skill` 输出命令树文档；`skill` 格式遵循 [Agent Skills 规范](https://agentskills.io/specification)，详见 [`MCP.md § 17`](MCP.md)。
 
 ## 3) PR 审查体系（聚合）
 

@@ -39,7 +39,8 @@ type Option struct {
 
 	Deprecated string
 
-	Category string
+	// Inherit controls whether this option is inherited by subcommands.
+	Inherit bool `json:"inherit,omitempty"`
 
 	// Action is called after the flag is parsed and set.
 	// It receives the flag value and can perform additional validation or side effects.
@@ -49,6 +50,12 @@ type Option struct {
 
 // OptionSet is a group of options that can be applied to a command.
 type OptionSet []Option
+
+// InheritsToChildren reports whether this option should be visible to
+// descendant commands for parsing/completion/help display.
+func (o Option) InheritsToChildren() bool {
+	return o.Inherit
+}
 
 // Add adds the given Options to the OptionSet.
 func (optSet *OptionSet) Add(opts ...Option) {

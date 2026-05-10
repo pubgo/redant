@@ -14,8 +14,9 @@ import (
 func New() *redant.Command {
 	var shell string
 	return &redant.Command{
-		Use:   "completion [shell]",
-		Short: "Generate the autocompletion script for the specified shell",
+		Use:      "completion [shell]",
+		Short:    "Generate the autocompletion script for the specified shell",
+		Metadata: redant.InfraMetadata,
 		Long: `Generate the autocompletion script for redant for the specified shell.
 See each sub-command's help for details on how to use the generated script.`,
 		Args: []redant.Arg{

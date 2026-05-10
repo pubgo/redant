@@ -27,6 +27,7 @@ _testapp() {
                 '--list-flags:LIST ALL FLAGS.'
                 '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
                 '--output:OUTPUT FORMAT.'
+                '--raw-envelope:OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.'
                 '--verbose:VERBOSE MODE.'
                 '-v:VERBOSE MODE.'
             )
@@ -38,45 +39,27 @@ _testapp() {
             ;;
         "completion")
             options=(
-                '--config:CONFIG FILE.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
-                '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
-                '--list-flags:LIST ALL FLAGS.'
-                '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
-                '--output:OUTPUT FORMAT.'
-                '--verbose:VERBOSE MODE.'
-                '-v:VERBOSE MODE.'
+                '--raw-envelope:OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.'
             )
             subcommands=(
             )
             ;;
         "hello")
             options=(
-                '--config:CONFIG FILE.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
-                '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
-                '--list-flags:LIST ALL FLAGS.'
-                '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
-                '--output:OUTPUT FORMAT.'
-                '--verbose:VERBOSE MODE.'
-                '-v:VERBOSE MODE.'
+                '--raw-envelope:OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.'
             )
             subcommands=(
             )
             ;;
         "project")
             options=(
-                '--config:CONFIG FILE.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
-                '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
-                '--list-flags:LIST ALL FLAGS.'
-                '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
-                '--output:OUTPUT FORMAT.'
-                '--verbose:VERBOSE MODE.'
-                '-v:VERBOSE MODE.'
+                '--raw-envelope:OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.'
                 '--all:APPLY TO ALL PROJECTS.'
                 '--namespace:PROJECT NAMESPACE.'
             )
@@ -86,17 +69,9 @@ _testapp() {
             ;;
         "project repo")
             options=(
-                '--config:CONFIG FILE.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
-                '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
-                '--list-flags:LIST ALL FLAGS.'
-                '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
-                '--output:OUTPUT FORMAT.'
-                '--verbose:VERBOSE MODE.'
-                '-v:VERBOSE MODE.'
-                '--all:APPLY TO ALL PROJECTS.'
-                '--namespace:PROJECT NAMESPACE.'
+                '--raw-envelope:OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.'
                 '--force:FORCE OPERATION.'
                 '--region:TARGET REGION.'
             )
@@ -106,19 +81,9 @@ _testapp() {
             ;;
         "project repo create")
             options=(
-                '--config:CONFIG FILE.'
                 '--help:SHOW HELP FOR COMMAND.'
                 '-h:SHOW HELP FOR COMMAND.'
-                '--list-commands:LIST ALL COMMANDS, INCLUDING SUBCOMMANDS.'
-                '--list-flags:LIST ALL FLAGS.'
-                '--list-format:OUTPUT FORMAT FOR --LIST-COMMANDS AND --LIST-FLAGS.'
-                '--output:OUTPUT FORMAT.'
-                '--verbose:VERBOSE MODE.'
-                '-v:VERBOSE MODE.'
-                '--all:APPLY TO ALL PROJECTS.'
-                '--namespace:PROJECT NAMESPACE.'
-                '--force:FORCE OPERATION.'
-                '--region:TARGET REGION.'
+                '--raw-envelope:OUTPUT STRUCTURED NDJSON ENVELOPE INSTEAD OF PLAIN JSON DATA.'
                 '--private:CREATE PRIVATE REPOSITORY.'
                 '--tags:REPOSITORY TAGS.'
                 '--template:TEMPLATE FILE.'

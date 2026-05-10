@@ -32,6 +32,7 @@ testapp() {
         opts+='--list-flags '
         opts+='--list-format '
         opts+='--output '
+        opts+='--raw-envelope '
         opts+='--verbose '
         opts+='-v '
         local subcmds="completion hello project "
@@ -39,41 +40,23 @@ testapp() {
         ;;    "testapp completion")
         # Completions for completion
         local opts="--help "
-        opts+='--config '
         opts+='--help '
         opts+='-h '
-        opts+='--list-commands '
-        opts+='--list-flags '
-        opts+='--list-format '
-        opts+='--output '
-        opts+='--verbose '
-        opts+='-v '
+        opts+='--raw-envelope '
         COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
         ;;    "testapp hello")
         # Completions for hello
         local opts="--help "
-        opts+='--config '
         opts+='--help '
         opts+='-h '
-        opts+='--list-commands '
-        opts+='--list-flags '
-        opts+='--list-format '
-        opts+='--output '
-        opts+='--verbose '
-        opts+='-v '
+        opts+='--raw-envelope '
         COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
         ;;    "testapp project")
         # Completions for project
         local opts="--help "
-        opts+='--config '
         opts+='--help '
         opts+='-h '
-        opts+='--list-commands '
-        opts+='--list-flags '
-        opts+='--list-format '
-        opts+='--output '
-        opts+='--verbose '
-        opts+='-v '
+        opts+='--raw-envelope '
         opts+='--all '
         opts+='--namespace '
         local subcmds="repo "
@@ -81,17 +64,9 @@ testapp() {
         ;;    "testapp project repo")
         # Completions for repo
         local opts="--help "
-        opts+='--config '
         opts+='--help '
         opts+='-h '
-        opts+='--list-commands '
-        opts+='--list-flags '
-        opts+='--list-format '
-        opts+='--output '
-        opts+='--verbose '
-        opts+='-v '
-        opts+='--all '
-        opts+='--namespace '
+        opts+='--raw-envelope '
         opts+='--force '
         opts+='--region '
         local subcmds="create "
@@ -99,19 +74,9 @@ testapp() {
         ;;    "testapp project repo create")
         # Completions for create
         local opts="--help "
-        opts+='--config '
         opts+='--help '
         opts+='-h '
-        opts+='--list-commands '
-        opts+='--list-flags '
-        opts+='--list-format '
-        opts+='--output '
-        opts+='--verbose '
-        opts+='-v '
-        opts+='--all '
-        opts+='--namespace '
-        opts+='--force '
-        opts+='--region '
+        opts+='--raw-envelope '
         opts+='--private '
         opts+='--tags '
         opts+='--template '

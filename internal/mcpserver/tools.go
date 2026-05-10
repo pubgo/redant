@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/pubgo/redant"
 )
@@ -47,6 +50,10 @@ func collectTools(root *redant.Command) []toolDef {
 		if cmd == nil || cmd.Hidden {
 			return
 		}
+		// Skip commands explicitly excluded from MCP/agent exposure.
+		if cmd.Meta(redant.AgentExcludeKey) == "true" {
+			return
+		}
 
 		effectiveOptions := make(redant.OptionSet, 0, len(inheritedOptions)+len(cmd.Options))
 		effectiveOptions = append(effectiveOptions, inheritedOptions...)
@@ -77,7 +84,14 @@ func collectTools(root *redant.Command) []toolDef {
 		}
 
 		for _, child := range cmd.Children {
-			walk(child, append(path, child.Name()), effectiveOptions)
+			// Only pass down inheritable options to children.
+			var childOptions redant.OptionSet
+			for _, opt := range effectiveOptions {
+				if opt.InheritsToChildren() {
+					childOptions = append(childOptions, opt)
+				}
+			}
+			walk(child, append(path, child.Name()), childOptions)
 		}
 	}
 
@@ -182,52 +196,37 @@ func buildInputSchema(args redant.ArgSet, options redant.OptionSet) map[string]a
 }
 
 func buildOutputSchema(respType *redant.ResponseTypeInfo, isStream bool) map[string]any {
-	props := map[string]any{
-		"ok": map[string]any{
-			"type": "boolean",
-		},
-		"stdout": map[string]any{
-			"type": "string",
-		},
-		"stderr": map[string]any{
-			"type": "string",
-		},
-		"error": map[string]any{
-			"type": "string",
-		},
-		"combined": map[string]any{
-			"type": "string",
-		},
+	dataSchema := map[string]any{
+		"description": "command stdout text or typed response payload",
 	}
-	required := []string{"ok", "stdout", "stderr", "error", "combined"}
 
 	if respType != nil && respType.TypeName != "" {
-		respSchema := map[string]any{
-			"description":   "typed response payload (" + respType.TypeName + ")",
-			"x-redant-type": respType.TypeName,
-		}
+		dataSchema["description"] = "typed response payload (" + respType.TypeName + ")"
+		dataSchema["x-redant-type"] = respType.TypeName
 		if len(respType.Schema) > 0 {
-			// Merge generated schema into respSchema.
 			for k, v := range respType.Schema {
-				respSchema[k] = v
+				dataSchema[k] = v
 			}
 		}
 		if isStream {
-			respSchema = map[string]any{
+			dataSchema = map[string]any{
 				"type":          "array",
 				"items":         respType.Schema,
 				"description":   "typed response payload (" + respType.TypeName + ")",
 				"x-redant-type": respType.TypeName,
 			}
 		}
-		props["response"] = respSchema
+	} else {
+		dataSchema["type"] = "string"
 	}
 
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
-		"properties":           props,
-		"required":             required,
+		"properties": map[string]any{
+			"data":    dataSchema,
+			"message": map[string]any{"type": "string", "description": "error or status message"},
+		},
 	}
 }
 
@@ -409,7 +408,7 @@ func splitEnumChoices(raw string) []string {
 	return out
 }
 
-func (s *Server) callTool(ctx context.Context, params toolsCallParams) (map[string]any, error) {
+func (s *Server) callTool(ctx context.Context, params toolsCallParams) (*mcp.CallToolResult, error) {
 	if params.Name == "" {
 		return nil, errorsNew("missing tool name")
 	}
@@ -442,23 +441,29 @@ func (s *Server) callTool(ctx context.Context, params toolsCallParams) (map[stri
 	// For commands with typed response, use RunCallback to collect structured data.
 	if tool.ResponseType != nil {
 		var responses []any
-		runErr := redant.RunCallback[any](inv.WithContext(ctx), func(v any) error {
+		runErr := redant.RunCallback(inv.WithContext(ctx), func(v any) error {
 			responses = append(responses, v)
 			return nil
 		})
-		result := buildToolResult(stdout.String(), stderr.String(), runErr)
-		if structured, ok := result["structuredContent"].(map[string]any); ok && len(responses) > 0 {
+		// The ResponseHandler also writes the response JSON to stdout by default.
+		// Since we capture it structurally via callback, clear stdout to avoid
+		// duplicating the response in both output and result.
+		if len(responses) > 0 {
+			stdout.Reset()
+		}
+		var typedResult any
+		if len(responses) > 0 {
 			if tool.SupportsStream {
-				structured["response"] = responses
+				typedResult = responses
 			} else {
-				structured["response"] = responses[0]
+				typedResult = responses[0]
 			}
 		}
-		return result, nil
+		return buildCallToolResult(stdout.String(), stderr.String(), runErr, typedResult), nil
 	}
 
 	runErr := inv.WithContext(ctx).Run()
-	return buildToolResult(stdout.String(), stderr.String(), runErr), nil
+	return buildCallToolResult(stdout.String(), stderr.String(), runErr, nil), nil
 }
 
 func (s *Server) findTool(name string) (toolDef, error) {
@@ -660,53 +665,54 @@ func errorsNew(msg string) error {
 	return errors.New(msg)
 }
 
-func buildToolResult(stdout, stderr string, runErr error) map[string]any {
-	var out bytes.Buffer
-	errText := ""
-	if stdout != "" {
-		_, _ = out.WriteString(stdout)
+// toolResponse is the unified envelope for MCP tool call results.
+// Content text is always this struct serialized as JSON.
+type toolResponse struct {
+	Data    any    `json:"data"`              // typed result or stdout text
+	Message string `json:"message,omitempty"` // error or status message
+}
+
+// buildCallToolResult constructs a *mcp.CallToolResult with a unified
+// {data, message} JSON envelope as Content text.
+func buildCallToolResult(stdout, stderr string, runErr error, typedResult any) *mcp.CallToolResult {
+	resp := &toolResponse{}
+
+	// Determine data: typed result takes priority, then stdout.
+	if !isNilValue(typedResult) {
+		resp.Data = typedResult
+	} else if stdout != "" {
+		resp.Data = stdout
 	}
-	if stderr != "" {
-		if out.Len() > 0 {
-			_, _ = out.WriteString("\n")
-		}
-		_, _ = out.WriteString("stderr:\n")
-		_, _ = out.WriteString(stderr)
-	}
+
 	if runErr != nil {
-		errText = runErr.Error()
-		if out.Len() > 0 {
-			_, _ = out.WriteString("\n")
-		}
-		_, _ = out.WriteString("error:\n")
-		_, _ = out.WriteString(errText)
-	}
-	if out.Len() == 0 {
-		_, _ = out.WriteString("ok")
+		resp.Message = runErr.Error()
 	}
 
-	combined := out.String()
-	structured := map[string]any{
-		"ok":       runErr == nil,
-		"stdout":   stdout,
-		"stderr":   stderr,
-		"error":    errText,
-		"combined": combined,
-	}
+	text, _ := json.Marshal(resp)
 
-	return map[string]any{
-		"content": []map[string]any{{
-			"type": "text",
-			"text": combined,
-		}},
-		"isError":           runErr != nil,
-		"structuredContent": structured,
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: string(text)}},
+		IsError: runErr != nil,
+	}
+}
+
+// isNilValue reports whether v is nil or an interface wrapping a nil pointer/slice/map.
+func isNilValue(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice:
+		return rv.IsNil()
+	default:
+		return false
 	}
 }
 
 func isSystemFlag(flag string) bool {
 	switch flag {
-	case "help", "list-commands", "list-flags", "args":
+	case redant.HelpFlag, redant.ListCommandsFlag, redant.ListFlagsFlag, redant.ListFormatFlag, redant.InternalArgsOverrideFlag:
 		return true
 	default:
 		return false

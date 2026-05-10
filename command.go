@@ -208,29 +208,56 @@ func (c *Command) FullUsage() string {
 
 // FullOptions returns the options of the command and its parents.
 func (c *Command) FullOptions() OptionSet {
-	var opts OptionSet
-	if c.parent != nil {
-		opts = append(opts, c.parent.FullOptions()...)
+	if c == nil {
+		return nil
 	}
-	opts = append(opts, c.Options...)
+
+	var lineage []*Command
+	for cur := c; cur != nil; cur = cur.parent {
+		lineage = append(lineage, cur)
+	}
+	for i, j := 0, len(lineage)-1; i < j; i, j = i+1, j-1 {
+		lineage[i], lineage[j] = lineage[j], lineage[i]
+	}
+
+	var opts OptionSet
+	for idx, cmd := range lineage {
+		isCurrent := idx == len(lineage)-1
+		for _, opt := range cmd.Options {
+			if !isCurrent && !opt.InheritsToChildren() {
+				continue
+			}
+			opts = append(opts, opt)
+		}
+	}
+
 	return opts
 }
 
 // GetGlobalFlags returns the global flags from the root command
 // All non-hidden options in the root command are considered global flags
 func (c *Command) GetGlobalFlags() OptionSet {
+	if c == nil {
+		return nil
+	}
+
 	// Traverse to the root command
 	root := c
 	for root.parent != nil {
 		root = root.parent
 	}
+	isRootContext := c == root
 
 	// Return all non-hidden options from root command as global flags
 	var globalFlags OptionSet
 	for _, opt := range root.Options {
-		if opt.Flag != "" && !opt.Hidden {
-			globalFlags = append(globalFlags, opt)
+		if opt.Flag == "" || opt.Hidden {
+			continue
 		}
+		if !isRootContext && !opt.InheritsToChildren() {
+			continue
+		}
+		globalFlags = append(globalFlags, opt)
 	}
 	return globalFlags
 }
@@ -277,6 +304,12 @@ type Invocation struct {
 	Stdout io.Writer
 	Stderr io.Writer
 	Stdin  io.Reader
+
+	// RawEnvelope enables NDJSON envelope wrapping for response output.
+	// When false (default), ResponseHandler/ResponseStreamHandler write
+	// plain JSON data to Stdout. When true, output uses the structured
+	// envelope format: {"$":"resp","type":"T","data":...}
+	RawEnvelope bool
 
 	responseStream chan any
 	responseValue  any
@@ -637,9 +670,17 @@ func (inv *Invocation) run(state *runState) error {
 		inv.Flags.Usage = func() {}
 	}
 
-	// Add global flags to the flag set
+	// Add global flags to the flag set.
+	// For subcommands, only add flags with Inherit=true.
 	globalFlags := inv.Command.GetGlobalFlags()
-	globalFlagSet := globalFlags.FlagSet(inv.Command.Name())
+	isRoot := inv.Command.parent == nil
+	var applicableGlobalFlags OptionSet
+	for _, opt := range globalFlags {
+		if isRoot || opt.InheritsToChildren() {
+			applicableGlobalFlags = append(applicableGlobalFlags, opt)
+		}
+	}
+	globalFlagSet := applicableGlobalFlags.FlagSet(inv.Command.Name())
 	globalFlagSet.VisitAll(func(f *pflag.Flag) {
 		if inv.Flags.Lookup(f.Name) == nil {
 			inv.Flags.AddFlag(f)
@@ -649,7 +690,15 @@ func (inv *Invocation) run(state *runState) error {
 	// Add flags from all parent commands to support flag inheritance
 	// This allows child commands to use flags defined in parent commands
 	for p := inv.Command.parent; p != nil; p = p.parent {
-		p.Options.FlagSet(p.Name()).VisitAll(func(f *pflag.Flag) {
+		var inheritedParentOptions OptionSet
+		for _, opt := range p.Options {
+			if !opt.InheritsToChildren() {
+				continue
+			}
+			inheritedParentOptions = append(inheritedParentOptions, opt)
+		}
+
+		inheritedParentOptions.FlagSet(p.Name()).VisitAll(func(f *pflag.Flag) {
 			if inv.Flags.Lookup(f.Name) == nil {
 				inv.Flags.AddFlag(f)
 			}
@@ -679,13 +728,13 @@ func (inv *Invocation) run(state *runState) error {
 	// Handle global flags
 	if inv.Flags != nil {
 		var listFormat string
-		if f := inv.Flags.Lookup("list-format"); f != nil {
+		if f := inv.Flags.Lookup(listFormatFlag); f != nil {
 			listFormat = f.Value.String()
 		}
 
 		// Check for --list-commands flag
-		if listCommands, err := inv.Flags.GetBool("list-commands"); err == nil && listCommands {
-			if listFormat == "json" {
+		if listCommands, err := inv.Flags.GetBool(listCommandsFlag); err == nil && listCommands {
+			if listFormat == listFormatJSON {
 				return PrintCommandsJSON(inv.Stdout, parent)
 			}
 			PrintCommands(parent) // Use parent to show full tree
@@ -693,8 +742,8 @@ func (inv *Invocation) run(state *runState) error {
 		}
 
 		// Check for --list-flags flag
-		if listFlags, err := inv.Flags.GetBool("list-flags"); err == nil && listFlags {
-			if listFormat == "json" {
+		if listFlags, err := inv.Flags.GetBool(listFlagsFlag); err == nil && listFlags {
+			if listFormat == listFormatJSON {
 				return PrintFlagsJSON(inv.Stdout, parent)
 			}
 			PrintFlags(parent)
@@ -742,9 +791,9 @@ func (inv *Invocation) run(state *runState) error {
 	// Check for help flag before validating required options
 	isHelpRequested := false
 	if inv.Flags != nil {
-		if help, err := inv.Flags.GetBool("help"); err == nil && help {
+		if help, err := inv.Flags.GetBool(helpFlag); err == nil && help {
 			isHelpRequested = true
-		} else if h, err := inv.Flags.GetBool("h"); err == nil && h {
+		} else if h, err := inv.Flags.GetBool(helpShorthand); err == nil && h {
 			isHelpRequested = true
 		}
 	}
@@ -840,6 +889,10 @@ func (inv *Invocation) run(state *runState) error {
 	}
 
 	if inv.Flags != nil {
+		if rawEnv, err := inv.Flags.GetBool(rawEnvelopeFlag); err == nil && rawEnv {
+			inv.RawEnvelope = true
+		}
+
 		if internalArgsFlag := inv.Flags.Lookup(internalArgsOverrideFlag); internalArgsFlag != nil && internalArgsFlag.Changed {
 			var overriddenArgs []string
 			switch v := internalArgsFlag.Value.(type) {
@@ -917,7 +970,7 @@ func (inv *Invocation) run(state *runState) error {
 
 	// Check for help flag
 	if inv.Flags != nil {
-		if help, err := inv.Flags.GetBool("help"); err == nil && help {
+		if help, err := inv.Flags.GetBool(helpFlag); err == nil && help {
 			return DefaultHelpFn()(ctx, inv)
 		}
 	}
@@ -931,7 +984,14 @@ func (inv *Invocation) run(state *runState) error {
 		return DefaultHelpFn()(ctx, inv)
 	}
 
+	// Redirect os.Stdout/os.Stderr to inv.Stdout/inv.Stderr while the handler
+	// runs, so that code using fmt.Println (which writes to os.Stdout directly)
+	// has its output captured correctly — e.g. when running under the web UI.
+	// When inv.Stdout IS os.Stdout (the normal CLI case) the redirect is a no-op.
+	restoreStdio := inv.redirectStdio()
 	err := mw(handler)(ctx, inv)
+	restoreStdio()
+
 	if err != nil {
 		return &RunCommandError{
 			Cmd: inv.Command,
@@ -939,6 +999,28 @@ func (inv *Invocation) run(state *runState) error {
 		}
 	}
 	return nil
+}
+
+// redirectStdio replaces os.Stdout and os.Stderr with inv.Stdout and inv.Stderr
+// so that fmt.Print/Println output from handler code is sent to the invocation's
+// writers. Returns a function that restores the originals.
+//
+// If inv.Stdout/inv.Stderr already point to os.Stdout/os.Stderr (the normal CLI
+// case) this is effectively a no-op.
+func (inv *Invocation) redirectStdio() (restore func()) {
+	origOut, origErr := os.Stdout, os.Stderr
+
+	if w, ok := inv.Stdout.(*os.File); ok {
+		os.Stdout = w
+	}
+	if w, ok := inv.Stderr.(*os.File); ok {
+		os.Stderr = w
+	}
+
+	return func() {
+		os.Stdout = origOut
+		os.Stderr = origErr
+	}
 }
 
 type RunCommandError struct {

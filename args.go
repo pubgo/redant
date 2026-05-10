@@ -63,22 +63,63 @@ import (
 
 // ArgValidator is a function that validates an argument.
 
-const internalArgsOverrideFlag = "redant-args"
+const (
+	HelpFlag      = "help"
+	HelpShorthand = "h"
+
+	ListCommandsFlag = "list-commands"
+	ListFlagsFlag    = "list-flags"
+	ListFormatFlag   = "list-format"
+
+	ListFormatText = "text"
+	ListFormatJSON = "json"
+
+	InternalArgsOverrideFlag = "redant-args"
+
+	// AgentExcludeKey is the Metadata key used to exclude a command (and its
+	// children) from MCP tool/resource/prompt exposure.
+	AgentExcludeKey = "agent.exclude"
+
+	internalArgsOverrideFlag = InternalArgsOverrideFlag
+	rawEnvelopeFlag          = "raw-envelope"
+
+	helpFlag      = HelpFlag
+	helpShorthand = HelpShorthand
+
+	listCommandsFlag = ListCommandsFlag
+	listFlagsFlag    = ListFlagsFlag
+	listFormatFlag   = ListFormatFlag
+
+	listFormatText = ListFormatText
+	listFormatJSON = ListFormatJSON
+)
+
+// InfraMetadata is the standard Metadata map for built-in infrastructure
+// commands (e.g. mcp, completion, doc) that should be excluded from
+// MCP tool exposure. Use it as the Metadata field of infrastructure commands:
+//
+//	&redant.Command{Use: "mcp", Metadata: redant.InfraMetadata, ...}
+var InfraMetadata = map[string]string{AgentExcludeKey: "true"}
 
 type ArgSet []Arg
 
 type Arg struct {
-	Name        string `json:"name,omitempty"`
+	// Name is the argument name used for display and lookup. (required)
+	Name string `json:"name,omitempty"`
+
+	// Description is human-readable help text for this argument. (optional)
 	Description string `json:"description,omitempty"`
-	// Required means this value must be set by some means.
-	// If `Default` is set, then `Required` is ignored.
+
+	// Required means this value must be set by some means. (optional)
+	// If Default is set, the argument is always considered satisfied.
 	Required bool `json:"required,omitempty"`
 
-	// Default is the default value for this argument.
+	// Default is the default value for this argument. (optional)
 	Default string `json:"default,omitempty"`
 
-	// Value includes the types listed in values.go.
-	// Used for type determination and automatic parsing.
+	// Value holds the typed receiver for automatic parsing. (optional)
+	// Includes the types listed in values.go (String, Int, Enum, etc.).
+	// When nil, the raw string value is used as-is.
 	Value pflag.Value `json:"value,omitempty"`
 }
 
@@ -255,32 +296,43 @@ func ParseJSONArgs(jsonStr string) (map[string][]string, error) {
 func GlobalFlags() OptionSet {
 	return OptionSet{
 		{
-			Flag:        "help",
-			Shorthand:   "h",
+			Flag:        helpFlag,
+			Shorthand:   helpShorthand,
 			Description: "Show help for command.",
 			Value:       BoolOf(new(bool)),
+			Inherit:     true,
 		},
 		{
-			Flag:        "list-commands",
+			Flag:        listCommandsFlag,
 			Description: "List all commands, including subcommands.",
 			Value:       BoolOf(new(bool)),
+			Inherit:     false,
 		},
 		{
-			Flag:        "list-flags",
+			Flag:        listFlagsFlag,
 			Description: "List all flags.",
 			Value:       BoolOf(new(bool)),
+			Inherit:     false,
 		},
 		{
-			Flag:        "list-format",
-			Description: "Output format for --list-commands and --list-flags.",
-			Default:     "text",
-			Value:       EnumOf(new(string), "text", "json"),
+			Flag:        listFormatFlag,
+			Description: fmt.Sprintf("Output format for --%s and --%s.", listCommandsFlag, listFlagsFlag),
+			Default:     listFormatText,
+			Value:       EnumOf(new(string), listFormatText, listFormatJSON),
+			Inherit:     false,
+		},
+		{
+			Flag:        rawEnvelopeFlag,
+			Description: "Output structured NDJSON envelope instead of plain JSON data.",
+			Value:       BoolOf(new(bool)),
+			Inherit:     true,
 		},
 		{
 			Flag:        internalArgsOverrideFlag,
 			Description: "Internal: override parsed args using repeated/CSV values.",
 			Value:       StringArrayOf(new([]string)),
 			Hidden:      true,
+			Inherit:     true,
 		},
 	}
 }
