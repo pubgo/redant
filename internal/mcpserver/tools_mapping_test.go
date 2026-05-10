@@ -240,13 +240,13 @@ func TestCallToolWithInheritedFlags(t *testing.T) {
 		t.Fatalf("callTool error: %v", err)
 	}
 
-	// Plain Handler: no StructuredContent, check Content text.
+	// Unified envelope: no StructuredContent, check Content text.
 	text := firstText(result.Content)
 	if !strings.Contains(text, "parent=pv run=rv target=svc") {
 		t.Fatalf("content text = %q", text)
 	}
 	if result.StructuredContent != nil {
-		t.Fatalf("plain handler should not have StructuredContent")
+		t.Fatalf("should not have StructuredContent")
 	}
 }
 
@@ -618,9 +618,9 @@ func TestOutputSchemaWithTypedResponse(t *testing.T) {
 	tool := mustFindToolByName(t, tools, "status")
 
 	props, _ := tool.OutputSchema["properties"].(map[string]any)
-	respProp, ok := props["result"]
+	respProp, ok := props["data"]
 	if !ok {
-		t.Fatalf("output schema should have result property")
+		t.Fatalf("output schema should have data property")
 	}
 
 	respMap, _ := respProp.(map[string]any)
@@ -654,9 +654,9 @@ func TestOutputSchemaStreamTyped(t *testing.T) {
 	tool := mustFindToolByName(t, tools, "logs")
 
 	props, _ := tool.OutputSchema["properties"].(map[string]any)
-	respProp, ok := props["result"]
+	respProp, ok := props["data"]
 	if !ok {
-		t.Fatalf("output schema should have result property")
+		t.Fatalf("output schema should have data property")
 	}
 
 	respMap, _ := respProp.(map[string]any)
@@ -907,30 +907,17 @@ func TestCallToolResponseHandlerNoDuplicateOutput(t *testing.T) {
 		t.Fatalf("callTool error: %v", err)
 	}
 
-	tr, ok := result.StructuredContent.(*ToolResult)
-	if !ok {
-		t.Fatalf("StructuredContent is not *ToolResult: %T", result.StructuredContent)
+	// No StructuredContent — unified envelope in Content text only.
+	if result.StructuredContent != nil {
+		t.Fatalf("should not have StructuredContent")
 	}
 
-	// The typed result should be present.
-	if tr.Result == nil {
-		t.Fatalf("result field missing")
+	// Content text should contain the result in envelope.
+	text := firstText(result.Content)
+	if !strings.Contains(text, "deleted page: Test-2026") {
+		t.Fatalf("content text should contain result message, got: %q", text)
 	}
-	// Result may be the Go struct or a JSON-decoded map; marshal+unmarshal to normalize.
-	respJSON, err := json.Marshal(tr.Result)
-	if err != nil {
-		t.Fatalf("marshal result: %v", err)
-	}
-	var respMap map[string]any
-	if err := json.Unmarshal(respJSON, &respMap); err != nil {
-		t.Fatalf("unmarshal result: %v", err)
-	}
-	if respMap["ok"] != true || respMap["message"] != "deleted page: Test-2026" {
-		t.Fatalf("unexpected result: %v", respMap)
-	}
-
-	// output should NOT contain the duplicated response JSON.
-	if strings.Contains(tr.Output, "deleted page") {
-		t.Errorf("output should not contain response JSON (already in result field), got: %q", tr.Output)
+	if !strings.Contains(text, `"ok":true`) && !strings.Contains(text, `"ok": true`) {
+		t.Fatalf("content text should contain ok:true, got: %q", text)
 	}
 }

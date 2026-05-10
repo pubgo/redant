@@ -184,9 +184,9 @@ func TestServeSDKClientListAndCallTool(t *testing.T) {
 		t.Fatalf("content text = %q, want contains HELLO", text.Text)
 	}
 
-	// Plain Handler: no StructuredContent, stdout is in Content text only.
+	// Unified envelope: no StructuredContent.
 	if callRes.StructuredContent != nil {
-		t.Fatalf("plain handler should not have StructuredContent, got %v", callRes.StructuredContent)
+		t.Fatalf("should not have StructuredContent, got %v", callRes.StructuredContent)
 	}
 
 	cancel()
@@ -291,8 +291,8 @@ func TestServeSDKClientValidatesToolDescriptionAndParameters(t *testing.T) {
 	assertJSONSubset(t, deployTool.OutputSchema, `{
 	  "type": "object",
 	  "properties": {
-	    "output": {"type": "string"},
-	    "error": {"type": "string"}
+	    "data": {"type": "string"},
+	    "message": {"type": "string"}
 	  }
 	}`)
 
@@ -323,9 +323,9 @@ func TestServeSDKClientValidatesToolDescriptionAndParameters(t *testing.T) {
 		t.Fatalf("content text = %q", text.Text)
 	}
 
-	// Plain Handler: no StructuredContent.
+	// Unified envelope: no StructuredContent.
 	if callRes.StructuredContent != nil {
-		t.Fatalf("plain handler should not have StructuredContent, got %v", callRes.StructuredContent)
+		t.Fatalf("should not have StructuredContent, got %v", callRes.StructuredContent)
 	}
 
 	cancel()
@@ -460,9 +460,9 @@ func TestServeSDKClientStructFlagAndArg(t *testing.T) {
 		t.Fatalf("content text = %q", text.Text)
 	}
 
-	// Plain Handler: no StructuredContent.
+	// Unified envelope: no StructuredContent.
 	if callRes.StructuredContent != nil {
-		t.Fatalf("plain handler should not have StructuredContent, got %v", callRes.StructuredContent)
+		t.Fatalf("should not have StructuredContent, got %v", callRes.StructuredContent)
 	}
 
 	cancel()
@@ -595,13 +595,13 @@ func TestCollectToolsIncludesStreamHandler(t *testing.T) {
 	if props == nil {
 		t.Fatalf("output schema properties missing")
 	}
-	respProp, ok := props["result"]
+	respProp, ok := props["data"]
 	if !ok {
-		t.Fatalf("output schema should have result property for stream tool")
+		t.Fatalf("output schema should have data property for stream tool")
 	}
 	respMap, _ := respProp.(map[string]any)
 	if respMap["type"] != "array" {
-		t.Fatalf("result schema type = %v, want array for stream", respMap["type"])
+		t.Fatalf("data schema type = %v, want array for stream", respMap["type"])
 	}
 }
 
@@ -635,16 +635,16 @@ func TestCollectToolsIncludesResponseHandler(t *testing.T) {
 	}
 	// Output schema should include response field with type info for unary.
 	props, _ := tool.OutputSchema["properties"].(map[string]any)
-	respProp, ok := props["result"]
+	respProp, ok := props["data"]
 	if !ok {
-		t.Fatalf("output schema should have result property for unary tool")
+		t.Fatalf("output schema should have data property for unary tool")
 	}
 	respMap, _ := respProp.(map[string]any)
 	if respMap["type"] == "array" {
-		t.Fatalf("unary result schema should not be array type")
+		t.Fatalf("unary data schema should not be array type")
 	}
 	if _, hasXType := respMap["x-redant-type"]; !hasXType {
-		t.Fatalf("unary result schema should have x-redant-type")
+		t.Fatalf("unary data schema should have x-redant-type")
 	}
 }
 
@@ -673,24 +673,13 @@ func TestCallToolWithStreamHandler(t *testing.T) {
 		t.Fatalf("expected success result, got error")
 	}
 
-	tr, ok := result.StructuredContent.(*ToolResult)
-	if !ok {
-		t.Fatalf("StructuredContent is not *ToolResult: %T", result.StructuredContent)
+	// No StructuredContent — typed result goes in Content text only.
+	if result.StructuredContent != nil {
+		t.Fatalf("should not have StructuredContent")
 	}
-	// output should be empty — response data is only in the result field.
-	if tr.Output != "" {
-		t.Fatalf("output should be empty when response is captured, got %q", tr.Output)
-	}
-	// Verify typed response array is collected.
-	responses, ok := tr.Result.([]any)
-	if !ok {
-		t.Fatalf("result should be an array, got %T", tr.Result)
-	}
-	if len(responses) != 2 {
-		t.Fatalf("expected 2 response chunks, got %d", len(responses))
-	}
-	if responses[0] != "chunk-1" || responses[1] != "chunk-2" {
-		t.Fatalf("result = %v, want [chunk-1, chunk-2]", responses)
+	text := firstText(result.Content)
+	if !strings.Contains(text, "chunk-1") || !strings.Contains(text, "chunk-2") {
+		t.Fatalf("content text = %q, want contains chunk-1 and chunk-2", text)
 	}
 }
 
@@ -716,20 +705,13 @@ func TestCallToolWithResponseHandler(t *testing.T) {
 		t.Fatalf("expected success result, got error")
 	}
 
-	tr, ok := result.StructuredContent.(*ToolResult)
-	if !ok {
-		t.Fatalf("StructuredContent is not *ToolResult: %T", result.StructuredContent)
+	// No StructuredContent — typed result goes in Content text only.
+	if result.StructuredContent != nil {
+		t.Fatalf("should not have StructuredContent")
 	}
-	// output should be empty — response data is only in the result field.
-	if tr.Output != "" {
-		t.Fatalf("output should be empty when response is captured, got %q", tr.Output)
-	}
-	// Verify typed unary response is collected (single value, not array).
-	if tr.Result == nil {
-		t.Fatalf("result should exist for unary handler")
-	}
-	if tr.Result != "hello-unary" {
-		t.Fatalf("result = %v, want hello-unary", tr.Result)
+	text := firstText(result.Content)
+	if !strings.Contains(text, "hello-unary") {
+		t.Fatalf("content text = %q, want contains hello-unary", text)
 	}
 }
 
@@ -786,27 +768,14 @@ func TestServeSDKClientCallStreamTool(t *testing.T) {
 		t.Fatalf("expected success, got error: %q", firstText(callRes.Content))
 	}
 
-	// Content text should be JSON of the result (text fallback per MCP spec).
+	// Content text should be JSON of the result.
 	text := firstText(callRes.Content)
 	if !strings.Contains(text, "hello") || !strings.Contains(text, "world") {
 		t.Fatalf("content text = %q, want contains hello and world", text)
 	}
-	// StructuredContent goes through JSON round-trip via SDK, so assert as map.
-	sc, _ := callRes.StructuredContent.(map[string]any)
-	if sc == nil {
-		t.Fatalf("structuredContent should not be nil")
-	}
-	// output should be omitted (empty) when response is captured.
-	if so, _ := sc["output"].(string); so != "" {
-		t.Fatalf("output should be empty when response is captured, got %q", so)
-	}
-	resp, ok := sc["result"]
-	if !ok {
-		t.Fatalf("result missing in structuredContent")
-	}
-	respJSON, _ := json.Marshal(resp)
-	if !strings.Contains(string(respJSON), "hello") || !strings.Contains(string(respJSON), "world") {
-		t.Fatalf("result = %s, want contains hello and world", respJSON)
+	// No StructuredContent — data is in Content text only.
+	if callRes.StructuredContent != nil {
+		t.Fatalf("should not have StructuredContent")
 	}
 
 	cancel()

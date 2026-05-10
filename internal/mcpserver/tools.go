@@ -17,14 +17,6 @@ import (
 	"github.com/pubgo/redant"
 )
 
-// ToolResult is the structured content returned by an MCP tool call.
-// It consolidates command output into three clear fields.
-type ToolResult struct {
-	Output string `json:"output,omitempty"` // stdout text from the command
-	Error  string `json:"error,omitempty"`  // error description when isError = true
-	Result any    `json:"result,omitempty"` // typed response from ResponseHandler / ResponseStreamHandler
-}
-
 type toolDef struct {
 	Name           string
 	Description    string
@@ -204,42 +196,37 @@ func buildInputSchema(args redant.ArgSet, options redant.OptionSet) map[string]a
 }
 
 func buildOutputSchema(respType *redant.ResponseTypeInfo, isStream bool) map[string]any {
-	props := map[string]any{
-		"output": map[string]any{
-			"type":        "string",
-			"description": "stdout text from the command",
-		},
-		"error": map[string]any{
-			"type":        "string",
-			"description": "error description when isError is true",
-		},
+	dataSchema := map[string]any{
+		"description": "command stdout text or typed response payload",
 	}
 
 	if respType != nil && respType.TypeName != "" {
-		respSchema := map[string]any{
-			"description":   "typed response payload (" + respType.TypeName + ")",
-			"x-redant-type": respType.TypeName,
-		}
+		dataSchema["description"] = "typed response payload (" + respType.TypeName + ")"
+		dataSchema["x-redant-type"] = respType.TypeName
 		if len(respType.Schema) > 0 {
 			for k, v := range respType.Schema {
-				respSchema[k] = v
+				dataSchema[k] = v
 			}
 		}
 		if isStream {
-			respSchema = map[string]any{
+			dataSchema = map[string]any{
 				"type":          "array",
 				"items":         respType.Schema,
 				"description":   "typed response payload (" + respType.TypeName + ")",
 				"x-redant-type": respType.TypeName,
 			}
 		}
-		props["result"] = respSchema
+	} else {
+		dataSchema["type"] = "string"
 	}
 
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
-		"properties":           props,
+		"properties": map[string]any{
+			"data":    dataSchema,
+			"message": map[string]any{"type": "string", "description": "error or status message"},
+		},
 	}
 }
 
@@ -464,15 +451,15 @@ func (s *Server) callTool(ctx context.Context, params toolsCallParams) (*mcp.Cal
 		if len(responses) > 0 {
 			stdout.Reset()
 		}
-		tr := &ToolResult{}
+		var typedResult any
 		if len(responses) > 0 {
 			if tool.SupportsStream {
-				tr.Result = responses
+				typedResult = responses
 			} else {
-				tr.Result = responses[0]
+				typedResult = responses[0]
 			}
 		}
-		return buildCallToolResult(stdout.String(), stderr.String(), runErr, tr), nil
+		return buildCallToolResult(stdout.String(), stderr.String(), runErr, typedResult), nil
 	}
 
 	runErr := inv.WithContext(ctx).Run()
@@ -678,55 +665,35 @@ func errorsNew(msg string) error {
 	return errors.New(msg)
 }
 
-// buildCallToolResult constructs a *mcp.CallToolResult.
-// When tr has a typed Result, use StructuredContent for the data and Content
-// as a brief summary. Otherwise only Content carries the stdout/stderr text.
-func buildCallToolResult(stdout, stderr string, runErr error, tr *ToolResult) *mcp.CallToolResult {
-	// Build combined text from stdout + stderr + error for Content.
-	var out bytes.Buffer
-	if stdout != "" {
-		_, _ = out.WriteString(stdout)
-	}
-	if stderr != "" {
-		if out.Len() > 0 {
-			_, _ = out.WriteString("\n")
-		}
-		_, _ = out.WriteString("stderr:\n")
-		_, _ = out.WriteString(stderr)
-	}
-	if runErr != nil {
-		if out.Len() > 0 {
-			_, _ = out.WriteString("\n")
-		}
-		_, _ = out.WriteString("error:\n")
-		_, _ = out.WriteString(runErr.Error())
-	}
-	if out.Len() == 0 {
-		_, _ = out.WriteString("ok")
+// toolResponse is the unified envelope for MCP tool call results.
+// Content text is always this struct serialized as JSON.
+type toolResponse struct {
+	Data    any    `json:"data"`              // typed result or stdout text
+	Message string `json:"message,omitempty"` // error or status message
+}
+
+// buildCallToolResult constructs a *mcp.CallToolResult with a unified
+// {data, message} JSON envelope as Content text.
+func buildCallToolResult(stdout, stderr string, runErr error, typedResult any) *mcp.CallToolResult {
+	resp := &toolResponse{}
+
+	// Determine data: typed result takes priority, then stdout.
+	if !isNilValue(typedResult) {
+		resp.Data = typedResult
+	} else if stdout != "" {
+		resp.Data = stdout
 	}
 
-	result := &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: out.String()}},
+	if runErr != nil {
+		resp.Message = runErr.Error()
+	}
+
+	text, _ := json.Marshal(resp)
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: string(text)}},
 		IsError: runErr != nil,
 	}
-
-	// Only set StructuredContent when there is a typed result from
-	// ResponseHandler / ResponseStreamHandler. Plain Handler output
-	// is fully represented by Content text — no need to duplicate.
-	if tr != nil && !isNilValue(tr.Result) {
-		tr.Output = stdout
-		if runErr != nil {
-			tr.Error = runErr.Error()
-		}
-		result.StructuredContent = tr
-		// Content text carries JSON of the result as a text fallback for
-		// clients that don't support StructuredContent (per MCP spec convention).
-		if data, err := json.Marshal(tr.Result); err == nil {
-			result.Content = []mcp.Content{&mcp.TextContent{Text: string(data)}}
-		}
-	}
-
-	return result
 }
 
 // isNilValue reports whether v is nil or an interface wrapping a nil pointer/slice/map.
